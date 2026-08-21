@@ -39,7 +39,7 @@ use windows::core::{Error, PCWSTR, w};
 use crate::tray::{
     COMMAND_AGENT_SETTINGS, COMMAND_CLEAR_LOG, COMMAND_CURSOR_THEME, COMMAND_EXIT,
     COMMAND_INSTALL_AUDIO_DRIVER, COMMAND_PAUSE, COMMAND_REDISCOVER, COMMAND_REPAIR_DRIVER,
-    COMMAND_STARTUP, COMMAND_VB_CABLE_WEBSITE, COMMAND_VERBOSE_LOG, COMMAND_VIEW_LOG, ICON_ID,
+    COMMAND_STARTUP, COMMAND_VB_CABLE_WEBSITE, COMMAND_VIEW_LOG, ICON_ID,
 };
 
 const CLASS_NAME: PCWSTR = w!("MenoTrayMenuWindow");
@@ -61,7 +61,6 @@ pub struct MenuModel {
     pub paused: bool,
     pub startup: bool,
     pub macos_cursor: bool,
-    pub verbose_log: bool,
     pub agent_status: String,
 }
 
@@ -73,7 +72,6 @@ impl MenuModel {
         suspended: bool,
         startup: bool,
         macos_cursor: bool,
-        verbose_log: bool,
     ) -> Self {
         let (status_text, status) = if suspended {
             ("系统休眠".to_string(), StatusKind::Paused)
@@ -90,7 +88,6 @@ impl MenuModel {
             paused,
             startup,
             macos_cursor,
-            verbose_log,
             agent_status: "已停止".to_owned(),
         }
     }
@@ -293,11 +290,6 @@ pub(crate) fn build_items(model: &MenuModel) -> Vec<Item> {
         COMMAND_CURSOR_THEME,
         "macOS 光标",
         model.macos_cursor,
-    ));
-    items.push(Item::toggle(
-        COMMAND_VERBOSE_LOG,
-        "详细日志",
-        model.verbose_log,
     ));
     items.push(Item::separator());
     items.push(Item::action(COMMAND_REPAIR_DRIVER, "修复鼠标驱动", 0xE90F));
@@ -586,10 +578,7 @@ fn tray_anchor(owner: HWND) -> RECT {
         };
         match Shell_NotifyIconGetRect(&identifier) {
             Ok(rect) => rect,
-            Err(error) => {
-                crate::logging::debug(&format!(
-                    "tray icon rect lookup failed ({error}); falling back to cursor"
-                ));
+            Err(_) => {
                 let mut point = POINT::default();
                 let _ = GetCursorPos(&mut point);
                 RECT {

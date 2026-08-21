@@ -277,7 +277,6 @@ impl Worker {
         self.cancel_send(CANCEL_SUPERSEDED);
         self.cancel_receive(RESULT_SUPERSEDED);
         if self.link.is_none() {
-            crate::logging::debug("file clipboard ignored: no negotiated link");
             return;
         }
         let manifest = match file_manifest::enumerate(&paths) {
@@ -314,12 +313,6 @@ impl Worker {
         let Some(message_id) = self.post_frame(MessageKind::FileOffer, payload) else {
             return;
         };
-        crate::logging::info(&format!(
-            "file offer -> mac: id={} entries={} bytes={}",
-            file_protocol::transfer_id_hex(&id),
-            manifest.entries.len(),
-            manifest.total_file_bytes
-        ));
         self.send = Some(SendTask {
             id,
             manifest,
@@ -547,12 +540,7 @@ impl Worker {
         if task.id != id {
             return;
         }
-        if status == RESULT_OK {
-            crate::logging::info(&format!(
-                "file transfer -> mac completed: id={}",
-                file_protocol::transfer_id_hex(&id)
-            ));
-        } else {
+        if status != RESULT_OK {
             crate::logging::error(&format!(
                 "file transfer -> mac failed: id={} status={status}",
                 file_protocol::transfer_id_hex(&id)
@@ -571,10 +559,6 @@ impl Worker {
     fn cancel_send(&mut self, reason: u8) {
         let Some(task) = self.send.take() else { return };
         drop(task.file);
-        crate::logging::info(&format!(
-            "file transfer -> mac cancelled: id={} reason={reason}",
-            file_protocol::transfer_id_hex(&task.id)
-        ));
         if self.link.is_some() {
             let _ = self.post_frame(
                 MessageKind::FileCancel,
@@ -614,12 +598,6 @@ impl Worker {
         match self.prepare_receive(offer) {
             Ok(task) => {
                 let id = task.id;
-                let total: u64 = task.entries.iter().map(|entry| entry.size).sum();
-                crate::logging::info(&format!(
-                    "file offer <- mac: id={} entries={} bytes={total}",
-                    file_protocol::transfer_id_hex(&id),
-                    task.entries.len(),
-                ));
                 if self
                     .post_frame(MessageKind::FileAccept, file_protocol::encode_id_only(&id))
                     .is_none()
@@ -810,11 +788,6 @@ impl Worker {
         }
         match self.ui_publish(task.publish.clone()) {
             Ok(()) => {
-                crate::logging::info(&format!(
-                    "file transfer <- mac completed: id={} top={}",
-                    file_protocol::transfer_id_hex(&id),
-                    task.publish.len()
-                ));
                 self.post_frame(
                     MessageKind::FileResult,
                     file_protocol::encode_result(&id, RESULT_OK),
@@ -832,10 +805,7 @@ impl Worker {
         if let Some(task) = self.receive.as_ref()
             && task.id == id
         {
-            crate::logging::info(&format!(
-                "file transfer <- mac cancelled: id={} reason={reason}",
-                file_protocol::transfer_id_hex(&id)
-            ));
+            let _ = reason;
             let task = self.receive.take().unwrap();
             self.cleanup_receive(task);
             self.housekeeping();
@@ -844,10 +814,7 @@ impl Worker {
         if let Some(task) = self.send.as_ref()
             && task.id == id
         {
-            crate::logging::info(&format!(
-                "file transfer -> mac cancelled by peer: id={} reason={reason}",
-                file_protocol::transfer_id_hex(&id)
-            ));
+            let _ = reason;
             self.drop_send_silently();
             self.housekeeping();
         }
@@ -874,10 +841,6 @@ impl Worker {
         let Some(task) = self.receive.take() else {
             return;
         };
-        crate::logging::info(&format!(
-            "file transfer <- mac aborted: id={} status={status}",
-            file_protocol::transfer_id_hex(&task.id)
-        ));
         self.fail_receive_task(task, status);
     }
 
@@ -1000,10 +963,7 @@ impl Worker {
         };
         match fs::remove_dir_all(path) {
             Ok(()) => true,
-            Err(error) => {
-                crate::logging::debug(&format!("file cache cleanup deferred: {error}"));
-                false
-            }
+            Err(_) => false,
         }
     }
 

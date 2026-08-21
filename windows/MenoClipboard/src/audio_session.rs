@@ -195,10 +195,6 @@ fn run(
                 continue;
             }
         };
-        crate::logging::info(&format!(
-            "audio output: generation={generation} device={} id={} rate=48000 channels={} format={:?}",
-            output.device_name, output.device_id, output.channels, output.sample_format
-        ));
         preferred_device_id = Some(output.device_id.clone());
         reporter.set(AudioStatus::Connecting);
 
@@ -296,7 +292,6 @@ fn run_connected(
     let mut pcm_started = false;
     let mut decoder = FrameDecoder::new();
     let mut sequence = SequenceTracker::default();
-    let mut next_metrics = Instant::now() + Duration::from_secs(1);
 
     loop {
         if stop.requested() {
@@ -356,12 +351,6 @@ fn run_connected(
                 let now = Instant::now();
                 ready_at = Some(now);
                 last_activity = now;
-                let endpoint = stream
-                    .peer_addr()
-                    .map_or_else(|_| "unknown".to_string(), |address| address.to_string());
-                crate::logging::info(&format!(
-                    "audio connected: generation={generation} endpoint={endpoint} capability={CAPABILITY_MAC_MICROPHONE}"
-                ));
                 continue;
             }
             match frame.kind {
@@ -383,10 +372,6 @@ fn run_connected(
                     output.push(&samples);
                     if !pcm_started {
                         pcm_started = true;
-                        crate::logging::info(&format!(
-                            "audio streaming: generation={generation} first_sequence={}",
-                            frame.message_id
-                        ));
                     }
                     // Retry until the bounded UI queue accepts this transition;
                     // StatusReporter coalesces every later frame after delivery.
@@ -405,16 +390,6 @@ fn run_connected(
                 }
                 _ => return SessionEnd::Network("message is not allowed on audio channel".into()),
             }
-        }
-        if Instant::now() >= next_metrics {
-            let stats = output.take_stats();
-            if stats != Default::default() {
-                crate::logging::info(&format!(
-                    "audio buffer: generation={generation} underflows={} overflows={} dropped_samples={} lock_misses={}",
-                    stats.underflows, stats.overflows, stats.dropped_samples, stats.lock_misses
-                ));
-            }
-            next_metrics = Instant::now() + Duration::from_secs(1);
         }
     }
 }

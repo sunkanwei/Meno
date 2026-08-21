@@ -149,7 +149,6 @@ fn apply_hide() {
             let _ = unsafe { SetSystemCursor(HCURSOR(copy.0), id) };
         }
     }
-    crate::logging::debug("Cursor hidden (control on Mac)");
     let mut parked = POINT::default();
     let _ = unsafe { GetCursorPos(&mut parked) };
     thread::spawn(move || monitor_loop(generation, parked));
@@ -162,7 +161,6 @@ fn apply_show() {
     GENERATION.fetch_add(1, Ordering::SeqCst);
     reload_system_cursors();
     stop_guard();
-    crate::logging::debug("Cursor restored");
 }
 
 // Startup and shutdown must not trust in-process state: a crashed instance

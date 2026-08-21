@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 // Minimal crate-root stubs for the production module's command IDs and
-// diagnostics. The tests exercise only its pure model/navigation behavior.
+// logging. The tests exercise only its pure model/navigation behavior.
 mod tray {
     pub const COMMAND_PAUSE: usize = 1001;
     pub const COMMAND_REDISCOVER: usize = 1002;
@@ -11,7 +11,6 @@ mod tray {
     pub const COMMAND_EXIT: usize = 1006;
     pub const COMMAND_CLEAR_LOG: usize = 1007;
     pub const COMMAND_CURSOR_THEME: usize = 1008;
-    pub const COMMAND_VERBOSE_LOG: usize = 1009;
     pub const COMMAND_INSTALL_AUDIO_DRIVER: usize = 1010;
     pub const COMMAND_VB_CABLE_WEBSITE: usize = 1011;
     pub const COMMAND_AGENT_SETTINGS: usize = 1012;
@@ -19,7 +18,6 @@ mod tray {
 }
 
 mod logging {
-    pub fn debug(_message: &str) {}
     pub fn error(_message: &str) {}
 }
 
@@ -36,7 +34,6 @@ fn model(connected: bool, paused: bool, suspended: bool) -> menu::MenuModel {
         connected,
         paused,
         suspended,
-        false,
         false,
         false,
     )
@@ -56,7 +53,6 @@ fn connected_status_includes_audio_detail_without_changing_navigation() {
     let connected = menu::MenuModel::new(
         "已连接 Mac · 麦克风可用".to_string(),
         true,
-        false,
         false,
         false,
         false,

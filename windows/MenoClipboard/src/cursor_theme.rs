@@ -168,15 +168,9 @@ pub fn ensure_applied() {
     if !enabled() {
         return;
     }
-    if !backup_complete().unwrap_or(false) {
-        crate::logging::info(
-            "Legacy Meno cursor theme has no backup; choose a Windows cursor scheme manually before disabling it",
-        );
-    }
     match write_files() {
         Ok(_) => {
             reload_if_visible();
-            crate::logging::debug("macOS cursor theme refreshed");
         }
         Err(error) => crate::logging::error(&format!("Cursor theme refresh failed: {error}")),
     }

@@ -17,7 +17,6 @@ use windows::Win32::Devices::DeviceAndDriverInstallation::{
     UpdateDriverForPlugAndPlayDevicesW,
 };
 use windows::Win32::Foundation::{CloseHandle, LPARAM, WAIT_OBJECT_0, WPARAM};
-use windows::Win32::Globalization::{CP_OEMCP, MULTI_BYTE_TO_WIDE_CHAR_FLAGS, MultiByteToWideChar};
 use windows::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
@@ -122,7 +121,6 @@ pub fn handle_driver_install_command() -> bool {
 fn handle_mouse_driver_install() {
     match install_driver_package() {
         Ok(DriverInstallOutcome::Installed) => {
-            crate::logging::info("Meno Virtual Mouse driver installation completed");
             notify_existing_rediscover();
             show_message(
                 "鼠标驱动已经安装完成。",
@@ -131,9 +129,6 @@ fn handle_mouse_driver_install() {
             );
         }
         Ok(DriverInstallOutcome::RestartRequired) => {
-            crate::logging::info(
-                "Windows restart required before Meno Virtual Mouse driver installation",
-            );
             show_message(
                 "已完成驱动安装前的系统设置。\n\n请重启 Windows，然后从托盘菜单再次选择“修复鼠标驱动”。",
                 "Meno 鼠标驱动",
@@ -163,7 +158,6 @@ pub fn request_driver_install() -> io::Result<bool> {
     let directory = driver_directory()?;
     let restart_state = restart_marker_state(&directory)?;
     if restart_state == Some(true) {
-        crate::logging::info("Meno Virtual Mouse is waiting for a Windows restart");
         show_message(
             "请先重启 Windows，然后从托盘菜单再次选择“修复鼠标驱动”。",
             "Meno 鼠标驱动",
@@ -226,7 +220,6 @@ fn request_audio_driver_install_inner(notify_if_available: bool) -> io::Result<b
     }
     match install_audio_driver_package() {
         Ok(()) => {
-            crate::logging::info("VB-CABLE audio driver installation completed");
             notify_existing_rediscover();
             show_message(
                 "VB-CABLE 音频驱动安装程序已经执行完成。\n\n请重启 Windows 后再使用 Mac 麦克风。\n\nVB-CABLE 来源：www.vb-cable.com。它是捐赠软件，可通过托盘菜单访问其官网。",
@@ -392,9 +385,6 @@ fn install_driver_package() -> io::Result<DriverInstallOutcome> {
     )?;
     let reboot_required =
         install_root_device(&inf).map_err(|error| io::Error::other(error.to_string()))?;
-    crate::logging::info(&format!(
-        "SetupAPI root device installation completed (restart required: {reboot_required})"
-    ));
     if reboot_required {
         fs::write(
             directory.join(RESTART_MARKER),
@@ -403,7 +393,6 @@ fn install_driver_package() -> io::Result<DriverInstallOutcome> {
         return Ok(DriverInstallOutcome::RestartRequired);
     }
     if let Err(error) = crate::virtual_hid::VirtualHid::open() {
-        log_driver_diagnostics();
         return Err(io::Error::other(format!("driver did not start: {error}")));
     }
     let _ = fs::remove_file(directory.join(RESTART_MARKER));
@@ -462,7 +451,6 @@ fn install_audio_driver_from_directory(directory: &Path) -> io::Result<()> {
     }
 
     let exit_code = run_elevated_audio_driver_setup(directory)?;
-    crate::logging::info(&format!("VB-CABLE setup completed (exit {exit_code})"));
     if exit_code == 0 || exit_code == 3010 {
         Ok(())
     } else {
@@ -674,13 +662,6 @@ fn run_checked(
     let program_path = system_executable(program)?;
     let output = Command::new(&program_path).args(arguments).output()?;
     let exit_code = output.status.code();
-    crate::logging::info(&format!(
-        "Driver command: {program} {} (exit {})",
-        arguments.join(" "),
-        exit_code.map_or_else(|| "unknown".to_string(), |code| code.to_string())
-    ));
-    log_command_output(program, "stdout", &output.stdout);
-    log_command_output(program, "stderr", &output.stderr);
     if output.status.success()
         || exit_code == Some(3010)
         || exit_code.is_some_and(|code| additional_success_codes.contains(&code))
@@ -691,84 +672,6 @@ fn run_checked(
             "{program} 执行失败，退出码为 {}",
             exit_code.map_or_else(|| "未知".to_string(), |code| code.to_string())
         )))
-    }
-}
-
-fn log_command_output(program: &str, stream: &str, bytes: &[u8]) {
-    let output = decode_command_output(bytes);
-    for line in output.lines().filter(|line| !line.trim().is_empty()) {
-        crate::logging::info(&format!("{program} {stream}: {line}"));
-    }
-}
-
-fn decode_command_output(bytes: &[u8]) -> String {
-    if bytes.is_empty() {
-        return String::new();
-    }
-    let length =
-        unsafe { MultiByteToWideChar(CP_OEMCP, MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0), bytes, None) };
-    if length <= 0 {
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-    let mut wide = vec![0_u16; length as usize];
-    let written = unsafe {
-        MultiByteToWideChar(
-            CP_OEMCP,
-            MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0),
-            bytes,
-            Some(&mut wide),
-        )
-    };
-    if written <= 0 {
-        String::from_utf8_lossy(bytes).into_owned()
-    } else {
-        String::from_utf16_lossy(&wide[..written as usize])
-    }
-}
-
-fn log_driver_diagnostics() {
-    for (program, arguments) in [
-        (
-            "pnputil.exe",
-            &[
-                "/enum-devices",
-                "/deviceid",
-                DRIVER_HARDWARE_ID,
-                "/drivers",
-                "/stack",
-            ][..],
-        ),
-        (
-            "driverquery.exe",
-            &["/v", "/fo", "list", "/fi", "ModuleName eq WUDFRd"][..],
-        ),
-    ] {
-        let program_path = match system_executable(program) {
-            Ok(path) => path,
-            Err(error) => {
-                crate::logging::error(&format!(
-                    "Driver diagnostic could not resolve {program}: {error}"
-                ));
-                continue;
-            }
-        };
-        match Command::new(&program_path).args(arguments).output() {
-            Ok(output) => {
-                crate::logging::info(&format!(
-                    "Driver diagnostic: {program} {} (exit {})",
-                    arguments.join(" "),
-                    output
-                        .status
-                        .code()
-                        .map_or_else(|| "unknown".to_string(), |code| code.to_string())
-                ));
-                log_command_output(program, "stdout", &output.stdout);
-                log_command_output(program, "stderr", &output.stderr);
-            }
-            Err(error) => crate::logging::error(&format!(
-                "Driver diagnostic could not run {program}: {error}"
-            )),
-        }
     }
 }
 

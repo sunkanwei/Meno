@@ -23,7 +23,7 @@ pub(crate) fn read_local_clipboard() -> Result<Option<LocalClipboard>, Clipboard
             let expected = match image_codec::checked_rgba_bytes(image.width, image.height) {
                 Ok(expected) => expected,
                 Err(error) => {
-                    logging::info(&format!("Clipboard image skipped: {error}"));
+                    let _ = error;
                     return Ok(None);
                 }
             };
@@ -39,11 +39,6 @@ pub(crate) fn read_local_clipboard() -> Result<Option<LocalClipboard>, Clipboard
     let text = clipboard.get_text()?;
     let payload = text.into_bytes();
     if payload.len() > MAX_TEXT_SIZE {
-        logging::info(&format!(
-            "Clipboard text skipped: {} bytes exceeds the {} byte limit",
-            payload.len(),
-            MAX_TEXT_SIZE
-        ));
         return Ok(None);
     }
     Ok(Some(LocalClipboard::Frame(Frame::new(
@@ -53,8 +48,8 @@ pub(crate) fn read_local_clipboard() -> Result<Option<LocalClipboard>, Clipboard
 }
 
 pub(crate) fn apply_remote_clipboard(
-    kind: MessageKind,
-    bytes: usize,
+    _kind: MessageKind,
+    _bytes: usize,
     mut apply: impl FnMut(&mut Clipboard) -> Result<(), ClipboardError>,
 ) {
     for attempt in 0..CLIPBOARD_RETRY_COUNT {
@@ -63,7 +58,6 @@ pub(crate) fn apply_remote_clipboard(
             Ok(()) => {
                 let sequence = unsafe { GetClipboardSequenceNumber() };
                 let _ = with_state(|state| state.ignored_sequence = Some(sequence));
-                logging::debug(&format!("clipboard <- mac: kind={kind:?} bytes={bytes}"));
                 return;
             }
             Err(ClipboardError::ClipboardOccupied) if attempt + 1 < CLIPBOARD_RETRY_COUNT => {
@@ -82,10 +76,5 @@ pub(crate) fn apply_remote_clipboard(
 }
 
 pub(crate) fn send_clipboard(frame: Frame) {
-    let kind = frame.kind;
-    let bytes = frame.payload.len();
-    let sent = with_state(|state| state.network.try_send(NetworkCommand::Clipboard(frame)));
-    if matches!(sent, Some(Ok(()))) {
-        logging::debug(&format!("clipboard -> mac: kind={kind:?} bytes={bytes}"));
-    }
+    let _ = with_state(|state| state.network.try_send(NetworkCommand::Clipboard(frame)));
 }

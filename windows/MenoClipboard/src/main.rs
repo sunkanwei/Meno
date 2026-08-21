@@ -7,10 +7,6 @@ mod clipboard_flow;
 mod connection;
 mod cursor_hider;
 mod cursor_theme;
-// Windows is the sender in this capability. The decoder and future reason
-// values remain here for fixed-wire tests and Mac parity.
-#[allow(dead_code)]
-mod diagnostics;
 mod discovery;
 mod display_contract;
 mod file_cache;
@@ -117,14 +113,12 @@ fn main() -> WinResult<()> {
         logging::initialize(&path);
     }
     if install::handle_driver_install_command() {
-        logging::info("session end: driver maintenance completed");
         return Ok(());
     }
     let portable = std::env::args().any(|argument| argument == "--portable");
     let first_install = std::env::args().any(|argument| argument == "--first-install");
     let install_error = match install::install_if_needed(portable) {
         Ok(true) => {
-            logging::info("session end: relaunched from the fixed location");
             return Ok(());
         }
         Ok(false) => None,
@@ -135,12 +129,6 @@ fn main() -> WinResult<()> {
             "Self-install failed, continuing in place: {error}"
         ));
     }
-    logging::info(&format!(
-        "startup: driver_abi={} driver_embedded={} audio_driver_embedded={}",
-        virtual_hid::DRIVER_ABI,
-        install::driver_package_embedded(),
-        install::audio_driver_package_embedded()
-    ));
 
     let mutex = match unsafe { CreateMutexW(None, false, w!("Local\\MenoClipboard")) } {
         Ok(mutex) => mutex,
@@ -150,16 +138,14 @@ fn main() -> WinResult<()> {
         }
     };
     if unsafe { windows::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS {
-        logging::info("session end: another instance is already running");
         return Ok(());
     }
-    diagnostics::initialize();
     cursor_hider::force_show();
     cursor_theme::ensure_applied();
-    let agent = match windows_agent::EmbeddedAgent::start(|level, message| match level {
-        "error" => logging::error(message),
-        "debug" => logging::debug(message),
-        _ => logging::info(message),
+    let agent = match windows_agent::EmbeddedAgent::start(|level, message| {
+        if level == "error" {
+            logging::error(message);
+        }
     }) {
         Ok(agent) => Some(agent),
         Err(error) => {
@@ -372,9 +358,9 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
             });
             update_status(hwnd, "正在查找 Mac".to_string());
         }
-        NetworkEvent::Connected { name, address } => {
+        NetworkEvent::Connected { name, address: _ } => {
             let status = format!("已连接 {name}");
-            let accepted = with_state(|state| {
+            let _ = with_state(|state| {
                 if state.paused || state.suspended {
                     state.connected = false;
                     return false;
@@ -385,9 +371,6 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
                 true
             })
             .unwrap_or(false);
-            if accepted {
-                logging::info(&format!("Connected to {name} at {address}"));
-            }
         }
         NetworkEvent::AudioStatus(status) => {
             let _ = with_state(|state| {
@@ -411,7 +394,6 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
         }
         NetworkEvent::Clipboard(frame) => {
             if with_state(|state| state.paused || state.suspended).unwrap_or(true) {
-                logging::debug("clipboard <- mac dropped: application is paused");
                 return;
             }
             // Newer remote content replaces any file transfer still arriving.
@@ -530,7 +512,6 @@ unsafe extern "system" fn window_proc(
                         suspended,
                         startup,
                         cursor_theme::enabled(),
-                        logging::verbose(),
                     )
                     .with_agent_status(windows_agent::status_label().to_owned()),
                 );
@@ -560,7 +541,6 @@ unsafe extern "system" fn window_proc(
                 }
             });
             clear_ui_queues();
-            logging::info("session end");
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
@@ -632,9 +612,6 @@ fn handle_command(hwnd: HWND, command: usize) {
         tray::COMMAND_CLEAR_LOG => {
             logging::clear();
         }
-        tray::COMMAND_VERBOSE_LOG => {
-            logging::set_verbose(!logging::verbose());
-        }
         tray::COMMAND_CURSOR_THEME => {
             let desired = !cursor_theme::enabled();
             if let Err(error) = cursor_theme::set_enabled(desired) {
@@ -656,7 +633,6 @@ fn handle_command(hwnd: HWND, command: usize) {
 fn handle_display_change(hwnd: HWND) {
     let _ = with_state(|state| {
         if !state.paused && !state.suspended {
-            logging::info("Display settings changed, rediscovering");
             state.connected = false;
             state.audio_status = AudioStatus::Disabled;
             state.status = "正在查找 Mac".to_string();
@@ -764,7 +740,6 @@ fn handle_local_files() {
     for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
         match file_clipboard::read_hdrop_paths() {
             Ok(Some(paths)) if !paths.is_empty() => {
-                crate::logging::debug(&format!("clipboard -> mac: files top={}", paths.len()));
                 notify_file_worker(file_transfer::WorkerEvent::LocalFiles(paths));
                 return;
             }
@@ -810,10 +785,6 @@ fn handle_file_ui_request(request: FileUiRequest) {
                     Ok(()) => {
                         let sequence = unsafe { GetClipboardSequenceNumber() };
                         let _ = with_state(|state| state.ignored_sequence = Some(sequence));
-                        crate::logging::debug(&format!(
-                            "clipboard <- mac: files top={}",
-                            paths.len()
-                        ));
                         outcome = Ok(());
                         break;
                     }

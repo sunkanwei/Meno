@@ -1,7 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -9,14 +8,13 @@ use windows::Win32::System::SystemInformation::GetLocalTime;
 
 // Two bounded generations (active + .old) keep an always-on tray app bounded
 // on disk even when it runs for weeks without a restart.
-const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const MAX_LOG_BYTES: u64 = 128 * 1024;
 const REPEAT_RELOG_AFTER: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Level {
     Error,
     Info,
-    Debug,
 }
 
 impl Level {
@@ -24,13 +22,11 @@ impl Level {
         match self {
             Level::Error => "ERROR",
             Level::Info => "INFO ",
-            Level::Debug => "DEBUG",
         }
     }
 }
 
 static LOG: OnceLock<Mutex<LogState>> = OnceLock::new();
-static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 struct LogState {
     file: Option<File>,
@@ -55,10 +51,20 @@ pub fn initialize(path: &Path) {
     if let Some(directory) = path.parent() {
         let _ = fs::create_dir_all(directory);
     }
+    if let Ok(old) = OpenOptions::new().write(true).open(old_path(path))
+        && old
+            .metadata()
+            .is_ok_and(|metadata| metadata.len() > MAX_LOG_BYTES)
+    {
+        let _ = old.set_len(MAX_LOG_BYTES);
+    }
     let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
-    let written = file.metadata().map_or(0, |metadata| metadata.len());
+    let mut written = file.metadata().map_or(0, |metadata| metadata.len());
+    if written > MAX_LOG_BYTES && file.set_len(MAX_LOG_BYTES).is_ok() {
+        written = MAX_LOG_BYTES;
+    }
     let state = LogState {
         file: Some(file),
         path: path.to_path_buf(),
@@ -70,24 +76,10 @@ pub fn initialize(path: &Path) {
     }
     install_panic_hook();
     info(&format!(
-        "session start: version={} pid={} verbose={}",
+        "session start: version={} pid={}",
         env!("CARGO_PKG_VERSION"),
-        std::process::id(),
-        verbose()
+        std::process::id()
     ));
-}
-
-pub fn verbose() -> bool {
-    VERBOSE.load(Ordering::Relaxed)
-}
-
-pub fn set_verbose(enabled: bool) {
-    VERBOSE.store(enabled, Ordering::Relaxed);
-    info(if enabled {
-        "verbose logging enabled"
-    } else {
-        "verbose logging disabled"
-    });
 }
 
 pub fn error(message: &str) {
@@ -96,10 +88,6 @@ pub fn error(message: &str) {
 
 pub fn info(message: &str) {
     log(Level::Info, message);
-}
-
-pub fn debug(message: &str) {
-    log(Level::Debug, message);
 }
 
 pub fn clear() {
@@ -128,13 +116,9 @@ pub fn clear() {
             }
         }
     }
-    info("log cleared from tray menu");
 }
 
 pub(crate) fn log(level: Level, message: &str) {
-    if level == Level::Debug && !verbose() {
-        return;
-    }
     let Some(state) = LOG.get() else { return };
     let mut state = lock(state);
     match fold(&mut state.repeat, level, message, Instant::now()) {
@@ -192,18 +176,24 @@ fn summary_text(suppressed: u32) -> String {
 
 impl LogState {
     fn write_line(&mut self, level: Level, message: &str) {
-        self.rotate_if_needed();
+        let prefix = format!("{} {} ", timestamp(), level.tag());
+        let budget = (MAX_LOG_BYTES as usize).saturating_sub(prefix.len() + 1);
+        let mut end = message.len().min(budget);
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        let line = format!("{prefix}{}\n", &message[..end]);
+        self.rotate_if_needed(line.len() as u64);
         let Some(file) = self.file.as_mut() else {
             return;
         };
-        let line = format!("{} {} {}\n", timestamp(), level.tag(), message);
         if file.write_all(line.as_bytes()).is_ok() {
             self.written += line.len() as u64;
         }
     }
 
-    fn rotate_if_needed(&mut self) {
-        if self.written < MAX_LOG_BYTES {
+    fn rotate_if_needed(&mut self, incoming: u64) {
+        if self.written.saturating_add(incoming) <= MAX_LOG_BYTES {
             return;
         }
         drop(self.file.take());

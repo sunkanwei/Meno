@@ -8,7 +8,6 @@ use windows::Win32::Foundation::HWND;
 
 use crate::audio_session::{AudioSession, AudioStatus};
 use crate::discovery;
-use crate::display_contract::DisplayContract;
 use crate::file_transfer::WorkerEvent as FileWorkerEvent;
 use crate::mouse_session::{self, SessionEvent};
 use crate::protocol::{
@@ -273,13 +272,7 @@ fn wait_before_retry(
             | Ok(WorkerEvent::Command(NetworkCommand::Pause(false))) => return IdleExit::Retry,
             Ok(WorkerEvent::Command(NetworkCommand::Stop))
             | Err(RecvTimeoutError::Disconnected) => return IdleExit::Stop,
-            Ok(WorkerEvent::Command(NetworkCommand::Clipboard(frame))) => {
-                crate::logging::debug(&format!(
-                    "clipboard send dropped: not connected (kind={:?} bytes={})",
-                    frame.kind,
-                    frame.payload.len()
-                ));
-            }
+            Ok(WorkerEvent::Command(NetworkCommand::Clipboard(_))) => {}
             Ok(WorkerEvent::Command(NetworkCommand::FileFrame {
                 connection_id,
                 frame,
@@ -402,9 +395,7 @@ fn run_connection(
     let mut mouse_keyboard = false;
     let mut directional_mouse_handoff = false;
     let mut remote_shutdown = false;
-    let mut remote_diagnostics = false;
     let mut mouse_driver_abi = 0_u16;
-    let mut mouse_display = None;
     let mut remote_name = String::new();
     let mut connected_reported = false;
     let mut negotiated_reported = false;
@@ -429,20 +420,9 @@ fn run_connection(
                         break 'connected ConnectionExit::Reconnect;
                     }
                     clipboard_health.last_activity = Instant::now();
-                } else {
-                    crate::logging::debug(&format!(
-                        "clipboard send dropped: kind={:?} was not negotiated",
-                        frame.kind
-                    ));
                 }
             }
-            Ok(WorkerEvent::Command(NetworkCommand::Clipboard(frame))) => {
-                crate::logging::debug(&format!(
-                    "clipboard send dropped: handshake pending (kind={:?} bytes={})",
-                    frame.kind,
-                    frame.payload.len()
-                ));
-            }
+            Ok(WorkerEvent::Command(NetworkCommand::Clipboard(_))) => {}
             // File frames keep the single-writer rule: the coordinator writes
             // them serially on the same socket and reports completion so the
             // file worker can wait for the peer's Ack with real backpressure.
@@ -542,12 +522,7 @@ fn run_connection(
                                             };
                                             match audio_sender.try_send(event) {
                                                 Ok(()) => true,
-                                                Err(TrySendError::Full(_)) => {
-                                                    crate::logging::debug(
-                                                        "audio status dropped: connection worker queue is full",
-                                                    );
-                                                    false
-                                                }
+                                                Err(TrySendError::Full(_)) => false,
                                                 Err(TrySendError::Disconnected(_)) => false,
                                             }
                                         },
@@ -588,9 +563,7 @@ fn run_connection(
                                 mouse_keyboard,
                                 directional_mouse_handoff,
                                 remote_shutdown,
-                                remote_diagnostics,
                                 mouse_driver_abi,
-                                mouse_display.as_ref(),
                                 audio_negotiated,
                                 negotiated_reported,
                             );
@@ -658,9 +631,7 @@ fn run_connection(
                     keyboard,
                     directional_mouse_handoff: negotiated_directional_mouse_handoff,
                     remote_shutdown: negotiated_remote_shutdown,
-                    remote_diagnostics: negotiated_remote_diagnostics,
                     driver_abi,
-                    display,
                 } => {
                     if mouse_handshake {
                         break 'connected ConnectionExit::Reconnect;
@@ -670,9 +641,7 @@ fn run_connection(
                     mouse_keyboard = keyboard;
                     directional_mouse_handoff = negotiated_directional_mouse_handoff;
                     remote_shutdown = negotiated_remote_shutdown;
-                    remote_diagnostics = negotiated_remote_diagnostics;
                     mouse_driver_abi = driver_abi;
-                    mouse_display = display;
                     connected_reported = report_connected(
                         hwnd,
                         &address_text,
@@ -688,9 +657,7 @@ fn run_connection(
                         mouse_keyboard,
                         directional_mouse_handoff,
                         remote_shutdown,
-                        remote_diagnostics,
                         mouse_driver_abi,
-                        mouse_display.as_ref(),
                         audio_negotiated,
                         negotiated_reported,
                     );
@@ -716,9 +683,7 @@ fn run_connection(
                         mouse_keyboard,
                         directional_mouse_handoff,
                         remote_shutdown,
-                        remote_diagnostics,
                         mouse_driver_abi,
-                        mouse_display.as_ref(),
                         audio_negotiated,
                         negotiated_reported,
                     );
@@ -824,28 +789,20 @@ fn report_negotiated(
     mouse_keyboard: bool,
     directional_mouse_handoff: bool,
     remote_shutdown: bool,
-    remote_diagnostics: bool,
     mouse_driver_abi: u16,
-    mouse_display: Option<&DisplayContract>,
     audio_negotiated: bool,
     already_reported: bool,
 ) -> bool {
     if already_reported || !clipboard_ready || !mouse_handshake {
         return already_reported;
     }
-    let display_id = mouse_display.map_or("none", |display| display.monitor_id.as_str());
-    let display_device = mouse_display.map_or("none", |display| display.device_name.as_str());
-    let screen = mouse_display.map_or_else(
-        || "none".to_string(),
-        |display| format!("{}x{}", display.screen_width, display.screen_height),
-    );
     let content_capabilities = clipboard_capabilities.intersect(Capabilities::from_slice(&[
         CAPABILITY_TEXT_CLIPBOARD,
         CAPABILITY_PNG_CLIPBOARD,
         CAPABILITY_FILE_CLIPBOARD,
     ]));
     crate::logging::info(&format!(
-        "Negotiated MENO capabilities: content={} text={} png={} file={} microphone={} windowsOnline={} mouse={} keyboard={} directionalMouseHandoff={} shutdown={} remoteDiagnostics={} driver_abi={} screen={screen} display_id={display_id} display_device={display_device} injection={}",
+        "Negotiated MENO capabilities: content={} text={} png={} file={} microphone={} windowsOnline={} mouse={} keyboard={} directionalMouseHandoff={} shutdown={} driver_abi={}",
         !content_capabilities.is_empty(),
         clipboard_capabilities.contains(CAPABILITY_TEXT_CLIPBOARD),
         clipboard_capabilities.contains(CAPABILITY_PNG_CLIPBOARD),
@@ -856,13 +813,7 @@ fn report_negotiated(
         mouse_keyboard,
         directional_mouse_handoff,
         remote_shutdown,
-        remote_diagnostics,
         mouse_driver_abi,
-        if mouse_ready {
-            "primary-display"
-        } else {
-            "none"
-        },
     ));
     true
 }

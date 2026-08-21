@@ -2,8 +2,6 @@
 
 #[path = "../src/bounded_queue.rs"]
 mod bounded_queue;
-#[path = "../src/diagnostics.rs"]
-mod diagnostics;
 #[path = "../src/discovery.rs"]
 mod discovery;
 #[path = "../src/display_contract.rs"]
@@ -25,6 +23,11 @@ mod virtual_hid;
 
 use std::borrow::Cow;
 use std::time::{Duration, Instant};
+
+#[test]
+fn runtime_log_generation_is_limited_to_128_kib() {
+    assert_eq!(logging::MAX_LOG_BYTES, 128 * 1024);
+}
 
 use arboard::ImageData;
 use mouse_control::{MouseControl, ReleaseOutcome};
@@ -468,147 +471,6 @@ fn directional_mouse_enter_frame_uses_fixed_meno_header_bytes() {
 }
 
 #[test]
-fn diagnostic_event_leave_decision_uses_fixed_big_endian_bytes_and_round_trips() {
-    use diagnostics::{
-        DiagnosticEvent, DiagnosticEventKind, DiagnosticField, DiagnosticMotionSample,
-        DiagnosticReason, DiagnosticState,
-    };
-
-    let event = DiagnosticEvent {
-        kind: DiagnosticEventKind::LeaveDecision,
-        flags: 0,
-        source_sequence: 0x0102_0304_0506_0708,
-        source_uptime_micros: 0x1112_1314_1516_1718,
-        control_id: 0x2122_2324_2526_2728,
-        fields: vec![
-            DiagnosticField::ProcessRunId([
-                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
-                0x0E, 0x0F,
-            ]),
-            DiagnosticField::StateBefore(DiagnosticState::Remote as u8),
-            DiagnosticField::StateAfter(DiagnosticState::Releasing as u8),
-            DiagnosticField::Reason(DiagnosticReason::CrossedReturnEdge as u16),
-            DiagnosticField::CursorX(100),
-            DiagnosticField::CursorY(200),
-            DiagnosticField::DeltaX(-5),
-            DiagnosticField::DeltaY(2),
-            DiagnosticField::Boundary(1),
-            DiagnosticField::Threshold(0),
-            DiagnosticField::DriverStatus(diagnostics::DRIVER_STATUS_AVAILABLE),
-            DiagnosticField::QueueDepth(3),
-            DiagnosticField::InputSource(1),
-            DiagnosticField::RecentMotionSamples(vec![DiagnosticMotionSample {
-                age_micros: 16,
-                cursor_x: 90,
-                cursor_y: 198,
-                delta_x: -5,
-                delta_y: 2,
-            }]),
-        ],
-    };
-    let payload = diagnostics::encode_diagnostic_event(&event).unwrap();
-    let expected_payload = vec![
-        0x05, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x11, 0x12, 0x13, 0x14, 0x15,
-        0x16, 0x17, 0x18, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x0C, 0x00, 0x10, 0x00,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-        0x01, 0x00, 0x01, 0x03, 0x02, 0x00, 0x01, 0x04, 0x03, 0x00, 0x02, 0x00, 0x01, 0x04, 0x00,
-        0x04, 0x00, 0x00, 0x00, 0x64, 0x05, 0x00, 0x04, 0x00, 0x00, 0x00, 0xC8, 0x06, 0x00, 0x04,
-        0xFF, 0xFF, 0xFF, 0xFB, 0x07, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x08, 0x00, 0x01, 0x01,
-        0x09, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x01, 0x01, 0x0B, 0x00, 0x02, 0x00,
-        0x03, 0x11, 0x00, 0x01, 0x01, 0x12, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
-        0x5A, 0x00, 0x00, 0x00, 0xC6, 0xFF, 0xFB, 0x00, 0x02,
-    ];
-    assert_eq!(payload, expected_payload);
-    assert_eq!(
-        diagnostics::decode_diagnostic_event(&payload).unwrap(),
-        Some(event)
-    );
-
-    let encoded = Frame {
-        kind: MessageKind::DiagnosticEvent,
-        message_id: 0x3132_3334_3536_3738,
-        payload,
-    }
-    .encoded()
-    .unwrap();
-    assert_eq!(
-        &encoded[..protocol::HEADER_SIZE],
-        &[
-            0x4D, 0x45, 0x4E, 0x4F, 0x1F, 0x00, 0x00, 0x00, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
-            0x37, 0x38, 0x00, 0x00, 0x00, 0x81,
-        ]
-    );
-}
-
-#[test]
-fn diagnostic_decoder_ignores_unknown_events_and_fields() {
-    use diagnostics::{DiagnosticEvent, DiagnosticEventKind, DiagnosticField};
-
-    let event = DiagnosticEvent {
-        kind: DiagnosticEventKind::ConnectionReady,
-        flags: 0,
-        source_sequence: 7,
-        source_uptime_micros: 9,
-        control_id: 0,
-        fields: vec![DiagnosticField::DriverStatus(
-            diagnostics::DRIVER_STATUS_AVAILABLE,
-        )],
-    };
-    let mut payload = diagnostics::encode_diagnostic_event(&event).unwrap();
-    payload.extend_from_slice(&[0xFE, 0x00, 0x02, 0xAA, 0xBB]);
-    assert_eq!(
-        diagnostics::decode_diagnostic_event(&payload).unwrap(),
-        Some(event)
-    );
-
-    payload[0] = 0xFE;
-    assert_eq!(
-        diagnostics::decode_diagnostic_event(&payload).unwrap(),
-        None
-    );
-}
-
-#[test]
-fn diagnostic_payloads_over_2048_bytes_are_rejected() {
-    assert!(diagnostics::decode_diagnostic_event(&vec![0; 2_049]).is_err());
-    let event = diagnostics::DiagnosticEvent {
-        kind: diagnostics::DiagnosticEventKind::ProcessStarted,
-        flags: 0,
-        source_sequence: 1,
-        source_uptime_micros: 1,
-        control_id: 0,
-        fields: vec![diagnostics::DiagnosticField::BuildId("x".repeat(64)); 40],
-    };
-    assert!(diagnostics::encode_diagnostic_event(&event).is_err());
-}
-
-#[test]
-fn diagnostic_motion_history_rejects_more_than_sixteen_samples() {
-    use diagnostics::{
-        DiagnosticEvent, DiagnosticEventKind, DiagnosticField, DiagnosticMotionSample,
-    };
-
-    let event = DiagnosticEvent {
-        kind: DiagnosticEventKind::LeaveDecision,
-        flags: 0,
-        source_sequence: 1,
-        source_uptime_micros: 1,
-        control_id: 1,
-        fields: vec![DiagnosticField::RecentMotionSamples(vec![
-            DiagnosticMotionSample {
-                age_micros: 0,
-                cursor_x: 0,
-                cursor_y: 0,
-                delta_x: 0,
-                delta_y: 0,
-            };
-            17
-        ])],
-    };
-    assert!(diagnostics::encode_diagnostic_event(&event).is_err());
-}
-
-#[test]
 fn discovery_request_uses_fixed_meno_bytes() {
     assert_eq!(
         protocol::discovery_packet(1, 0, 0),
@@ -651,9 +513,9 @@ fn mouse_hello_matches_fixed_tlv_bytes() {
     assert_eq!(
         protocol::mouse_hello("Win", 4, 3840, 2160).unwrap(),
         vec![
-            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x0A, 0x00, 0x03, 0x00, 0x04, 0x00,
-            0x06, 0x00, 0x09, 0x00, 0x0B, 0x03, 0x00, 0x02, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00,
-            0x00, 0x0F, 0x00, 0x05, 0x00, 0x04, 0x00, 0x00, 0x08, 0x70,
+            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x08, 0x00, 0x03, 0x00, 0x04, 0x00,
+            0x06, 0x00, 0x09, 0x03, 0x00, 0x02, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x0F,
+            0x00, 0x05, 0x00, 0x04, 0x00, 0x00, 0x08, 0x70,
         ]
     );
 }
@@ -673,10 +535,17 @@ fn windows_online_notification_capability_is_fixed_big_endian_ten() {
 }
 
 #[test]
-fn remote_diagnostics_capability_is_fixed_big_endian_eleven() {
+fn remote_diagnostics_capability_eleven_is_reserved_and_not_advertised() {
     assert_eq!(protocol::CAPABILITY_REMOTE_DIAGNOSTICS, 11);
-    let payload = protocol::mouse_hello("Win", 4, 3840, 2160).unwrap();
-    assert_eq!(&payload[17..19], &[0x00, 0x0B]);
+    let hello =
+        protocol::parse_hello(&protocol::mouse_hello("Win", 4, 3840, 2160).unwrap()).unwrap();
+    assert!(
+        !hello
+            .capabilities
+            .contains(protocol::CAPABILITY_REMOTE_DIAGNOSTICS)
+    );
+    let peer_hello = protocol::parse_hello(&[0x02, 0x00, 0x02, 0x00, 0x0B]).unwrap();
+    assert!(peer_hello.capabilities.is_empty());
 }
 
 #[test]
@@ -710,12 +579,12 @@ fn mouse_hello_requires_driver_and_valid_primary_screen() {
 }
 
 #[test]
-fn unavailable_mouse_hello_offers_shutdown_and_remote_diagnostics() {
+fn unavailable_mouse_hello_offers_shutdown_only() {
     let payload = protocol::mouse_unavailable_hello("Win");
     assert_eq!(
         payload,
         vec![
-            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x04, 0x00, 0x06, 0x00, 0x0B,
+            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x02, 0x00, 0x06,
         ]
     );
     let hello = protocol::parse_hello(&payload).unwrap();
@@ -735,7 +604,7 @@ fn unavailable_mouse_hello_offers_shutdown_and_remote_diagnostics() {
             .contains(protocol::CAPABILITY_REMOTE_SHUTDOWN)
     );
     assert!(
-        hello
+        !hello
             .capabilities
             .contains(protocol::CAPABILITY_REMOTE_DIAGNOSTICS)
     );

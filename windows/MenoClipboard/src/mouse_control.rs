@@ -108,6 +108,8 @@ impl ReleaseBarrier {
         BarrierPoll::Waiting
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn stable_samples(&self) -> usize {
         self.stable
     }

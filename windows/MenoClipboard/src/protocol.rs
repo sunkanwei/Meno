@@ -27,6 +27,8 @@ pub const CAPABILITY_REMOTE_SHUTDOWN: u16 = 6;
 pub const CAPABILITY_MAC_MICROPHONE: u16 = 8;
 pub const CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF: u16 = 9;
 pub const CAPABILITY_WINDOWS_ONLINE_NOTIFICATION: u16 = 10;
+// Published identifiers remain reserved even though remote diagnostics was removed.
+#[allow(dead_code)]
 pub const CAPABILITY_REMOTE_DIAGNOSTICS: u16 = 11;
 
 const FIELD_NAME: u8 = 1;
@@ -68,6 +70,7 @@ pub enum MessageKind {
     MicrophonePcm = 28,
     DirectionalMouseEnter = 29,
     WindowsOnline = 30,
+    // Reserved legacy remote-diagnostics identifier; never reuse.
     DiagnosticEvent = 31,
 }
 
@@ -365,7 +368,6 @@ pub fn mouse_hello(
     capabilities.insert(CAPABILITY_KEYBOARD_STATE);
     capabilities.insert(CAPABILITY_REMOTE_SHUTDOWN);
     capabilities.insert(CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF);
-    capabilities.insert(CAPABILITY_REMOTE_DIAGNOSTICS);
     Ok(hello_payload(
         name,
         capabilities,
@@ -377,7 +379,7 @@ pub fn mouse_hello(
 pub fn mouse_unavailable_hello(name: &str) -> Vec<u8> {
     hello_payload(
         name,
-        Capabilities::from_slice(&[CAPABILITY_REMOTE_SHUTDOWN, CAPABILITY_REMOTE_DIAGNOSTICS]),
+        Capabilities::from_slice(&[CAPABILITY_REMOTE_SHUTDOWN]),
         None,
         None,
     )
@@ -465,7 +467,6 @@ pub fn parse_hello(payload: &[u8]) -> Result<Hello, String> {
                             | CAPABILITY_MAC_MICROPHONE
                             | CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF
                             | CAPABILITY_WINDOWS_ONLINE_NOTIFICATION
-                            | CAPABILITY_REMOTE_DIAGNOSTICS
                     ) {
                         hello.capabilities.insert(capability);
                     }
@@ -530,15 +531,6 @@ pub struct MouseMoveSample {
 pub enum MouseEntryEdge {
     Left = 1,
     Right = 2,
-}
-
-impl MouseEntryEdge {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Left => "left",
-            Self::Right => "right",
-        }
-    }
 }
 
 impl TryFrom<u8> for MouseEntryEdge {

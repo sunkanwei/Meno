@@ -82,10 +82,7 @@ pub fn discover() -> Result<Vec<DiscoveredCompanion>, String> {
                     }
                     Ok(_) => continue,
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                    Err(error) => {
-                        crate::logging::debug(&format!("discovery receive failed: {error}"));
-                        break;
-                    }
+                    Err(_) => break,
                 }
             }
         }

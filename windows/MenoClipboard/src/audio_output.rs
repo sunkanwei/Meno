@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -10,14 +10,6 @@ const SAMPLE_RATE: u32 = 48_000;
 const SAMPLE_CAPACITY: usize = 9_600;
 const PREBUFFER_SAMPLES: usize = 1_920;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct BufferStats {
-    pub underflows: u64,
-    pub overflows: u64,
-    pub dropped_samples: u64,
-    pub lock_misses: u64,
-}
-
 #[derive(Default)]
 struct SampleQueue {
     samples: VecDeque<i16>,
@@ -27,10 +19,6 @@ struct SampleQueue {
 struct SharedSamples {
     queue: Mutex<SampleQueue>,
     resync: AtomicBool,
-    underflows: AtomicU64,
-    overflows: AtomicU64,
-    dropped_samples: AtomicU64,
-    lock_misses: AtomicU64,
 }
 
 impl SharedSamples {
@@ -41,10 +29,6 @@ impl SharedSamples {
                 buffering: true,
             }),
             resync: AtomicBool::new(false),
-            underflows: AtomicU64::new(0),
-            overflows: AtomicU64::new(0),
-            dropped_samples: AtomicU64::new(0),
-            lock_misses: AtomicU64::new(0),
         }
     }
 
@@ -66,9 +50,6 @@ impl SharedSamples {
             .saturating_sub(SAMPLE_CAPACITY);
         if overflow != 0 {
             queue.samples.drain(..overflow);
-            self.overflows.fetch_add(1, Ordering::Relaxed);
-            self.dropped_samples
-                .fetch_add(overflow as u64, Ordering::Relaxed);
         }
         queue.samples.extend(samples.iter().copied());
     }
@@ -90,7 +71,6 @@ impl SharedSamples {
             Err(TryLockError::Poisoned(error)) => error.into_inner(),
             Err(TryLockError::WouldBlock) => {
                 output.fill(silence);
-                self.lock_misses.fetch_add(1, Ordering::Relaxed);
                 self.resync.store(true, Ordering::Release);
                 return;
             }
@@ -116,22 +96,12 @@ impl SharedSamples {
             let Some(sample) = queue.samples.pop_front() else {
                 output[offset..].fill(silence);
                 queue.buffering = true;
-                self.underflows.fetch_add(1, Ordering::Relaxed);
                 return;
             };
             let converted = T::from_sample(sample);
             let end = (offset + channels).min(output.len());
             output[offset..end].fill(converted);
             offset = end;
-        }
-    }
-
-    fn take_stats(&self) -> BufferStats {
-        BufferStats {
-            underflows: self.underflows.swap(0, Ordering::Relaxed),
-            overflows: self.overflows.swap(0, Ordering::Relaxed),
-            dropped_samples: self.dropped_samples.swap(0, Ordering::Relaxed),
-            lock_misses: self.lock_misses.swap(0, Ordering::Relaxed),
         }
     }
 }
@@ -147,10 +117,7 @@ pub struct AudioOutput {
     samples: Arc<SharedSamples>,
     device_failed: Arc<AtomicBool>,
     device_error: Arc<Mutex<Option<String>>>,
-    pub device_name: String,
     pub device_id: String,
-    pub channels: u16,
-    pub sample_format: SampleFormat,
 }
 
 pub fn cable_is_available() -> bool {
@@ -168,10 +135,6 @@ impl AudioOutput {
     pub fn open(preferred_device_id: Option<&str>) -> Result<Self, OpenError> {
         let host = cpal::default_host();
         let device = select_cable_device(&host, preferred_device_id)?;
-        let description = device
-            .description()
-            .map_err(|error| OpenError::Other(format!("could not describe VB-CABLE: {error}")))?;
-        let device_name = description.name().to_string();
         let device_id = device
             .id()
             .map_err(|error| OpenError::Other(format!("could not identify VB-CABLE: {error}")))?
@@ -203,10 +166,7 @@ impl AudioOutput {
             samples,
             device_failed,
             device_error,
-            device_name,
             device_id,
-            channels,
-            sample_format,
         })
     }
 
@@ -216,10 +176,6 @@ impl AudioOutput {
 
     pub fn clear(&self) {
         self.samples.clear();
-    }
-
-    pub fn take_stats(&self) -> BufferStats {
-        self.samples.take_stats()
     }
 
     pub fn take_device_error(&self) -> Option<String> {
@@ -420,7 +376,6 @@ mod tests {
         let mut output = vec![1_i16; (PREBUFFER_SAMPLES + 2) * 2];
         shared.fill(&mut output, 2);
         assert_eq!(output[PREBUFFER_SAMPLES * 2..], [0, 0, 0, 0]);
-        assert_eq!(shared.take_stats().underflows, 1);
 
         shared.push(&samples(PREBUFFER_SAMPLES - 1, 9));
         let mut waiting = [1_i16; 4];
@@ -438,9 +393,6 @@ mod tests {
         assert_eq!(queue.samples.len(), SAMPLE_CAPACITY);
         assert_eq!(queue.samples.front(), Some(&(10_i16)));
         drop(queue);
-        let stats = shared.take_stats();
-        assert_eq!(stats.overflows, 1);
-        assert_eq!(stats.dropped_samples, 10);
     }
 
     #[test]
@@ -461,7 +413,6 @@ mod tests {
         let mut output = [1_i16; 4];
         shared.fill(&mut output, 2);
         assert_eq!(output, [0; 4]);
-        assert_eq!(shared.take_stats().lock_misses, 1);
         drop(queue);
 
         shared.push(&samples(PREBUFFER_SAMPLES, 7));

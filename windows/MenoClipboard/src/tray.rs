@@ -16,7 +16,6 @@ pub const COMMAND_VIEW_LOG: usize = 1005;
 pub const COMMAND_EXIT: usize = 1006;
 pub const COMMAND_CLEAR_LOG: usize = 1007;
 pub const COMMAND_CURSOR_THEME: usize = 1008;
-pub const COMMAND_VERBOSE_LOG: usize = 1009;
 pub const COMMAND_INSTALL_AUDIO_DRIVER: usize = 1010;
 pub const COMMAND_VB_CABLE_WEBSITE: usize = 1011;
 pub const COMMAND_AGENT_SETTINGS: usize = 1012;

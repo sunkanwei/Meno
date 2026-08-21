@@ -34,7 +34,7 @@ fn start_remote_shutdown_with(
         spawn(&mut command)
     });
     match result {
-        Ok(()) => crate::logging::info("remote shutdown command started"),
+        Ok(()) => {}
         Err(error) => {
             crate::logging::error(&format!("remote shutdown launch failed: {error}"));
         }

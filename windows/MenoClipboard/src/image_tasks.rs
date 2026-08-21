@@ -109,8 +109,7 @@ pub(crate) fn spawn_image_worker(hwnd: HWND) -> ImageTaskSender {
 
 pub(crate) fn submit_image_task(task: ImageTask) {
     match with_state(|state| state.image_tasks.submit(task)) {
-        Some(true) => logging::debug("Clipboard image task replaced by newer clipboard state"),
-        Some(false) => {}
+        Some(_) => {}
         None => logging::error("Clipboard image skipped: application state is unavailable"),
     }
 }
@@ -130,7 +129,6 @@ fn handle_image_worker_event(event: ImageWorkerEvent) {
     match event {
         ImageWorkerEvent::Encoded { generation, result } => {
             if !image_generation_is_current(generation) {
-                logging::debug("Clipboard image encode result dropped: superseded");
                 return;
             }
             match result {
@@ -148,7 +146,6 @@ fn handle_image_worker_event(event: ImageWorkerEvent) {
             if !image_generation_is_current(generation)
                 || with_state(|state| state.paused || state.suspended).unwrap_or(true)
             {
-                logging::debug("Remote clipboard PNG result dropped: superseded or paused");
                 return;
             }
             match result {

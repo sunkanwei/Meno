@@ -23,7 +23,6 @@ use windows::Win32::System::JobObjects::{
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     SetInformationJobObject,
 };
-use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CreateEventW, ResetEvent};
 use windows::core::{GUID, HRESULT, PCWSTR};
 
@@ -47,7 +46,6 @@ const COMMAND_RESET: u8 = 2;
 const COMMAND_KEYBOARD_STATE: u8 = 3;
 const REQUIRED_CAPABILITIES: u32 = 0x0000_01FF;
 const INFO_SIZE: usize = 88;
-const PATH_ANOMALY: Duration = Duration::from_millis(32);
 const CR_SUCCESS: u32 = 0;
 const CR_BUFFER_SMALL: u32 = 0x1A;
 const CM_GET_DEVICE_INTERFACE_LIST_PRESENT: u32 = 0;
@@ -147,8 +145,6 @@ pub struct VirtualHid {
     dirty: bool,
     healthy: bool,
     sequence: u16,
-    last_broker_io_us: Option<u64>,
-    last_path_diagnostic: Option<String>,
 }
 
 struct DirectHid {
@@ -164,8 +160,6 @@ impl VirtualHid {
             dirty: false,
             healthy: true,
             sequence: 0,
-            last_broker_io_us: None,
-            last_path_diagnostic: None,
         };
         device.validate()?;
         Ok(device)
@@ -250,10 +244,6 @@ impl VirtualHid {
         Ok(parse_driver_stats(&self.query_info()?))
     }
 
-    pub fn take_path_diagnostic(&mut self) -> Option<String> {
-        self.last_path_diagnostic.take()
-    }
-
     fn validate(&mut self) -> Result<(), String> {
         let output = self.query_info()?;
         validate_driver_info(&output)
@@ -294,32 +284,7 @@ impl VirtualHid {
     }
 
     fn write_command(&mut self, output: &[u8; OUTPUT_REPORT_SIZE]) -> Result<(), HidWriteError> {
-        let sequence = u16::from_le_bytes(output[5..7].try_into().unwrap());
-        let app_start_qpc = performance_counter();
-        let started = Instant::now();
         let result = self.write_output(output);
-        let elapsed = started.elapsed();
-        let app_end_qpc = performance_counter();
-        let broker_diagnostic = self.broker.take_diagnostic();
-        if elapsed >= PATH_ANOMALY || broker_diagnostic.is_some() {
-            let app_qpc_frequency = performance_frequency();
-            self.last_path_diagnostic = Some(match &result {
-                Ok(()) => format!(
-                    "sequence={sequence} app_us={} broker_io_us={} app_qpc={app_start_qpc}..{app_end_qpc} qpc_frequency={app_qpc_frequency} broker={} result=ok",
-                    elapsed.as_micros(),
-                    self.last_broker_io_us
-                        .map_or_else(|| "unknown".to_string(), |value| value.to_string()),
-                    broker_diagnostic.as_deref().unwrap_or("normal")
-                ),
-                Err(error) => format!(
-                    "sequence={sequence} app_us={} broker_io_us={} app_qpc={app_start_qpc}..{app_end_qpc} qpc_frequency={app_qpc_frequency} broker={} write_error={error}",
-                    elapsed.as_micros(),
-                    self.last_broker_io_us
-                        .map_or_else(|| "unknown".to_string(), |value| value.to_string()),
-                    broker_diagnostic.as_deref().unwrap_or("normal")
-                ),
-            });
-        }
         match result {
             Ok(()) => Ok(()),
             Err(error) => {
@@ -330,11 +295,10 @@ impl VirtualHid {
     }
 
     fn write_output(&mut self, output: &[u8; OUTPUT_REPORT_SIZE]) -> Result<(), HidWriteError> {
-        self.last_broker_io_us = None;
         let response =
             self.broker
                 .exchange(BROKER_OP_WRITE, output, output_is_recoverable(output))?;
-        self.last_broker_io_us = Some(parse_broker_write_response(&response)?);
+        parse_broker_write_response(&response)?;
         Ok(())
     }
 }
@@ -500,7 +464,6 @@ struct BrokerClient {
     input: ChildStdin,
     responses: Receiver<Result<BrokerFrame, String>>,
     next_sequence: u64,
-    last_diagnostic: Option<String>,
 }
 
 struct BrokerJob {
@@ -517,15 +480,13 @@ struct BrokerFrame {
 struct BrokerExchangeFailure {
     error: HidWriteError,
     transport: bool,
-    reason: &'static str,
 }
 
 impl BrokerExchangeFailure {
-    fn transport(error: HidWriteError, reason: &'static str) -> Self {
+    fn transport(error: HidWriteError, _reason: &'static str) -> Self {
         Self {
             error,
             transport: true,
-            reason,
         }
     }
 
@@ -533,7 +494,6 @@ impl BrokerExchangeFailure {
         Self {
             error,
             transport: false,
-            reason: "operation",
         }
     }
 
@@ -587,7 +547,6 @@ impl BrokerClient {
             input,
             responses,
             next_sequence: 0,
-            last_diagnostic: None,
         })
     }
 
@@ -598,29 +557,17 @@ impl BrokerClient {
         recoverable: bool,
     ) -> Result<Vec<u8>, HidWriteError> {
         let stalled_pid = self.child.id();
-        let started = Instant::now();
         match self.exchange_once(operation, payload) {
             Ok(response) => Ok(response),
             Err(first) if first.should_restart(recoverable) => {
-                let first_wait = started.elapsed();
                 let first_kind = first.error.kind;
                 let first_error = first.error.to_string();
-                let recovery_reason = first.reason;
                 self.restart().map_err(|restart| HidWriteError {
                     kind: first_kind,
                     message: format!("{first_error}; broker restart failed: {restart}"),
                 })?;
-                let replacement_pid = self.child.id();
-                let retry_started = Instant::now();
                 match self.exchange_once(operation, payload) {
-                    Ok(response) => {
-                        self.last_diagnostic = Some(format!(
-                            "broker_recovery=true reason={recovery_reason} stalled_pid={stalled_pid} replacement_pid={replacement_pid} first_wait_us={} retry_us={}",
-                            first_wait.as_micros(),
-                            retry_started.elapsed().as_micros()
-                        ));
-                        Ok(response)
-                    }
+                    Ok(response) => Ok(response),
                     Err(retry) => Err(HidWriteError {
                         kind: combined_error_kind(first_kind, retry.error.kind),
                         message: format!(
@@ -709,10 +656,6 @@ impl BrokerClient {
         let replacement = Self::spawn()?;
         *self = replacement;
         Ok(())
-    }
-
-    fn take_diagnostic(&mut self) -> Option<String> {
-        self.last_diagnostic.take()
     }
 }
 
@@ -1072,24 +1015,6 @@ fn encode_output_header(
     output
 }
 
-fn performance_counter() -> i64 {
-    let mut value = 0_i64;
-    if unsafe { QueryPerformanceCounter(&mut value) }.is_ok() {
-        value
-    } else {
-        0
-    }
-}
-
-fn performance_frequency() -> i64 {
-    let mut value = 0_i64;
-    if unsafe { QueryPerformanceFrequency(&mut value) }.is_ok() {
-        value
-    } else {
-        0
-    }
-}
-
 #[allow(dead_code)]
 fn parse_driver_stats(output: &[u8; INFO_SIZE]) -> DriverStats {
     DriverStats {
@@ -1280,7 +1205,7 @@ mod tests {
     }
 
     #[test]
-    fn a_timeout_in_either_attempt_is_preserved_in_final_metrics() {
+    fn a_timeout_in_either_attempt_is_preserved_in_final_error() {
         assert_eq!(
             combined_error_kind(HidWriteErrorKind::TimedOut, HidWriteErrorKind::Failed),
             HidWriteErrorKind::TimedOut

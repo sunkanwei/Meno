@@ -12,32 +12,18 @@ use windows::Win32::System::Threading::{
 };
 use windows::core::PCWSTR;
 
-use crate::virtual_hid::{HidReport, HidWriteError, HidWriteErrorKind, VirtualHid};
+use crate::virtual_hid::{HidReport, HidWriteError, VirtualHid};
 
 const QUEUE_CAPACITY: usize = 64;
 const REOPEN_DELAY: Duration = Duration::from_secs(1);
-const SOFT_ANOMALY: Duration = Duration::from_millis(32);
 const MOVE_RATE_HZ: u64 = 240;
 const MOVE_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / MOVE_RATE_HZ);
 const PACER_WAIT_GRACE: Duration = Duration::from_millis(50);
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct HidWriterStats {
-    pub calls: u64,
-    pub move_calls: u64,
-    pub max_us: u128,
-    pub queue_delay_max_us: u128,
-    pub queue_high: usize,
-    pub coalesced_moves: u64,
-    pub dropped_moves: u64,
-    pub timeouts: u64,
-}
 
 #[derive(Clone, Debug)]
 pub struct HidWriterStatus {
     pub available: bool,
     pub faults: u64,
-    pub queue_depth: usize,
     pub last_error: Option<String>,
 }
 
@@ -57,12 +43,10 @@ struct State {
     available: bool,
     faults: u64,
     last_error: Option<String>,
-    interval: HidWriterStats,
 }
 
 struct QueuedCommand {
     kind: CommandKind,
-    enqueued: Instant,
     reply: Option<SyncSender<Result<(), String>>>,
 }
 
@@ -77,10 +61,6 @@ trait HidBackend {
     fn reset(&mut self, position: Option<HidReport>) -> Result<(), HidWriteError>;
     fn submit(&mut self, reports: &[HidReport]) -> Result<(), HidWriteError>;
     fn keyboard(&mut self, modifiers: u8, keys: &[u8]) -> Result<(), HidWriteError>;
-
-    fn take_path_diagnostic(&mut self) -> Option<String> {
-        None
-    }
 }
 
 struct VirtualBackend(VirtualHid);
@@ -96,10 +76,6 @@ impl HidBackend for VirtualBackend {
 
     fn keyboard(&mut self, modifiers: u8, keys: &[u8]) -> Result<(), HidWriteError> {
         self.0.set_keyboard_state(modifiers, keys)
-    }
-
-    fn take_path_diagnostic(&mut self) -> Option<String> {
-        self.0.take_path_diagnostic()
     }
 }
 
@@ -122,7 +98,6 @@ impl HidWriter {
                 available: false,
                 faults: 0,
                 last_error: None,
-                interval: HidWriterStats::default(),
             }),
             changed: Condvar::new(),
         });
@@ -162,13 +137,8 @@ impl HidWriter {
         HidWriterStatus {
             available: state.available,
             faults: state.faults,
-            queue_depth: state.queue.len(),
             last_error: state.last_error.clone(),
         }
-    }
-
-    pub fn take_stats(&self) -> HidWriterStats {
-        std::mem::take(&mut lock_state(&self.shared).interval)
     }
 
     pub fn submit_move(&self, report: HidReport) -> Result<(), String> {
@@ -178,20 +148,15 @@ impl HidWriter {
             && matches!(tail.kind, CommandKind::Move(_))
         {
             tail.kind = CommandKind::Move(report);
-            tail.enqueued = Instant::now();
-            state.interval.coalesced_moves += 1;
             return Ok(());
         }
         if state.queue.len() == QUEUE_CAPACITY {
-            state.interval.dropped_moves += 1;
             return Ok(());
         }
         state.queue.push_back(QueuedCommand {
             kind: CommandKind::Move(report),
-            enqueued: Instant::now(),
             reply: None,
         });
-        record_queue_high(&mut state);
         self.shared.changed.notify_one();
         Ok(())
     }
@@ -245,17 +210,11 @@ impl HidWriter {
                 .position(|command| matches!(command.kind, CommandKind::Move(_)))
             {
                 state.queue.remove(index);
-                state.interval.dropped_moves += 1;
             } else {
                 return Err("Meno HID command queue is full".to_string());
             }
         }
-        state.queue.push_back(QueuedCommand {
-            kind,
-            enqueued: Instant::now(),
-            reply,
-        });
-        record_queue_high(&mut state);
+        state.queue.push_back(QueuedCommand { kind, reply });
         self.shared.changed.notify_one();
         drop(state);
 
@@ -346,45 +305,20 @@ fn writer_loop(shared: Arc<Shared>, factory: BackendFactory) {
             break;
         };
 
-        let queue_delay = command.enqueued.elapsed();
         let started = Instant::now();
-        let report_count = command.kind.report_count();
         let is_move = matches!(command.kind, CommandKind::Move(_));
         let backend_ref = backend.as_mut().expect("backend is open");
         let result = execute(backend_ref, &command.kind);
-        let elapsed = started.elapsed();
-        if let Some(diagnostic) = backend_ref.take_path_diagnostic() {
-            crate::logging::info(&format!("hid path anomaly: {diagnostic}"));
-        }
         if is_move {
             next_move_at = Some(started + MOVE_INTERVAL);
         }
-        if queue_delay >= SOFT_ANOMALY || elapsed >= SOFT_ANOMALY {
-            let outcome = if result.is_ok() { "ok" } else { "error" };
-            crate::logging::info(&format!(
-                "hid writer anomaly: queue_us={} write_us={} reports={report_count} result={outcome}",
-                queue_delay.as_micros(),
-                elapsed.as_micros()
-            ));
-        }
-
         let reply_result = result.as_ref().map(|_| ()).map_err(ToString::to_string);
         let mut state = lock_state(&shared);
-        state.interval.calls += 1;
-        state.interval.move_calls += u64::from(is_move);
-        state.interval.max_us = state.interval.max_us.max(elapsed.as_micros());
-        state.interval.queue_delay_max_us = state
-            .interval
-            .queue_delay_max_us
-            .max(queue_delay.as_micros());
         if let Err(error) = result {
             if state.available {
                 state.faults += 1;
             }
             state.available = false;
-            if error.kind == HidWriteErrorKind::TimedOut {
-                state.interval.timeouts += 1;
-            }
             state.last_error = Some(error.to_string());
             crate::logging::error(&format!("Meno HID writer failure: {error}"));
             clear_queue(&mut state, "discarded after an HID writer failure");
@@ -403,9 +337,7 @@ fn writer_loop(shared: Arc<Shared>, factory: BackendFactory) {
 
 fn elevate_writer_priority() {
     // Above normal only: never high, time-critical or realtime.
-    if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) }.is_err() {
-        crate::logging::info("HID writer thread stays at normal priority (set failed)");
-    }
+    let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) };
 }
 
 fn move_delay(
@@ -435,15 +367,7 @@ impl MovePacer {
                 TIMER_ALL_ACCESS.0,
             )
         };
-        match timer {
-            Ok(timer) => Self { timer: Some(timer) },
-            Err(error) => {
-                crate::logging::info(&format!(
-                    "HID move pacer uses the standard sleep fallback: {error}"
-                ));
-                Self { timer: None }
-            }
-        }
+        Self { timer: timer.ok() }
     }
 
     fn wait(&self, delay: Duration) {
@@ -485,16 +409,6 @@ fn execute(backend: &mut Box<dyn HidBackend>, command: &CommandKind) -> Result<(
     }
 }
 
-impl CommandKind {
-    fn report_count(&self) -> usize {
-        match self {
-            Self::Move(_) | Self::Keyboard { .. } => 1,
-            Self::Reports(reports) => reports.len(),
-            Self::Reset(_) => 0,
-        }
-    }
-}
-
 fn ensure_available(state: &State) -> Result<(), String> {
     if !state.initialized {
         return Err(state
@@ -514,17 +428,10 @@ fn ensure_available(state: &State) -> Result<(), String> {
 
 fn clear_queue(state: &mut State, reason: &str) {
     while let Some(command) = state.queue.pop_front() {
-        if matches!(command.kind, CommandKind::Move(_)) {
-            state.interval.dropped_moves += 1;
-        }
         if let Some(reply) = command.reply {
             let _ = reply.send(Err(reason.to_string()));
         }
     }
-}
-
-fn record_queue_high(state: &mut State) {
-    state.interval.queue_high = state.interval.queue_high.max(state.queue.len());
 }
 
 fn lock_state(shared: &Shared) -> std::sync::MutexGuard<'_, State> {
@@ -632,7 +539,6 @@ mod tests {
                     available: true,
                     faults: 0,
                     last_error: None,
-                    interval: HidWriterStats::default(),
                 }),
                 changed: Condvar::new(),
             }),
@@ -692,7 +598,6 @@ mod tests {
         assert!(matches!(state.queue[0].kind, CommandKind::Move(value) if value.x == 2));
         assert!(matches!(state.queue[1].kind, CommandKind::Reports(_)));
         assert!(matches!(state.queue[2].kind, CommandKind::Move(value) if value.x == 4));
-        assert_eq!(state.interval.coalesced_moves, 1);
     }
 
     #[test]
@@ -715,7 +620,6 @@ mod tests {
             state.queue.back().unwrap().kind,
             CommandKind::Keyboard { .. }
         ));
-        assert_eq!(state.interval.dropped_moves, 1);
     }
 
     #[test]
@@ -737,7 +641,6 @@ mod tests {
             state.queue.back().unwrap().kind,
             CommandKind::Reports(_)
         ));
-        assert_eq!(state.interval.dropped_moves, 0);
     }
 
     #[test]
@@ -746,7 +649,6 @@ mod tests {
         let deadline = now + MOVE_INTERVAL;
         let queue = VecDeque::from([QueuedCommand {
             kind: CommandKind::Move(report(1)),
-            enqueued: now,
             reply: None,
         }]);
 
@@ -760,12 +662,10 @@ mod tests {
         let queue = VecDeque::from([
             QueuedCommand {
                 kind: CommandKind::Move(report(1)),
-                enqueued: now,
                 reply: None,
             },
             QueuedCommand {
                 kind: CommandKind::Reports(vec![report(2)]),
-                enqueued: now,
                 reply: None,
             },
         ]);
