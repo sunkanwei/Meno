@@ -386,14 +386,20 @@ final class WindowsCompanionController {
                 Task { @MainActor [weak self] in
                     guard let self,
                           mouseConnection?.id == connectionID else { return }
-                    crossScreenMouse.remoteDidAcquire(controlID: controlID)
+                    crossScreenMouse.remoteDidAcquire(
+                        connectionID: connectionID,
+                        controlID: controlID
+                    )
                 }
             },
             onReleased: { [weak self] controlID in
                 Task { @MainActor [weak self] in
                     guard let self,
                           mouseConnection?.id == connectionID else { return }
-                    crossScreenMouse.remoteDidRelease(controlID: controlID)
+                    crossScreenMouse.remoteDidRelease(
+                        connectionID: connectionID,
+                        controlID: controlID
+                    )
                 }
             },
             onLeave: { [weak self] controlID, normalizedY in
@@ -401,6 +407,7 @@ final class WindowsCompanionController {
                     guard let self,
                           mouseConnection?.id == connectionID else { return }
                     crossScreenMouse.remoteDidLeave(
+                        connectionID: connectionID,
                         controlID: controlID,
                         normalizedY: normalizedY
                     )

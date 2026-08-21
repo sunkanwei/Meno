@@ -5,14 +5,15 @@ extension CrossScreenMouseController {
         switch action {
         case let .enter(
             connection,
-            controlID,
+            identity,
             normalizedY,
             residualX,
             entryEdge,
             returnOpeningY
         ):
             connection.sendEnter(
-                controlID: controlID,
+                controlID: identity.controlID,
+                routeID: identity.routeID,
                 normalizedY: normalizedY,
                 residualX: residualX,
                 entryEdge: entryEdge,
@@ -26,7 +27,7 @@ extension CrossScreenMouseController {
             connection.sendWheel(controlID: controlID, inputLines)
         case let .keyboard(connection, controlID, reports, overflowed):
             let activationKey = microphoneReleaseTailActivationKey()
-                ?? stateLock.withCriticalSection {
+                ?? runtimeLock.withCriticalSection {
                     state.microphoneActivationHeld ? state.microphoneActivationKey : nil
                 }
             let outboundReports: [KeyboardReport]
@@ -48,7 +49,7 @@ extension CrossScreenMouseController {
 
     private func logKeyboardOverflowIfNeeded() {
         let now = ContinuousClock.now
-        let shouldLog = stateLock.withCriticalSection { () -> Bool in
+        let shouldLog = runtimeLock.withCriticalSection { () -> Bool in
             if let lastKeyboardOverflowLog,
                lastKeyboardOverflowLog.duration(to: now) < .seconds(10) {
                 return false

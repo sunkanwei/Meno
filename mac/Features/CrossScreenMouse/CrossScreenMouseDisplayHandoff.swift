@@ -184,7 +184,7 @@ private struct CrossScreenGeometrySnapshot {
 extension CrossScreenMouseController {
     @MainActor
     func refreshDisplaysAndGeometry(forceWindowsRouteReset: Bool = true) {
-        let portalEnabled = stateLock.withCriticalSection {
+        let portalEnabled = runtimeLock.withCriticalSection {
             state.enabled && state.displayHandoff.configuration.enabled
         }
         _ = localDisplayPortalTopology.reconcile(
@@ -195,7 +195,7 @@ extension CrossScreenMouseController {
         let windowsGeometry = snapshot.windows
         let displayHandoffGeometry = snapshot.local
         let sharedDisplayIsVisible = snapshot.sharedDisplayIsVisible
-        let changes = stateLock.withCriticalSection {
+        let changes = runtimeLock.withCriticalSection {
             let displayGeometryChanged = state.displayHandoff.geometry
                 != displayHandoffGeometry
             let windowsGeometryChanged = state.windowsGeometry != windowsGeometry
@@ -208,7 +208,7 @@ extension CrossScreenMouseController {
             )
         }
         if changes.shouldResetWindowsRoute {
-            if stateLock.withCriticalSection({ state.mode.capturesInput }) {
+            if runtimeLock.withCriticalSection({ state.ownership.capturesInput }) {
                 releaseRemote(
                     sendRelease: true,
                     normalizedY: nil,
@@ -219,12 +219,12 @@ extension CrossScreenMouseController {
                 )
             }
             let pointerLocation = MacCursorOwnership.currentLocation()
-            stateLock.withCriticalSection {
-                state.windowsRouteEnabled = false
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
                 state.updateDisplayGeometries(
                     windows: windowsGeometry,
                     displayHandoff: displayHandoffGeometry,
-                    pointerLocation: state.mode.capturesInput ? nil : pointerLocation
+                    pointerLocation: state.ownership.capturesInput ? nil : pointerLocation
                 )
             }
             if changes.sharedDisplayReappeared {
@@ -242,7 +242,7 @@ extension CrossScreenMouseController {
         let portalRoutingOrderIDs = localDisplayPortalTopology.routingOrderIDs(
             for: displays
         )
-        let topologyPlan = stateLock.withCriticalSection {
+        let topologyPlan = runtimeLock.withCriticalSection {
             state.softKVMTopologyPlan
         }
         return CrossScreenGeometrySnapshot(
@@ -272,15 +272,15 @@ extension CrossScreenMouseController {
         // this state atomically prevents a released session from re-entering
         // with the superseded setting before local ownership is restored.
         let pointerLocation = MacCursorOwnership.currentLocation()
-        let transition = stateLock.withCriticalSection {
+        let transition = runtimeLock.withCriticalSection {
             () -> (changed: Bool, shouldRecover: Bool) in
             guard state.displayHandoff.updateConfiguration(
                 configuration,
-                pointerLocation: state.mode.capturesInput ? nil : pointerLocation
+                pointerLocation: state.ownership.capturesInput ? nil : pointerLocation
             ) else {
                 return (false, false)
             }
-            return (true, state.mode.capturesInput)
+            return (true, state.ownership.capturesInput)
         }
         if transition.shouldRecover {
             recoverLocalImmediately(

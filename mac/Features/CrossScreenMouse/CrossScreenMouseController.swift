@@ -17,8 +17,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         subsystem: "com.sunkanwei.Meno",
         category: "CrossScreenMouse"
     )
-    let inputEventLock = NSLock()
-    let stateLock = NSLock()
+    let runtimeLock = NSLock()
     private let onStatusChanged: StatusHandler
     private let onSoftKVMToggle: SoftKVMToggleHandler
     private let onMicrophoneActivationChanged: MicrophoneActivationHandler
@@ -92,7 +91,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
     func requestMicrophoneActivationUpdate() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let held = stateLock.withCriticalSection {
+            let held = runtimeLock.withCriticalSection {
                 state.microphoneActivationHeld
             }
             publishMicrophoneActivation(held)
@@ -110,7 +109,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         connection: MouseConnection,
         controlID: UInt64
     ) {
-        let activationKey = stateLock.withCriticalSection {
+        let activationKey = runtimeLock.withCriticalSection {
             state.microphoneActivationKey
         }
         let generation = microphoneReleaseTailLock.withCriticalSection {
@@ -152,50 +151,42 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @discardableResult
     private func finishPendingMicrophoneReleaseTailImmediately() -> Bool {
-        inputEventLock.withCriticalSection {
-            guard let context = microphoneReleaseTailLock.withCriticalSection({
-                () -> MicrophoneReleaseTailContext? in
-                guard let context = microphoneReleaseTailContext else { return nil }
-                microphoneReleaseTailGate.cancel()
-                microphoneReleaseTailContext = nil
-                return context
-            }) else { return false }
-            let report = stateLock.withCriticalSection {
-                state.keyboard.report
+        let pending: (MicrophoneReleaseTailContext, KeyboardReport)? =
+            runtimeLock.withCriticalSection {
+                guard let context = microphoneReleaseTailLock.withCriticalSection({
+                    () -> MicrophoneReleaseTailContext? in
+                    guard let context = microphoneReleaseTailContext else { return nil }
+                    microphoneReleaseTailGate.cancel()
+                    microphoneReleaseTailContext = nil
+                    return context
+                }) else { return nil }
+                return (context, state.keyboard.report)
             }
-            context.connection.sendKeyboardState(
-                controlID: context.controlID,
-                report
-            )
-            return true
-        }
+        guard let (context, report) = pending else { return false }
+        context.connection.sendKeyboardState(controlID: context.controlID, report)
+        return true
     }
 
     private func finishMicrophoneReleaseTail(generation: UInt64) {
-        let didFinish = inputEventLock.withCriticalSection { () -> Bool in
-            guard let context = microphoneReleaseTailLock.withCriticalSection({
-                () -> MicrophoneReleaseTailContext? in
-                guard let context = microphoneReleaseTailContext,
-                      context.generation == generation,
-                      microphoneReleaseTailGate.complete(generation: generation) else {
-                    return nil
-                }
-                microphoneReleaseTailContext = nil
-                return context
-            }) else { return false }
-            let report = stateLock.withCriticalSection {
-                state.keyboard.report
+        let pending: (MicrophoneReleaseTailContext, KeyboardReport)? =
+            runtimeLock.withCriticalSection {
+                guard let context = microphoneReleaseTailLock.withCriticalSection({
+                    () -> MicrophoneReleaseTailContext? in
+                    guard let context = microphoneReleaseTailContext,
+                          context.generation == generation,
+                          microphoneReleaseTailGate.complete(generation: generation) else {
+                        return nil
+                    }
+                    microphoneReleaseTailContext = nil
+                    return context
+                }) else { return nil }
+                return (context, state.keyboard.report)
             }
-            context.connection.sendKeyboardState(
-                controlID: context.controlID,
-                report
-            )
-            return true
-        }
-        guard didFinish else { return }
+        guard let (context, report) = pending else { return }
+        context.connection.sendKeyboardState(controlID: context.controlID, report)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let held = stateLock.withCriticalSection {
+            let held = runtimeLock.withCriticalSection {
                 state.microphoneActivationHeld
             }
             if !held { publishMicrophoneActivation(false) }
@@ -206,7 +197,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
     func setMicrophoneActivationKey(_ activationKey: MicrophoneActivationKey) {
         guard activationKey.isValid else { return }
         let tailFinished = finishPendingMicrophoneReleaseTailImmediately()
-        let released = stateLock.withCriticalSection {
+        let released = runtimeLock.withCriticalSection {
             let released = state.releaseMicrophoneActivation()
             state.microphoneActivationKey = activationKey
             return released
@@ -219,7 +210,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
     @MainActor
     func releaseMicrophoneActivationIfNeeded() {
         let tailFinished = finishPendingMicrophoneReleaseTailImmediately()
-        let released = stateLock.withCriticalSection {
+        let released = runtimeLock.withCriticalSection {
             state.releaseMicrophoneActivation()
         }
         if tailFinished || released {
@@ -233,7 +224,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         peer: MousePeer? = nil,
         runtimeFailure: String? = nil
     ) {
-        let shouldRelease = stateLock.withCriticalSection {
+        let shouldRelease = runtimeLock.withCriticalSection {
             state.connection != nil && state.connection?.id != connection?.id
         }
         if shouldRelease {
@@ -243,12 +234,14 @@ final class CrossScreenMouseController: @unchecked Sendable {
                 forceStopMicrophone: true
             )
         }
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.updateConnection(
                 connection,
                 peer: peer
             )
-            if connection == nil { state.windowsRouteEnabled = false }
+            if shouldRelease || connection == nil {
+                state.disableWindowsRoute()
+            }
             if connection != nil { state.runtimeFailure = runtimeFailure }
         }
         if connection == nil {
@@ -262,8 +255,8 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     func driverDidBecomeUnavailable(_ message: String) {
-        stateLock.withCriticalSection {
-            state.windowsRouteEnabled = false
+        runtimeLock.withCriticalSection {
+            state.disableWindowsRoute()
             state.keyboardSupported = false
             state.runtimeFailure = message
         }
@@ -277,16 +270,18 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     func setRuntimeFailure(_ message: String?) {
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.runtimeFailure = message
-            if message != nil { state.windowsRouteEnabled = false }
+            if message != nil {
+                state.disableWindowsRoute()
+            }
         }
         publishStatus()
     }
 
     @MainActor
     func startTapIfNeeded() {
-        let shouldStart = stateLock.withCriticalSection {
+        let shouldStart = runtimeLock.withCriticalSection {
             state.enabled
         }
         guard shouldStart else {
@@ -333,11 +328,11 @@ final class CrossScreenMouseController: @unchecked Sendable {
         cancelInputTapRestart()
         let localButtons = currentMouseButtonMask()
         let pointerLocation = MacCursorOwnership.currentLocation()
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.tapFailure = nil
             state.localButtons = localButtons
             state.displayHandoff.resetTracking(
-                at: state.mode.capturesInput ? nil : pointerLocation
+                at: state.ownership.capturesInput ? nil : pointerLocation
             )
         }
         publishStatus()
@@ -345,8 +340,8 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     private func handleInputTapStartFailure(kind: CrossScreenInputTapKind) {
-        stateLock.withCriticalSection {
-            state.windowsRouteEnabled = false
+        runtimeLock.withCriticalSection {
+            state.disableWindowsRoute()
             state.tapFailure = kind.startupFailureMessage
             state.softKVMShortcutCapture.reset()
         }
@@ -374,7 +369,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     func setLocalKeyboardCaptureRequired(_ required: Bool) {
-        let changed = stateLock.withCriticalSection {
+        let changed = runtimeLock.withCriticalSection {
             let changed = state.localKeyboardCaptureRequired != required
             state.localKeyboardCaptureRequired = required
             return changed
@@ -389,9 +384,9 @@ final class CrossScreenMouseController: @unchecked Sendable {
         kind: CrossScreenInputTapKind
     ) {
         let pointerLocation = MacCursorOwnership.currentLocation()
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.displayHandoff.resetTracking(
-                at: state.mode.capturesInput ? nil : pointerLocation
+                at: state.ownership.capturesInput ? nil : pointerLocation
             )
         }
         switch tapState {
@@ -413,7 +408,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
                 restoreImmediately: true,
                 forceStopMicrophone: true
             )
-            stateLock.withCriticalSection {
+            runtimeLock.withCriticalSection {
                 state.tapFailure = "跨屏\(kind.logName)监听已失效，正在尝试恢复：\(reason)"
             }
             publishStatus()
@@ -438,8 +433,8 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     func stopTapIfUnneededAndLocal() {
-        let shouldStop = stateLock.withCriticalSection {
-            !state.mode.capturesInput && !state.enabled
+        let shouldStop = runtimeLock.withCriticalSection {
+            !state.ownership.capturesInput && !state.enabled
         }
         if shouldStop {
             cancelInputTapRestart()
@@ -449,7 +444,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     func publishStatus() {
-        let status = stateLock.withCriticalSection { state.status }
+        let status = runtimeLock.withCriticalSection { state.status }
         guard status != lastPublishedStatus else { return }
         lastPublishedStatus = status
         onStatusChanged(status)

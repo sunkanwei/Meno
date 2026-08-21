@@ -25,6 +25,36 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
         }
     }
 
+    func testKVMRouteSnapshotFreezesBaselineIdentityAndTopology() throws {
+        let displays = currentLayoutDisplays(includePhilips: false)
+        let geometry = try XCTUnwrap(resolveGeometry(
+            sharedDisplayID: "philips",
+            topologyPlan: rightSharedPlan,
+            displays: displays
+        ))
+        let snapshot = KVMRouteSnapshot(
+            routeID: 9,
+            sharedDisplayID: "philips",
+            topologyPlan: rightSharedPlan,
+            geometry: geometry
+        )
+
+        XCTAssertEqual(snapshot.routeID, 9)
+        XCTAssertEqual(snapshot.topologySignature.sharedDisplayID, "philips")
+        XCTAssertEqual(snapshot.topologySignature.sharedDisplaySide, .right)
+        XCTAssertEqual(snapshot.topologySignature.sourceDisplay, geometry.macDisplay)
+        XCTAssertEqual(snapshot.topologySignature.activeDisplays, geometry.activeDisplays)
+
+        let activeRoute = try XCTUnwrap(snapshot.activate(
+            screenMetrics: MouseScreenMetrics(width: 3_840, height: 2_160),
+            configuration: .defaultValue
+        ))
+        XCTAssertEqual(activeRoute.routeID, snapshot.routeID)
+        XCTAssertEqual(activeRoute.geometry, geometry)
+        XCTAssertEqual(activeRoute.session.activeDisplays, displays.sorted { $0.id < $1.id })
+        XCTAssertEqual(activeRoute.makeMovementScaler().scaleX, activeRoute.movementScaleX)
+    }
+
     func testLeftSharedDisplayUsesMainLeftEdgeBeforeAndAfterDisconnect() throws {
         for includePhilips in [true, false] {
             let geometry = try XCTUnwrap(resolveGeometry(
@@ -385,6 +415,28 @@ final class WindowsDisplayHandoffMappingTests: XCTestCase {
 
         XCTAssertEqual(disabled.windowsReturnOpeningY, fullRange)
         XCTAssertEqual(unavailable.windowsReturnOpeningY, fullRange)
+        XCTAssertEqual(disabled.windowsReturnOpeningNormalizedY, 0...UInt16.max)
+        XCTAssertEqual(unavailable.windowsReturnOpeningNormalizedY, 0...UInt16.max)
+    }
+
+    func testReturnOpeningUsesTheSameInclusiveNormalizedCoordinateSpaceAsEntry() {
+        let session = makeSession(
+            macHeightMM: 222.5,
+            configuration: DisplayHandoffConfiguration(enabled: true, alignment: .bottom)
+        )
+        let pixels = session.windowsReturnOpeningY
+        let normalized = session.windowsReturnOpeningNormalizedY
+
+        XCTAssertGreaterThan(normalized.lowerBound, 0)
+        XCTAssertEqual(normalized.upperBound, UInt16.max)
+        XCTAssertEqual(
+            normalized.lowerBound,
+            UInt16(
+                (UInt64(pixels.lowerBound) * UInt64(UInt16.max)
+                    + UInt64(remoteMetrics.height - 1) / 2)
+                    / UInt64(remoteMetrics.height - 1)
+            )
+        )
     }
 
     func testLeftMacSeamReturnsInsideLeftEdge() {

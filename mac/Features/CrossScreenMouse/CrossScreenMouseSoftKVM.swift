@@ -3,7 +3,7 @@ import Foundation
 extension CrossScreenMouseController {
     @MainActor
     func setSoftKVMTopologyPlan(_ topologyPlan: SoftKVMTopologyPlan?) {
-        let changed = stateLock.withCriticalSection {
+        let changed = runtimeLock.withCriticalSection {
             guard state.softKVMTopologyPlan != topologyPlan else { return false }
             state.softKVMTopologyPlan = topologyPlan
             return true
@@ -15,14 +15,14 @@ extension CrossScreenMouseController {
 
     @MainActor
     func setEnabled(_ enabled: Bool) {
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             let wasEnabled = state.enabled
             state.enabled = enabled
             if enabled {
                 state.runtimeFailure = nil
                 if !wasEnabled { state.entryGate.arm() }
             } else {
-                state.windowsRouteEnabled = false
+                state.disableWindowsRoute()
                 state.tapFailure = nil
                 state.runtimeFailure = nil
             }
@@ -47,14 +47,18 @@ extension CrossScreenMouseController {
     @discardableResult
     func setRouteEnabled(_ enabled: Bool) -> Bool {
         if !enabled {
-            stateLock.withCriticalSection { state.windowsRouteEnabled = false }
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
+            }
             releaseRemote(sendRelease: true, normalizedY: nil, reason: "soft KVM route disabled")
             return true
         }
 
         refreshDisplaysAndGeometry(forceWindowsRouteReset: false)
         guard prepareRoute() else {
-            stateLock.withCriticalSection { state.windowsRouteEnabled = false }
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
+            }
             publishStatus()
             return false
         }
@@ -62,26 +66,37 @@ extension CrossScreenMouseController {
         guard !activeDisplays.isEmpty,
               let sharedDisplayID,
               !activeDisplays.contains(where: { $0.id == sharedDisplayID }) else {
-            stateLock.withCriticalSection { state.windowsRouteEnabled = false }
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
+            }
             Self.logger.error(
                 "Windows route refused because the shared display is still active in macOS"
             )
             publishStatus()
             return false
         }
+        guard let topologyPlan = runtimeLock.withCriticalSection({
+            state.softKVMTopologyPlan
+        }) else {
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
+            }
+            publishStatus()
+            return false
+        }
         let currentGeometry = WindowsDisplayHandoffGeometry.resolve(
             sharedDisplayID: sharedDisplayID,
-            topologyPlan: stateLock.withCriticalSection {
-                state.softKVMTopologyPlan
-            },
+            topologyPlan: topologyPlan,
             displays: activeDisplays,
             allowsPortalRouting: localDisplayPortalTopology.routingOrderIDs(
                 for: activeDisplays
             ) != nil
         )
         guard let currentGeometry,
-              stateLock.withCriticalSection({ state.windowsGeometry == currentGeometry }) else {
-            stateLock.withCriticalSection { state.windowsRouteEnabled = false }
+              runtimeLock.withCriticalSection({ state.windowsGeometry == currentGeometry }) else {
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
+            }
             Self.logger.error(
                 "Windows route refused because the display layout changed during validation"
             )
@@ -89,14 +104,42 @@ extension CrossScreenMouseController {
             return false
         }
         guard prioritizeInputTapsForRemoteRoute() else {
-            stateLock.withCriticalSection { state.windowsRouteEnabled = false }
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
+            }
             publishStatus()
             return false
         }
-        stateLock.withCriticalSection {
-            state.windowsRouteEnabled = true
-            state.entryGate.arm()
+        let routeID = UInt64.random(in: 1...UInt64.max)
+        let snapshot = KVMRouteSnapshot(
+            routeID: routeID,
+            sharedDisplayID: sharedDisplayID,
+            topologyPlan: topologyPlan,
+            geometry: currentGeometry
+        )
+        let enabledConnectionID = runtimeLock.withCriticalSection { () -> UUID? in
+            guard state.windowsGeometry == currentGeometry,
+                  state.routeContractSupported,
+                  !state.ownership.capturesInput,
+                  let connection = state.connection,
+                  let screenMetrics = state.remoteScreenMetrics,
+                  let route = snapshot.activate(
+                      screenMetrics: screenMetrics,
+                      configuration: state.displayHandoff.configuration
+                ) else {
+                state.disableWindowsRoute()
+                return nil
+            }
+            state.enableWindowsRoute(snapshot: snapshot, route: route)
+            return connection.id
         }
+        guard let enabledConnectionID else {
+            publishStatus()
+            return false
+        }
+        Self.logger.notice(
+            "Mouse route enabled connection=\(enabledConnectionID.uuidString, privacy: .public) route=\(routeID, privacy: .public) edge=\(currentGeometry.windowsEntryEdge.rawValue, privacy: .public)"
+        )
         publishStatus()
         return true
     }
@@ -108,8 +151,8 @@ extension CrossScreenMouseController {
         }
         let backgroundControl = MacCursorOwnership.prepareBackgroundControl()
         guard backgroundControl.succeeded else {
-            stateLock.withCriticalSection {
-                state.windowsRouteEnabled = false
+            runtimeLock.withCriticalSection {
+                state.disableWindowsRoute()
                 state.runtimeFailure = "macOS 无法授权 Meno 在后台控制指针，跨屏路由保持关闭。"
             }
             publishStatus()
@@ -120,7 +163,7 @@ extension CrossScreenMouseController {
 
     @MainActor
     var routeReadinessFailure: String? {
-        let stateFailure = stateLock.withCriticalSection { () -> String? in
+        let stateFailure = runtimeLock.withCriticalSection { () -> String? in
             guard state.enabled else { return "Windows 输入服务已关闭。" }
             guard state.windowsGeometry != nil else {
                 return "当前横向显示排列无法建立安全的穿屏入口。"
@@ -128,8 +171,11 @@ extension CrossScreenMouseController {
             if let tapFailure = state.tapFailure { return tapFailure }
             if let runtimeFailure = state.runtimeFailure { return runtimeFailure }
             guard state.connection != nil else { return "正在等待 Windows 输入通道。" }
-            guard state.directionalHandoffSupported else {
-                return "Windows 输入程序不支持左右穿屏，请更新 Windows 端。"
+            guard state.routeContractSupported else {
+                return "Windows 输入程序不支持新版穿屏路由，请更新 Windows 端。"
+            }
+            guard !state.ownership.capturesInput else {
+                return "Mac 输入所有权尚未恢复，不能建立新的穿屏路由。"
             }
             return nil
         }
@@ -143,7 +189,7 @@ extension CrossScreenMouseController {
     @MainActor
     func setSoftKVMShortcut(_ shortcut: SoftKVMShortcut) {
         guard shortcut.isValid else { return }
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.softKVMShortcut = shortcut
             state.softKVMShortcutCapture.reset()
         }
@@ -151,7 +197,7 @@ extension CrossScreenMouseController {
 
     @MainActor
     func setSoftKVMShortcutCaptureEnabled(_ enabled: Bool) {
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.softKVMShortcutCaptureEnabled = enabled
             state.softKVMShortcutCapture.reset()
         }
@@ -159,19 +205,19 @@ extension CrossScreenMouseController {
 
     @MainActor
     var isLocallyOwned: Bool {
-        stateLock.withCriticalSection { !state.mode.capturesInput }
+        runtimeLock.withCriticalSection { !state.ownership.capturesInput }
     }
 
     @MainActor
     var remoteShutdownAvailable: Bool {
-        stateLock.withCriticalSection {
+        runtimeLock.withCriticalSection {
             state.connection != nil && state.remoteShutdownSupported
         }
     }
 
     @MainActor
     func sendRemoteShutdown() async -> Bool {
-        let connection = stateLock.withCriticalSection {
+        let connection = runtimeLock.withCriticalSection {
             state.remoteShutdownSupported ? state.connection : nil
         }
         guard let connection else { return false }
@@ -184,8 +230,8 @@ extension CrossScreenMouseController {
 
     @MainActor
     func disableRouteAndResetShortcutCapture() {
-        stateLock.withCriticalSection {
-            state.windowsRouteEnabled = false
+        runtimeLock.withCriticalSection {
+            state.disableWindowsRoute()
             state.softKVMShortcutCapture.reset()
         }
     }

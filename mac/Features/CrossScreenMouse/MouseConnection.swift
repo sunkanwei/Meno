@@ -24,7 +24,7 @@ final class MouseConnection: @unchecked Sendable {
         qos: .userInteractive,
         autoreleaseFrequency: .workItem
     )
-    private let mailboxLock = NSLock()
+    private let transportQueueLock = NSLock()
     private let localName: String
     private let onReady: ReadyHandler
     private let onAcquired: AcquiredHandler
@@ -32,7 +32,7 @@ final class MouseConnection: @unchecked Sendable {
     private let onLeave: LeaveHandler
     private let onDisconnect: DisconnectHandler
     private let onDriverUnavailable: DriverUnavailableHandler
-    private var mailbox = MouseOutboundMailbox()
+    private var outboundQueue = MouseTransportQueue()
     private var readiness = ConnectionReadinessGate()
     private lazy var transport = CompanionFrameTransport(
         connection: connection,
@@ -104,14 +104,16 @@ final class MouseConnection: @unchecked Sendable {
 
     func sendEnter(
         controlID: UInt64,
+        routeID: UInt64,
         normalizedY: UInt16,
         residualX: Int32,
         entryEdge: HorizontalDisplaySide,
-        returnOpeningY: ClosedRange<Int32>
+        returnOpeningY: ClosedRange<UInt16>
     ) {
-        let result = mailboxLock.withCriticalSection {
-            mailbox.beginSession(
+        let result = transportQueueLock.withCriticalSection {
+            outboundQueue.beginSession(
                 controlID: controlID,
+                routeID: routeID,
                 normalizedY: normalizedY,
                 residualX: residualX,
                 entryEdge: entryEdge,
@@ -127,14 +129,14 @@ final class MouseConnection: @unchecked Sendable {
                     return
                 }
                 activeControlID = controlID
-                let shouldHeartbeat = mailboxLock.withCriticalSection {
-                    mailbox.isAccepting(controlID: controlID)
+                let shouldHeartbeat = transportQueueLock.withCriticalSection {
+                    outboundQueue.isAccepting(controlID: controlID)
                 }
                 if shouldHeartbeat { startControlHeartbeat() }
-                if result == .scheduleDrain { drainMailbox() }
+                if result == .scheduleDrain { drainTransportQueue() }
             }
         case .failed:
-            scheduleMailboxFailure()
+            scheduleTransportQueueFailure()
         case .ignored:
             break
         }
@@ -142,8 +144,8 @@ final class MouseConnection: @unchecked Sendable {
 
     func sendMove(controlID: UInt64, dx: Int32, dy: Int32) {
         guard dx != 0 || dy != 0 else { return }
-        submit { mailbox in
-            mailbox.enqueueMove(
+        submit { outboundQueue in
+            outboundQueue.enqueueMove(
                 controlID: controlID,
                 dx: dx,
                 dy: dy
@@ -152,8 +154,8 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     func sendButton(controlID: UInt64, _ button: UInt8, down: Bool) {
-        submit { mailbox in
-            mailbox.enqueueButton(
+        submit { outboundQueue in
+            outboundQueue.enqueueButton(
                 controlID: controlID,
                 button: button,
                 down: down
@@ -163,8 +165,8 @@ final class MouseConnection: @unchecked Sendable {
 
     func sendWheel(controlID: UInt64, _ inputLines: Double) {
         guard inputLines != 0 else { return }
-        submit { mailbox in
-            mailbox.enqueueWheel(
+        submit { outboundQueue in
+            outboundQueue.enqueueWheel(
                 controlID: controlID,
                 inputLines: inputLines
             )
@@ -172,8 +174,8 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     func sendKeyboardState(controlID: UInt64, _ report: KeyboardReport) {
-        submit { mailbox in
-            mailbox.enqueueKeyboard(
+        submit { outboundQueue in
+            outboundQueue.enqueueKeyboard(
                 controlID: controlID,
                 report: report
             )
@@ -181,8 +183,8 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     func sendReleaseAll(controlID: UInt64) {
-        let result = mailboxLock.withCriticalSection {
-            mailbox.enqueueRelease(controlID: controlID)
+        let result = transportQueueLock.withCriticalSection {
+            outboundQueue.enqueueRelease(controlID: controlID)
         }
         queue.async { [weak self] in
             guard let self else { return }
@@ -192,8 +194,8 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     func abortControl(controlID: UInt64) {
-        let result = mailboxLock.withCriticalSection {
-            mailbox.abortControl(controlID: controlID)
+        let result = transportQueueLock.withCriticalSection {
+            outboundQueue.abortControl(controlID: controlID)
         }
         queue.async { [weak self] in
             guard let self else { return }
@@ -210,60 +212,60 @@ final class MouseConnection: @unchecked Sendable {
                 return
             }
             remoteShutdownCompletion = completion
-            let result = mailboxLock.withCriticalSection {
-                mailbox.enqueueConnectionFrame(kind: .shutdownRequest, payload: Data())
+            let result = transportQueueLock.withCriticalSection {
+                outboundQueue.enqueueConnectionFrame(kind: .shutdownRequest, payload: Data())
             }
             switch result {
             case .scheduleDrain:
-                drainMailbox()
+                drainTransportQueue()
             case .queued:
                 break
             case .ignored:
                 finishRemoteShutdownWrite(succeeded: false)
             case .failed:
                 finishRemoteShutdownWrite(succeeded: false)
-                failConnection("跨屏鼠标发送邮箱无法保持事件顺序。")
+                failConnection("跨屏鼠标发送队列无法保持事件顺序。")
             }
         }
     }
 
     private func submit(
-        _ operation: (inout MouseOutboundMailbox) -> MouseMailboxSubmission
+        _ operation: (inout MouseTransportQueue) -> MouseQueueSubmission
     ) {
-        let result = mailboxLock.withCriticalSection {
-            operation(&mailbox)
+        let result = transportQueueLock.withCriticalSection {
+            operation(&outboundQueue)
         }
         switch result {
         case .scheduleDrain:
-            queue.async { [weak self] in self?.drainMailbox() }
+            queue.async { [weak self] in self?.drainTransportQueue() }
         case .failed:
-            scheduleMailboxFailure()
+            scheduleTransportQueueFailure()
         case .ignored, .queued:
             break
         }
     }
 
-    private func scheduleMailboxFailure() {
+    private func scheduleTransportQueueFailure() {
         queue.async { [weak self] in
-            self?.failConnection("跨屏鼠标发送邮箱无法保持事件顺序。")
+            self?.failConnection("跨屏鼠标发送队列无法保持事件顺序。")
         }
     }
 
-    private func handleQueueSubmission(_ result: MouseMailboxSubmission) {
+    private func handleQueueSubmission(_ result: MouseQueueSubmission) {
         switch result {
         case .scheduleDrain:
-            drainMailbox()
+            drainTransportQueue()
         case .failed:
-            failConnection("跨屏鼠标发送邮箱无法保持事件顺序。")
+            failConnection("跨屏鼠标发送队列无法保持事件顺序。")
         case .ignored, .queued:
             break
         }
     }
 
-    private func drainMailbox() {
+    private func drainTransportQueue() {
         guard !didDisconnect, !sending else { return }
-        let specs = mailboxLock.withCriticalSection {
-            mailbox.dequeue(maximumFrameCount: Self.maximumFramesPerWrite)
+        let specs = transportQueueLock.withCriticalSection {
+            outboundQueue.dequeue(maximumFrameCount: Self.maximumFramesPerWrite)
         }
         guard !specs.isEmpty else { return }
 
@@ -304,7 +306,7 @@ final class MouseConnection: @unchecked Sendable {
         sending = false
         disarmWriteWatchdog()
         recordActivity()
-        drainMailbox()
+        drainTransportQueue()
         if write.includesRemoteShutdown {
             finishRemoteShutdownWrite(succeeded: true)
         }
@@ -382,14 +384,14 @@ final class MouseConnection: @unchecked Sendable {
             if let controlID = activeControlID {
                 _ = finishControl(controlID: controlID)
             }
-            mailboxLock.withCriticalSection { mailbox.disableKeyboard() }
+            transportQueueLock.withCriticalSection { outboundQueue.disableKeyboard() }
             onDriverUnavailable()
         case .ping:
             guard readiness.isReady, frame.payload.isEmpty else {
                 throw ClipboardFrameDecoderError.invalidHeader
             }
-            let result = mailboxLock.withCriticalSection {
-                mailbox.enqueueConnectionFrame(kind: .pong, payload: Data())
+            let result = transportQueueLock.withCriticalSection {
+                outboundQueue.enqueueConnectionFrame(kind: .pong, payload: Data())
             }
             handleQueueSubmission(result)
         case .pong:
@@ -431,8 +433,8 @@ final class MouseConnection: @unchecked Sendable {
         )
         timer.setEventHandler { [weak self] in
             guard let self, readiness.isReady, let controlID = activeControlID else { return }
-            let result = mailboxLock.withCriticalSection {
-                mailbox.enqueueHeartbeat(controlID: controlID)
+            let result = transportQueueLock.withCriticalSection {
+                outboundQueue.enqueueHeartbeat(controlID: controlID)
             }
             handleQueueSubmission(result)
         }
@@ -449,7 +451,9 @@ final class MouseConnection: @unchecked Sendable {
         guard activeControlID == controlID else { return false }
         stopControlHeartbeat()
         activeControlID = nil
-        mailboxLock.withCriticalSection { mailbox.finishSession(controlID: controlID) }
+        transportQueueLock.withCriticalSection {
+            outboundQueue.finishSession(controlID: controlID)
+        }
         return true
     }
 
@@ -476,11 +480,8 @@ final class MouseConnection: @unchecked Sendable {
                 return
             }
             remoteShutdownSupported = peer.remoteShutdownSupported
-            mailboxLock.withCriticalSection {
-                mailbox.activate(
-                    screenMetrics: peer.screenMetrics,
-                    keyboardSupported: peer.keyboardSupported
-                )
+            transportQueueLock.withCriticalSection {
+                outboundQueue.activate(keyboardSupported: peer.keyboardSupported)
             }
             recordActivity()
             onReady(peer)
@@ -527,8 +528,8 @@ final class MouseConnection: @unchecked Sendable {
             return
         }
         waitingForPong = true
-        let result = mailboxLock.withCriticalSection {
-            mailbox.enqueueConnectionFrame(kind: .ping, payload: Data())
+        let result = transportQueueLock.withCriticalSection {
+            outboundQueue.enqueueConnectionFrame(kind: .ping, payload: Data())
         }
         handleQueueSubmission(result)
         scheduleKeepalive(after: Self.pongTimeout)
@@ -554,7 +555,7 @@ final class MouseConnection: @unchecked Sendable {
         activeWrite = nil
         sending = false
         activeControlID = nil
-        mailboxLock.withCriticalSection { mailbox.deactivate() }
+        transportQueueLock.withCriticalSection { outboundQueue.deactivate() }
         onDisconnect(reason)
     }
 }

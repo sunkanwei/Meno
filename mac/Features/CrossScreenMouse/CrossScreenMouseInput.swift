@@ -2,26 +2,24 @@
 
 extension CrossScreenMouseController {
     func handle(type: CGEventType, event: CGEvent) -> Bool {
-        inputEventLock.withCriticalSection {
-            handleSerialized(type: type, event: event)
-        }
+        handleInputEvent(type: type, event: event)
     }
 
-    private func handleSerialized(type: CGEventType, event: CGEvent) -> Bool {
+    private func handleInputEvent(type: CGEventType, event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            stateLock.withCriticalSection {
+            runtimeLock.withCriticalSection {
                 state.displayHandoff.resetTracking(at: nil)
             }
             return false
         }
-        let microphoneActivationChanged = stateLock.withCriticalSection {
+        let microphoneActivationChanged = runtimeLock.withCriticalSection {
             state.observePendingMicrophonePhysicalRelease()
         }
         if microphoneActivationChanged {
             requestMicrophoneActivationUpdate()
         }
         let location = event.location
-        let action = stateLock.withCriticalSection {
+        let action = runtimeLock.withCriticalSection {
             Self.decideInputAction(
                 type: type,
                 event: event,
@@ -30,8 +28,8 @@ extension CrossScreenMouseController {
             )
         }
 
-        if case let .send(.enter(_, controlID, _, _, _, _)) = action,
-           !captureCursor(controlID: controlID) {
+        if case let .send(.enter(_, identity, _, _, _, _)) = action,
+           !captureCursor(identity: identity) {
             return false
         }
         return performInputAction(action, type: type, event: event)
@@ -45,7 +43,7 @@ extension CrossScreenMouseController {
     ) -> CrossScreenMouseAction {
         if isKeyboardEvent(type),
            !CrossScreenInputRouting.shouldHandleKeyboard(
-               capturesInput: state.mode.capturesInput,
+               capturesInput: state.ownership.capturesInput,
                localKeyboardCaptureRequired: state.localKeyboardCaptureRequired
            ) {
             return .none
@@ -72,11 +70,11 @@ extension CrossScreenMouseController {
                 break
             }
         }
-        if state.mode.capturesInput,
+        if state.ownership.capturesInput,
            CrossScreenInputRouting.isEmergencyRelease(type: type, event: event) {
             return .emergencyRelease
         }
-        switch state.mode {
+        switch state.ownership.phase {
         case .local:
             return localModeAction(
                 type: type,
@@ -84,14 +82,14 @@ extension CrossScreenMouseController {
                 location: location,
                 state: &state
             )
-        case let .acquiring(controlID), let .remote(controlID):
+        case let .acquiring(identity), let .remote(identity):
             return remoteModeAction(
                 type: type,
                 event: event,
-                controlID: controlID,
+                controlID: identity.controlID,
                 state: &state
             )
-        case .releasing:
+        case .capturing, .releasing, .recovering:
             return .swallow
         }
     }
@@ -146,8 +144,7 @@ extension CrossScreenMouseController {
         state: inout CrossScreenMouseState
     ) -> CrossScreenMouseAction {
         guard state.windowsRouteEnabled,
-              let windowsGeometry = state.windowsGeometry,
-              let remoteScreenMetrics = state.remoteScreenMetrics else {
+              let availableRoute = state.availableRoute else {
             return .none
         }
         guard allowsAutomaticDisplayHandoff(
@@ -156,34 +153,34 @@ extension CrossScreenMouseController {
         ) else { return .none }
         guard state.runtimeFailure == nil,
               let connection = state.connection,
-              windowsGeometry.containsWindowsSeam(atY: location.y) else {
+              availableRoute.containsEntrySeam(atY: location.y) else {
             return .none
         }
-        guard let residualX = windowsGeometry.crossingResidualX(
+        guard let residualX = availableRoute.crossingResidualX(
             locationX: location.x,
             deltaX: deltaX
         ) else { return .none }
-        guard let session = windowsGeometry.session(
-            screenMetrics: remoteScreenMetrics,
-            configuration: state.displayHandoff.configuration
-        ) else {
-            return .none
-        }
-        let mapping = session.entryMapping(macY: location.y)
+        let activeRoute = availableRoute
+        let mapping = activeRoute.entryMapping(macY: location.y)
         let normalizedY = mapping.normalizedY
         let controlID = UInt64.random(in: 1...UInt64.max)
-        state.mode = .acquiring(controlID)
-        state.windowsSession = session
+        let identity = MouseControlIdentity(
+            connectionID: connection.id,
+            controlID: controlID,
+            routeID: activeRoute.routeID
+        )
+        guard state.ownership.apply(.requestCapture(identity)) else { return .none }
+        state.activeRoute = activeRoute
         state.lastWindowsNormalizedY = normalizedY
-        state.movementScaler.reset()
+        state.movementScaler = activeRoute.makeMovementScaler()
         let scaledResidual = state.movementScaler.convert(dx: Double(residualX), dy: 0)
         return .send(.enter(
             connection: connection,
-            controlID: controlID,
+            identity: identity,
             normalizedY: normalizedY,
             residualX: scaledResidual.dx,
-            entryEdge: session.windowsEntryEdge,
-            returnOpeningY: session.windowsReturnOpeningY
+            entryEdge: activeRoute.entryEdge,
+            returnOpeningY: activeRoute.returnOpeningY
         ))
     }
 
@@ -195,7 +192,7 @@ extension CrossScreenMouseController {
     ) -> CrossScreenMouseAction {
         if isKeyboardEvent(type) {
             guard state.keyboardSupported else { return .none }
-            guard case .remote = state.mode,
+            guard case .remote = state.ownership.phase,
                   state.runtimeFailure == nil,
                   let connection = state.connection else {
                 return .swallow
@@ -239,13 +236,12 @@ extension CrossScreenMouseController {
         return .none
     }
 
-    private func captureCursor(controlID: UInt64) -> Bool {
+    private func captureCursor(identity: MouseControlIdentity) -> Bool {
         let capture = MacCursorOwnership.capture()
         guard let captureToken = capture.token else {
-            let didReset = stateLock.withCriticalSection { () -> Bool in
-                guard state.mode.controlID == controlID else { return false }
-                state.mode = .local
-                state.windowsSession = nil
+            let didReset = runtimeLock.withCriticalSection { () -> Bool in
+                guard state.ownership.apply(.captureFailed(identity)) else { return false }
+                state.activeRoute = nil
                 _ = state.takeCursorCaptureForRestore()
                 return true
             }
@@ -255,7 +251,7 @@ extension CrossScreenMouseController {
                 + "detach=\(capture.detachError?.rawValue ?? -1) "
                 + "rollbackAssociate=\(capture.rollbackAssociationError?.rawValue ?? -1) "
                 + "rollbackShow=\(capture.rollbackShowError?.rawValue ?? -1)"
-            let failureDescription = "id=\(controlID) errors=\(captureErrors)"
+            let failureDescription = "connection=\(identity.connectionID.uuidString) id=\(identity.controlID) route=\(identity.routeID) errors=\(captureErrors)"
             Self.logger.error(
                 "Mouse cursor capture failed \(failureDescription, privacy: .public)"
             )
@@ -264,8 +260,8 @@ extension CrossScreenMouseController {
             }
             return false
         }
-        let didAcceptCapture = stateLock.withCriticalSection { () -> Bool in
-            guard state.mode.controlID == controlID else { return false }
+        let didAcceptCapture = runtimeLock.withCriticalSection { () -> Bool in
+            guard state.ownership.apply(.captureSucceeded(identity)) else { return false }
             state.didCaptureCursor(captureToken)
             return true
         }
@@ -273,7 +269,7 @@ extension CrossScreenMouseController {
             let restore = MacCursorOwnership.restore(captureToken, at: nil)
             if !restore.succeeded {
                 Self.logger.error(
-                    "Superseded mouse cursor capture could not be restored id=\(controlID, privacy: .public)"
+                    "Superseded mouse cursor capture could not be restored connection=\(identity.connectionID.uuidString, privacy: .public) id=\(identity.controlID, privacy: .public) route=\(identity.routeID, privacy: .public)"
                 )
                 Task { @MainActor [weak self] in
                     self?.setRuntimeFailure("macOS 无法完整恢复本地指针，跨屏鼠标已停止接管。")
@@ -281,9 +277,11 @@ extension CrossScreenMouseController {
             }
             return false
         }
-        Self.logger.notice("Mouse control acquiring id=\(controlID, privacy: .public)")
+        Self.logger.notice(
+            "Mouse control acquiring connection=\(identity.connectionID.uuidString, privacy: .public) id=\(identity.controlID, privacy: .public) route=\(identity.routeID, privacy: .public)"
+        )
         Task { @MainActor [weak self] in
-            self?.scheduleAcquireTimeout(controlID: controlID)
+            self?.scheduleAcquireTimeout(identity: identity)
             self?.publishStatus()
         }
         return true
@@ -296,15 +294,15 @@ extension CrossScreenMouseController {
     ) -> Bool {
         switch action {
         case .none:
-            return stateLock.withCriticalSection {
-                state.mode.capturesInput && !isKeyboardEvent(type)
+            return runtimeLock.withCriticalSection {
+                state.ownership.capturesInput && !isKeyboardEvent(type)
             }
         case let .displayHandoff(handoff):
             let warpError = MacCursorOwnership.warpLocalCursor(
                 to: handoff.targetPoint
             )
             guard warpError == .success else {
-                stateLock.withCriticalSection {
+                runtimeLock.withCriticalSection {
                     state.displayHandoff.observe(location: event.location)
                 }
                 let targetPoint = "\(handoff.targetPoint.x),\(handoff.targetPoint.y)"

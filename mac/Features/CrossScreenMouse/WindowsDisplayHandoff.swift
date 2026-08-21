@@ -155,6 +155,103 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
     }
 }
 
+struct KVMRouteTopologySignature: Equatable, Sendable {
+    let sharedDisplayID: String
+    let sharedDisplaySide: HorizontalDisplaySide
+    let sourceDisplay: CrossScreenDisplay
+    let activeDisplays: [CrossScreenDisplay]
+}
+
+/// Immutable facts emitted once Soft KVM reaches its stable Windows state.
+struct KVMRouteSnapshot: Equatable, Sendable {
+    let routeID: UInt64
+    let geometry: WindowsDisplayHandoffGeometry
+    let topologySignature: KVMRouteTopologySignature
+
+    init(
+        routeID: UInt64,
+        sharedDisplayID: String,
+        topologyPlan: SoftKVMTopologyPlan,
+        geometry: WindowsDisplayHandoffGeometry
+    ) {
+        precondition(routeID != 0)
+        self.routeID = routeID
+        self.geometry = geometry
+        topologySignature = KVMRouteTopologySignature(
+            sharedDisplayID: sharedDisplayID,
+            sharedDisplaySide: topologyPlan.sharedDisplaySide,
+            sourceDisplay: geometry.macDisplay,
+            activeDisplays: geometry.activeDisplays
+        )
+    }
+
+    func activate(
+        screenMetrics: MouseScreenMetrics,
+        configuration: DisplayHandoffConfiguration
+    ) -> ActiveRoute? {
+        guard let session = geometry.session(
+            screenMetrics: screenMetrics,
+            configuration: configuration
+        ) else { return nil }
+        return ActiveRoute(routeID: routeID, geometry: geometry, session: session)
+    }
+}
+
+/// The route contract used by every control session until KVM invalidates it.
+struct ActiveRoute: Equatable, Sendable {
+    let routeID: UInt64
+    let geometry: WindowsDisplayHandoffGeometry
+    let session: WindowsDisplayHandoffSession
+    let movementScaleX: Double
+    let movementScaleY: Double
+    let usesPhysicalMovementScale: Bool
+
+    init(
+        routeID: UInt64,
+        geometry: WindowsDisplayHandoffGeometry,
+        session: WindowsDisplayHandoffSession
+    ) {
+        self.routeID = routeID
+        self.geometry = geometry
+        self.session = session
+        let scaler = MouseMovementScaler(
+            sourceWidth: Double(session.macDisplay.frame.width),
+            sourceHeight: Double(session.macDisplay.frame.height),
+            sourceHeightMM: session.macDisplay.physicalHeightMM.map(Double.init),
+            destination: session.windowsScreenMetrics,
+            destinationHeightMM: Double(session.windowsPhysicalHeightMM)
+        )
+        movementScaleX = scaler.scaleX
+        movementScaleY = scaler.scaleY
+        usesPhysicalMovementScale = scaler.usesPhysicalScreenSize
+    }
+
+    var entryEdge: HorizontalDisplaySide { session.windowsEntryEdge }
+    var returnOpeningY: ClosedRange<UInt16> {
+        session.windowsReturnOpeningNormalizedY
+    }
+
+    func entryMapping(macY: CGFloat) -> WindowsVerticalMapping {
+        session.entryMapping(macY: macY)
+    }
+
+    func containsEntrySeam(atY verticalPosition: CGFloat) -> Bool {
+        geometry.containsWindowsSeam(atY: verticalPosition)
+    }
+
+    func crossingResidualX(locationX: CGFloat, deltaX: CGFloat) -> CGFloat? {
+        geometry.crossingResidualX(locationX: locationX, deltaX: deltaX)
+    }
+
+    func makeMovementScaler() -> MouseMovementScaler {
+        MouseMovementScaler(
+            scaleX: movementScaleX,
+            scaleY: movementScaleY,
+            usesPhysicalScreenSize: usesPhysicalMovementScale
+        )
+    }
+}
+
 struct WindowsDisplayHandoffSession: Equatable, Sendable {
     let macDisplay: CrossScreenDisplay
     let macEdge: HorizontalDisplaySide
@@ -276,6 +373,13 @@ struct WindowsDisplayHandoffSession: Equatable, Sendable {
         }
     }
 
+    var windowsReturnOpeningNormalizedY: ClosedRange<UInt16> {
+        let opening = windowsReturnOpeningY
+        let lower = normalizedY(forWindowsPixelY: opening.lowerBound)
+        let upper = normalizedY(forWindowsPixelY: opening.upperBound)
+        return lower...upper
+    }
+
     func matches(currentDisplays: [CrossScreenDisplay]) -> Bool {
         guard currentDisplays.count == activeDisplays.count,
               Set(currentDisplays.map(\.id)).count == currentDisplays.count else {
@@ -346,6 +450,12 @@ struct WindowsDisplayHandoffSession: Equatable, Sendable {
     private func normalizedY(forWindowsY windowsY: CGFloat) -> UInt16 {
         let fraction = (windowsY / (windowsFrame.height - 1)).clamped(to: 0...1)
         return UInt16((fraction * CGFloat(UInt16.max)).rounded())
+    }
+
+    private func normalizedY(forWindowsPixelY windowsY: Int32) -> UInt16 {
+        let maximumY = UInt64(windowsScreenMetrics.height - 1)
+        let clampedY = UInt64(max(0, windowsY))
+        return UInt16((clampedY * UInt64(UInt16.max) + maximumY / 2) / maximumY)
     }
 
     private func cursorReturn(

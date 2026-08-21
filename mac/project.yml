@@ -203,8 +203,9 @@ targets:
       - path: Features/CrossScreenMouse/KeyboardState.swift
       - path: Features/CrossScreenMouse/LocalDisplayPortalBaseline.swift
       - path: Features/CrossScreenMouse/MacCursorOwnership.swift
+      - path: Features/CrossScreenMouse/MacInputOwnershipEngine.swift
       - path: Features/CrossScreenMouse/MouseControlProtocol.swift
-      - path: Features/CrossScreenMouse/MouseOutboundMailbox.swift
+      - path: Features/CrossScreenMouse/MouseTransportQueue.swift
       - path: Features/CrossScreenMouse/PhysicalDisplayHandoff.swift
       - path: Features/CrossScreenMouse/WindowsDisplayHandoff.swift
       - path: Features/SoftKVM/DisplayModels.swift

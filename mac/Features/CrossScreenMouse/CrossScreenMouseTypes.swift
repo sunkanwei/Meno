@@ -26,40 +26,22 @@ enum CrossScreenMouseStatus: Equatable {
     }
 }
 
-enum CrossScreenMouseMode {
-    case local
-    case acquiring(UInt64)
-    case remote(UInt64)
-    case releasing(UInt64, UInt16)
-
-    var controlID: UInt64? {
-        switch self {
-        case .local: nil
-        case let .acquiring(controlID), let .remote(controlID),
-             let .releasing(controlID, _): controlID
-        }
-    }
-
-    var capturesInput: Bool {
-        if case .local = self { return false }
-        return true
-    }
-}
-
 struct CrossScreenMouseState {
     var enabled = false
     var windowsRouteEnabled = false
     var softKVMTopologyPlan: SoftKVMTopologyPlan?
     var windowsGeometry: WindowsDisplayHandoffGeometry?
+    var kvmRouteSnapshot: KVMRouteSnapshot?
+    var availableRoute: ActiveRoute?
     var displayHandoff = HorizontalDisplayHandoffState()
-    var windowsSession: WindowsDisplayHandoffSession?
+    var activeRoute: ActiveRoute?
     var connection: MouseConnection?
     var remoteName: String?
     var keyboardSupported = false
     var remoteShutdownSupported = false
-    var directionalHandoffSupported = false
+    var routeContractSupported = false
     var remoteScreenMetrics: MouseScreenMetrics?
-    var mode = CrossScreenMouseMode.local
+    var ownership = MacInputOwnershipEngine()
     var localButtons: UInt8 = 0
     var keyboard = HIDKeyboardState()
     var entryGate = CrossScreenEntryGate()
@@ -85,14 +67,14 @@ struct CrossScreenMouseState {
         if let tapFailure { return .failed(tapFailure) }
         if let runtimeFailure { return .failed(runtimeFailure) }
         guard let remoteName, connection != nil else { return .waiting }
-        guard directionalHandoffSupported else {
-            return .failed("Windows 输入程序不支持左右穿屏，请更新 Windows 端。")
+        guard routeContractSupported else {
+            return .failed("Windows 输入程序不支持新版穿屏路由，请更新 Windows 端。")
         }
         let instruction = windowsGeometry?.entryInstruction ?? "穿屏入口正在重新计算。"
-        if mode.capturesInput {
+        if ownership.capturesInput {
             return .controlling(name: remoteName, entryInstruction: instruction)
         }
-        return windowsRouteEnabled
+        return windowsRouteEnabled && availableRoute != nil
             ? .connected(name: remoteName, entryInstruction: instruction)
             : .standby(name: remoteName, entryInstruction: instruction)
     }
@@ -131,26 +113,6 @@ struct CrossScreenMouseState {
         )
     }
 
-    mutating func refreshMovementScale() {
-        guard let sourceDisplay = windowsGeometry?.macDisplay,
-              let remoteScreenMetrics else {
-            movementScaler = MouseMovementScaler(scaleX: 1, scaleY: 1)
-            return
-        }
-        let sourceSize = sourceDisplay.frame.size
-        guard sourceSize.width > 0, sourceSize.height > 0 else {
-            movementScaler = MouseMovementScaler(scaleX: 1, scaleY: 1)
-            return
-        }
-        movementScaler = MouseMovementScaler(
-            sourceWidth: Double(sourceSize.width),
-            sourceHeight: Double(sourceSize.height),
-            sourceHeightMM: sourceDisplay.physicalHeightMM.map(Double.init),
-            destination: remoteScreenMetrics,
-            destinationHeightMM: Double(FixedDisplayConfiguration.philipsActiveHeightMM)
-        )
-    }
-
     mutating func didCaptureCursor(_ capture: MacCursorOwnership.CaptureToken) {
         cursorCapture = capture
     }
@@ -171,7 +133,6 @@ struct CrossScreenMouseState {
             displayHandoffGeometry,
             pointerLocation: pointerLocation
         )
-        refreshMovementScale()
     }
 
     mutating func updateConnection(
@@ -182,11 +143,29 @@ struct CrossScreenMouseState {
         remoteName = connection == nil ? nil : peer?.name
         keyboardSupported = connection != nil && peer?.keyboardSupported == true
         remoteShutdownSupported = connection != nil && peer?.remoteShutdownSupported == true
-        directionalHandoffSupported = connection != nil
-            && peer?.directionalHandoffSupported == true
+        routeContractSupported = connection != nil
+            && peer?.routeContractSupported == true
         remoteScreenMetrics = connection == nil ? nil : peer?.screenMetrics
-        if connection == nil { windowsSession = nil }
-        refreshMovementScale()
+        if connection == nil {
+            activeRoute = nil
+            disableWindowsRoute()
+        }
+    }
+
+    mutating func enableWindowsRoute(
+        snapshot: KVMRouteSnapshot,
+        route: ActiveRoute
+    ) {
+        windowsRouteEnabled = true
+        kvmRouteSnapshot = snapshot
+        availableRoute = route
+        entryGate.arm()
+    }
+
+    mutating func disableWindowsRoute() {
+        windowsRouteEnabled = false
+        kvmRouteSnapshot = nil
+        availableRoute = nil
     }
 
     mutating func updateMicrophoneActivation() -> Bool {
@@ -230,11 +209,11 @@ struct CrossScreenMouseState {
 enum CrossScreenMouseNetworkAction {
     case enter(
         connection: MouseConnection,
-        controlID: UInt64,
+        identity: MouseControlIdentity,
         normalizedY: UInt16,
         residualX: Int32,
         entryEdge: HorizontalDisplaySide,
-        returnOpeningY: ClosedRange<Int32>
+        returnOpeningY: ClosedRange<UInt16>
     )
     case move(
         connection: MouseConnection,

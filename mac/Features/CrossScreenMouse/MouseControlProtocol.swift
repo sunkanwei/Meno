@@ -23,10 +23,6 @@ struct MousePeer: Equatable, Sendable {
         capabilities.contains(.remoteShutdown)
     }
 
-    var directionalHandoffSupported: Bool {
-        capabilities.contains(.directionalMouseHandoff)
-    }
-
     var routeContractSupported: Bool {
         capabilities.contains(.mouseRouteContract)
     }
@@ -193,23 +189,6 @@ struct MouseWheelAccumulator: Sendable {
 }
 
 enum MousePayload {
-    static func enter(controlID: UInt64, normalizedY: UInt16) -> Data {
-        var data = header(controlID: controlID, bodyCapacity: 2)
-        data.appendBigEndian(normalizedY)
-        return data
-    }
-
-    static func directionalEnter(
-        controlID: UInt64,
-        normalizedY: UInt16,
-        entryEdge: HorizontalDisplaySide
-    ) -> Data {
-        var data = header(controlID: controlID, bodyCapacity: 3)
-        data.appendBigEndian(normalizedY)
-        data.append(entryEdge.rawValue)
-        return data
-    }
-
     static func enterV2(
         controlID: UInt64,
         routeID: UInt64,
@@ -351,7 +330,6 @@ enum MousePayload {
             .mouseControl,
             .keyboardState,
             .remoteShutdown,
-            .directionalMouseHandoff,
             .mouseRouteContract,
         ])
         return MousePeer(
