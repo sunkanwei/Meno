@@ -12,7 +12,9 @@ pub const MAX_MOUSE_MOVE_BATCH: usize = 16;
 pub const MAX_KEYBOARD_KEYS: usize = 6;
 pub const CONTROL_ID_SIZE: usize = 8;
 pub const MOUSE_ENTER_PAYLOAD_SIZE: usize = CONTROL_ID_SIZE + 2;
+#[allow(dead_code)]
 pub const DIRECTIONAL_MOUSE_ENTER_PAYLOAD_SIZE: usize = MOUSE_ENTER_PAYLOAD_SIZE + 1;
+pub const MOUSE_ENTER_V2_PAYLOAD_SIZE: usize = CONTROL_ID_SIZE * 2 + 7;
 pub const MOUSE_BUTTON_PAYLOAD_SIZE: usize = CONTROL_ID_SIZE + 2;
 pub const MOUSE_WHEEL_PAYLOAD_SIZE: usize = CONTROL_ID_SIZE + 4;
 pub const KEYBOARD_STATE_PAYLOAD_SIZE: usize = 8;
@@ -30,6 +32,7 @@ pub const CAPABILITY_WINDOWS_ONLINE_NOTIFICATION: u16 = 10;
 // Published identifiers remain reserved even though remote diagnostics was removed.
 #[allow(dead_code)]
 pub const CAPABILITY_REMOTE_DIAGNOSTICS: u16 = 11;
+pub const CAPABILITY_MOUSE_ROUTE_CONTRACT: u16 = 12;
 
 const FIELD_NAME: u8 = 1;
 const FIELD_CAPABILITIES: u8 = 2;
@@ -72,6 +75,7 @@ pub enum MessageKind {
     WindowsOnline = 30,
     // Reserved legacy remote-diagnostics identifier; never reuse.
     DiagnosticEvent = 31,
+    MouseEnterV2 = 32,
 }
 
 impl MessageKind {
@@ -114,6 +118,7 @@ impl TryFrom<u8> for MessageKind {
             29 => Ok(Self::DirectionalMouseEnter),
             30 => Ok(Self::WindowsOnline),
             31 => Ok(Self::DiagnosticEvent),
+            32 => Ok(Self::MouseEnterV2),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "unknown message type",
@@ -367,7 +372,7 @@ pub fn mouse_hello(
     let mut capabilities = Capabilities::from_slice(&[CAPABILITY_MOUSE_CONTROL]);
     capabilities.insert(CAPABILITY_KEYBOARD_STATE);
     capabilities.insert(CAPABILITY_REMOTE_SHUTDOWN);
-    capabilities.insert(CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF);
+    capabilities.insert(CAPABILITY_MOUSE_ROUTE_CONTRACT);
     Ok(hello_payload(
         name,
         capabilities,
@@ -467,6 +472,7 @@ pub fn parse_hello(payload: &[u8]) -> Result<Hello, String> {
                             | CAPABILITY_MAC_MICROPHONE
                             | CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF
                             | CAPABILITY_WINDOWS_ONLINE_NOTIFICATION
+                            | CAPABILITY_MOUSE_ROUTE_CONTRACT
                     ) {
                         hello.capabilities.insert(capability);
                     }
@@ -527,6 +533,16 @@ pub struct MouseMoveSample {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MouseEnterV2 {
+    pub control_id: u64,
+    pub route_id: u64,
+    pub normalized_y: u16,
+    pub opening_lower_y: u16,
+    pub opening_upper_y: u16,
+    pub entry_edge: MouseEntryEdge,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum MouseEntryEdge {
     Left = 1,
@@ -573,6 +589,7 @@ pub fn control_only(payload: &[u8]) -> Result<u64, String> {
     control_header(payload)
 }
 
+#[allow(dead_code)]
 pub fn mouse_enter(payload: &[u8]) -> Result<(u64, u16), String> {
     if payload.len() != MOUSE_ENTER_PAYLOAD_SIZE {
         return Err("invalid mouse enter payload".to_string());
@@ -582,6 +599,7 @@ pub fn mouse_enter(payload: &[u8]) -> Result<(u64, u16), String> {
     Ok((control_id, normalized_y))
 }
 
+#[allow(dead_code)]
 pub fn directional_mouse_enter(
     payload: &[u8],
     negotiated: bool,
@@ -596,6 +614,32 @@ pub fn directional_mouse_enter(
     let normalized_y = u16::from_be_bytes([payload[8], payload[9]]);
     let entry_edge = MouseEntryEdge::try_from(payload[10])?;
     Ok((control_id, normalized_y, entry_edge))
+}
+
+pub fn mouse_enter_v2(payload: &[u8], negotiated: bool) -> Result<MouseEnterV2, String> {
+    if !negotiated {
+        return Err("mouse route contract was not negotiated".to_string());
+    }
+    if payload.len() != MOUSE_ENTER_V2_PAYLOAD_SIZE {
+        return Err("invalid mouse enter v2 payload".to_string());
+    }
+    let control_id = control_header(payload)?;
+    let route_id = u64::from_be_bytes(payload[8..16].try_into().unwrap());
+    let normalized_y = u16::from_be_bytes([payload[16], payload[17]]);
+    let opening_lower_y = u16::from_be_bytes([payload[18], payload[19]]);
+    let opening_upper_y = u16::from_be_bytes([payload[20], payload[21]]);
+    let entry_edge = MouseEntryEdge::try_from(payload[22])?;
+    if route_id == 0 || opening_lower_y > opening_upper_y {
+        return Err("invalid mouse enter v2 payload".to_string());
+    }
+    Ok(MouseEnterV2 {
+        control_id,
+        route_id,
+        normalized_y,
+        opening_lower_y,
+        opening_upper_y,
+        entry_edge,
+    })
 }
 
 pub fn mouse_button(payload: &[u8]) -> Result<(u64, u8, bool), String> {

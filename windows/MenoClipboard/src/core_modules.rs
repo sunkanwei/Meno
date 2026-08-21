@@ -20,5 +20,7 @@ pub(crate) mod mouse_control;
 pub(crate) mod peer_name;
 #[path = "protocol.rs"]
 pub(crate) mod protocol;
+#[path = "remote_input_engine.rs"]
+pub(crate) mod remote_input_engine;
 #[path = "virtual_hid.rs"]
 pub(crate) mod virtual_hid;

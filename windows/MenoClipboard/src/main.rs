@@ -27,7 +27,7 @@ mod ui_events;
 
 pub(crate) use core_modules::{
     bounded_queue, channel_health, discovery, display_contract, hid_broker_protocol, hid_writer,
-    image_codec, logging, mouse_control, peer_name, protocol, virtual_hid,
+    image_codec, logging, mouse_control, peer_name, protocol, remote_input_engine, virtual_hid,
 };
 
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};

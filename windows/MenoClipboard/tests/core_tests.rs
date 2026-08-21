@@ -5,7 +5,7 @@ mod core_modules;
 
 use core_modules::{
     bounded_queue, discovery, display_contract, hid_broker_protocol, image_codec, logging,
-    mouse_control, peer_name, protocol, virtual_hid,
+    mouse_control, peer_name, protocol, remote_input_engine, virtual_hid,
 };
 
 use std::borrow::Cow;
@@ -17,8 +17,8 @@ fn runtime_log_generation_is_limited_to_128_kib() {
 }
 
 use arboard::ImageData;
-use mouse_control::{MouseControl, ReleaseOutcome};
 use protocol::{Frame, FrameDecoder, MAX_IMAGE_SIZE, MessageKind, MouseEntryEdge, MouseMoveSample};
+use remote_input_engine::{Effect, EngineState, Event, ReleaseReason, RemoteInputEngine};
 
 #[test]
 fn bounded_queue_limits_items_bytes_and_wakeups() {
@@ -417,6 +417,11 @@ fn extended_message_kinds_decode() {
         MessageKind::DiagnosticEvent
     );
     assert_eq!(MessageKind::DiagnosticEvent as u8, 0x1F);
+    assert_eq!(
+        MessageKind::try_from(32).unwrap(),
+        MessageKind::MouseEnterV2
+    );
+    assert_eq!(MessageKind::MouseEnterV2 as u8, 0x20);
     assert!(MessageKind::try_from(26).is_err());
     assert!(MessageKind::try_from(27).is_err());
 }
@@ -501,17 +506,28 @@ fn mouse_hello_matches_fixed_tlv_bytes() {
         protocol::mouse_hello("Win", 4, 3840, 2160).unwrap(),
         vec![
             0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x08, 0x00, 0x03, 0x00, 0x04, 0x00,
-            0x06, 0x00, 0x09, 0x03, 0x00, 0x02, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x0F,
+            0x06, 0x00, 0x0C, 0x03, 0x00, 0x02, 0x00, 0x04, 0x04, 0x00, 0x04, 0x00, 0x00, 0x0F,
             0x00, 0x05, 0x00, 0x04, 0x00, 0x00, 0x08, 0x70,
         ]
     );
 }
 
 #[test]
-fn directional_mouse_handoff_capability_is_fixed_big_endian_nine() {
+fn directional_mouse_handoff_is_reserved_and_route_contract_is_advertised() {
     assert_eq!(protocol::CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF, 9);
+    assert_eq!(protocol::CAPABILITY_MOUSE_ROUTE_CONTRACT, 12);
     let payload = protocol::mouse_hello("Win", 4, 3840, 2160).unwrap();
-    assert_eq!(&payload[15..17], &[0x00, 0x09]);
+    let hello = protocol::parse_hello(&payload).unwrap();
+    assert!(
+        !hello
+            .capabilities
+            .contains(protocol::CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF)
+    );
+    assert!(
+        hello
+            .capabilities
+            .contains(protocol::CAPABILITY_MOUSE_ROUTE_CONTRACT)
+    );
 }
 
 #[test]
@@ -556,9 +572,14 @@ fn mouse_hello_requires_driver_and_valid_primary_screen() {
             .contains(protocol::CAPABILITY_REMOTE_SHUTDOWN)
     );
     assert!(
-        with_driver
+        !with_driver
             .capabilities
             .contains(protocol::CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF)
+    );
+    assert!(
+        with_driver
+            .capabilities
+            .contains(protocol::CAPABILITY_MOUSE_ROUTE_CONTRACT)
     );
     assert_eq!(with_driver.driver_abi, Some(4));
     assert_eq!(with_driver.screen_width, Some(3840));
@@ -838,7 +859,6 @@ fn mouse_enter_matches_fixed_wire_bytes() {
 
     assert_eq!(control_id, 0x0102_0304_0506_0708);
     assert_eq!(normalized_y, 0xCAFE);
-    assert_eq!(mouse_control::entry_position(MouseEntryEdge::Left, 2193), 1);
 }
 
 #[test]
@@ -876,6 +896,67 @@ fn directional_mouse_enter_requires_exact_length_valid_edge_and_negotiation() {
     zero_control_id[..8].fill(0);
     assert!(protocol::directional_mouse_enter(&zero_control_id, true).is_err());
     assert!(protocol::directional_mouse_enter(&valid, false).is_err());
+}
+
+#[test]
+fn mouse_enter_v2_matches_mac_fixed_payload_and_frame_bytes() {
+    let payload = vec![
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+        0x28, 0xCA, 0xFE, 0x12, 0x34, 0xAB, 0xCD, 0x02,
+    ];
+    assert_eq!(protocol::MOUSE_ENTER_V2_PAYLOAD_SIZE, 23);
+    assert_eq!(
+        protocol::mouse_enter_v2(&payload, true).unwrap(),
+        protocol::MouseEnterV2 {
+            control_id: 0x0102_0304_0506_0708,
+            route_id: 0x2122_2324_2526_2728,
+            normalized_y: 0xCAFE,
+            opening_lower_y: 0x1234,
+            opening_upper_y: 0xABCD,
+            entry_edge: MouseEntryEdge::Right,
+        }
+    );
+    let encoded = Frame {
+        kind: MessageKind::MouseEnterV2,
+        message_id: 0x1112_1314_1516_1718,
+        payload: payload.clone(),
+    }
+    .encoded()
+    .unwrap();
+    assert_eq!(
+        encoded,
+        [
+            vec![
+                0x4D, 0x45, 0x4E, 0x4F, 0x20, 0, 0, 0, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+                0x18, 0, 0, 0, 0x17
+            ],
+            payload,
+        ]
+        .concat()
+    );
+}
+
+#[test]
+fn mouse_enter_v2_rejects_invalid_contract_values() {
+    let valid = [
+        0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0, 4, 0, 5, 1,
+    ];
+    assert!(protocol::mouse_enter_v2(&valid, false).is_err());
+    assert!(protocol::mouse_enter_v2(&valid[..22], true).is_err());
+    let mut invalid = valid;
+    invalid[..8].fill(0);
+    assert!(protocol::mouse_enter_v2(&invalid, true).is_err());
+    let mut invalid = valid;
+    invalid[8..16].fill(0);
+    assert!(protocol::mouse_enter_v2(&invalid, true).is_err());
+    let mut invalid = valid;
+    invalid[18..22].copy_from_slice(&[0, 6, 0, 5]);
+    assert!(protocol::mouse_enter_v2(&invalid, true).is_err());
+    for edge in [0, 3, u8::MAX] {
+        let mut invalid = valid;
+        invalid[22] = edge;
+        assert!(protocol::mouse_enter_v2(&invalid, true).is_err());
+    }
 }
 
 #[test]
@@ -1083,530 +1164,385 @@ fn png_header_over_dimension_limit_is_rejected_before_output_allocation() {
     assert!(error.contains("dimensions exceed"), "{error}");
 }
 
+// Remote input ownership, coordinate, edge, drag, lease and lifecycle cases
+// are covered below against the single reducer.
 #[test]
-fn enter_establishes_active_session_and_ack() {
-    let mut control = MouseControl::new();
+fn reducer_requires_initial_hid_success_before_acquired() {
     let now = Instant::now();
-
-    let outcome = control.enter(42, MouseEntryEdge::Left, now).unwrap();
-
-    assert_eq!(outcome.control_id, 42);
-    assert_eq!(outcome.replaced, None);
-    assert!(!outcome.already_active);
-    assert_eq!(control.active_control_id(), Some(42));
-    assert_eq!(control.active_entry_edge(), Some(MouseEntryEdge::Left));
-    assert_eq!(
-        control.lease_deadline(),
-        Some(now + mouse_control::LEASE_DURATION)
-    );
-}
-
-#[test]
-fn duplicate_enter_refreshes_lease_without_replacing() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(42, MouseEntryEdge::Left, start).unwrap();
-
-    let outcome = control
-        .enter(42, MouseEntryEdge::Left, start + Duration::from_millis(250))
-        .unwrap();
-
-    assert!(outcome.already_active);
-    assert_eq!(outcome.replaced, None);
-    assert_eq!(control.active_entry_edge(), Some(MouseEntryEdge::Left));
-    assert_eq!(
-        control.lease_deadline(),
-        Some(start + Duration::from_millis(250) + mouse_control::LEASE_DURATION)
-    );
-}
-
-#[test]
-fn enter_with_new_id_replaces_old_session() {
-    let mut control = MouseControl::new();
-    let now = Instant::now();
-    control.enter(1, MouseEntryEdge::Left, now).unwrap();
-
-    let outcome = control.enter(2, MouseEntryEdge::Right, now).unwrap();
-
-    assert_eq!(outcome.replaced, Some(1));
-    assert!(!outcome.already_active);
-    assert_eq!(control.active_control_id(), Some(2));
-    assert_eq!(control.active_entry_edge(), Some(MouseEntryEdge::Right));
-}
-
-#[test]
-fn duplicate_control_id_cannot_change_the_session_entry_edge() {
-    let mut control = MouseControl::new();
-    let now = Instant::now();
-    control.enter(1, MouseEntryEdge::Right, now).unwrap();
-
+    let mut engine = RemoteInputEngine::new();
+    let effects = engine.reduce(enter_event(MouseEntryEdge::Left, 0, u16::MAX, now));
+    assert_eq!(engine.state(), EngineState::Acquiring);
     assert!(
-        control
-            .enter(1, MouseEntryEdge::Left, now + Duration::from_millis(1))
-            .is_err()
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::PrepareHid { .. }))
     );
-    assert_eq!(control.active_control_id(), Some(1));
-    assert_eq!(control.active_entry_edge(), Some(MouseEntryEdge::Right));
-}
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendAcquired(_)))
+    );
 
-#[test]
-fn active_session_accepts_input_and_refreshes_lease() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(1, MouseEntryEdge::Left, start).unwrap();
-
-    assert!(control.accept(1, start + Duration::from_millis(300)));
-    assert_eq!(
-        control.lease_deadline(),
-        Some(start + Duration::from_millis(700))
+    let effects = engine.reduce(Event::HidAcquireSucceeded);
+    assert_eq!(engine.state(), EngineState::Remote);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendAcquired(_)))
     );
-    assert_eq!(
-        control.expire_lease(start + Duration::from_millis(699)),
-        None
-    );
-    assert_eq!(
-        control.expire_lease(start + Duration::from_millis(700)),
-        Some(1)
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CursorVisible(true)))
     );
 }
 
 #[test]
-fn stale_input_is_rejected_without_affecting_active_session() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(1, MouseEntryEdge::Left, start).unwrap();
+fn reducer_parameterizes_left_and_right_opening_edges() {
+    for (edge, dx) in [(MouseEntryEdge::Left, -1), (MouseEntryEdge::Right, 1)] {
+        let now = Instant::now();
+        let mut engine = acquired_engine(edge, 0, u16::MAX, now);
+        let effects = engine.reduce(Event::Move {
+            control_id: 1,
+            samples: vec![MouseMoveSample { dx, dy: 0 }],
+            now: now + Duration::from_millis(1),
+        });
+        assert_eq!(engine.state(), EngineState::Releasing);
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::LogEdge(_)))
+        );
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+        );
+        assert!(
+            !effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::SendLeave { .. }))
+        );
 
-    assert!(!control.accept(2, start));
-    assert_eq!(control.active_control_id(), Some(1));
-    assert!(control.accept(1, start));
+        let completed = engine.reduce(Event::ReleaseCompleted { succeeded: true });
+        assert_eq!(engine.state(), EngineState::Idle);
+        assert!(
+            completed
+                .iter()
+                .any(|effect| matches!(effect, Effect::SendLeave { .. }))
+        );
+    }
 }
 
 #[test]
-fn release_all_releases_and_acks() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(1, MouseEntryEdge::Left, start).unwrap();
-
-    assert_eq!(control.release_all(1), ReleaseOutcome::Released(1));
-    assert_eq!(control.active_control_id(), None);
-    assert_eq!(control.active_entry_edge(), None);
-    assert_eq!(control.lease_deadline(), None);
-    assert!(!control.accept(1, start));
-}
-
-#[test]
-fn repeated_release_all_reacks_without_reset() {
-    let mut control = MouseControl::new();
-    control
-        .enter(1, MouseEntryEdge::Left, Instant::now())
-        .unwrap();
-    assert_eq!(control.release_all(1), ReleaseOutcome::Released(1));
-
-    assert_eq!(control.release_all(1), ReleaseOutcome::ReAck(1));
-    assert_eq!(control.active_control_id(), None);
-    assert_eq!(control.active_entry_edge(), None);
-}
-
-#[test]
-fn stale_release_all_does_not_release_new_session() {
-    let mut control = MouseControl::new();
+fn reducer_keeps_one_pixel_wall_outside_opening_and_clamps_y() {
     let now = Instant::now();
-    control.enter(1, MouseEntryEdge::Left, now).unwrap();
-    control.release_all(1);
-    control.enter(2, MouseEntryEdge::Right, now).unwrap();
-
-    assert_eq!(control.release_all(1), ReleaseOutcome::Stale);
-    assert_eq!(control.active_control_id(), Some(2));
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, 0, now);
+    let effects = engine.reduce(Event::Move {
+        control_id: 1,
+        samples: vec![MouseMoveSample {
+            dx: -30_000,
+            dy: i16::MAX,
+        }],
+        now,
+    });
+    assert_eq!(engine.state(), EngineState::Remote);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Pointer { x: 1, y: 99, .. }))
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+    );
 }
 
 #[test]
-fn heartbeat_keeps_session_alive_beyond_lease() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(7, MouseEntryEdge::Left, start).unwrap();
+fn reducer_drag_waits_for_last_button_release_at_opening_edge() {
+    let now = Instant::now();
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+    engine.reduce(Event::Button {
+        control_id: 1,
+        button: 1,
+        down: true,
+        now,
+    });
+    engine.reduce(Event::Button {
+        control_id: 1,
+        button: 2,
+        down: true,
+        now,
+    });
+    engine.reduce(Event::Move {
+        control_id: 1,
+        samples: vec![MouseMoveSample { dx: -1, dy: 0 }],
+        now,
+    });
+    assert_eq!(engine.state(), EngineState::Remote);
+    engine.reduce(Event::Button {
+        control_id: 1,
+        button: 1,
+        down: false,
+        now,
+    });
+    assert_eq!(engine.state(), EngineState::Remote);
+    let effects = engine.reduce(Event::Button {
+        control_id: 1,
+        button: 2,
+        down: false,
+        now,
+    });
+    assert_eq!(engine.state(), EngineState::Releasing);
+    assert!(matches!(effects.first(), Some(Effect::ScheduleLease(_))));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Pointer {
+            buttons: 0,
+            critical: true,
+            ..
+        }
+    )));
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+    );
+}
 
-    for step in 1..=6 {
-        let now = start + Duration::from_millis(step * 100);
-        assert_eq!(control.expire_lease(now), None);
-        assert!(control.accept(7, now));
+#[test]
+fn reducer_never_lets_wheel_or_keyboard_trigger_edge_leave() {
+    let now = Instant::now();
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+    let wheel = engine.reduce(Event::Wheel {
+        control_id: 1,
+        lines: 120,
+        now,
+    });
+    let keyboard = engine.reduce(Event::Keyboard {
+        control_id: 1,
+        state: protocol::KeyboardState {
+            modifiers: 1,
+            keys: vec![4],
+        },
+        now,
+    });
+    assert_eq!(engine.state(), EngineState::Remote);
+    assert!(
+        wheel
+            .iter()
+            .any(|effect| matches!(effect, Effect::Wheel { .. }))
+    );
+    assert!(
+        keyboard
+            .iter()
+            .any(|effect| matches!(effect, Effect::Keyboard(_)))
+    );
+    assert!(
+        !wheel
+            .iter()
+            .chain(keyboard.iter())
+            .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+    );
+}
+
+#[test]
+fn reducer_ignores_stale_input_and_expires_exactly_at_400_ms() {
+    let now = Instant::now();
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+    assert!(
+        engine
+            .reduce(Event::Move {
+                control_id: 99,
+                samples: vec![MouseMoveSample { dx: 5, dy: 5 }],
+                now,
+            })
+            .is_empty()
+    );
+    assert!(
+        engine
+            .reduce(Event::LeaseExpired {
+                now: now + remote_input_engine::LEASE_DURATION - Duration::from_nanos(1),
+            })
+            .is_empty()
+    );
+    let effects = engine.reduce(Event::LeaseExpired {
+        now: now + remote_input_engine::LEASE_DURATION,
+    });
+    assert_eq!(engine.state(), EngineState::Releasing);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+    );
+}
+
+#[test]
+fn reducer_heartbeat_renews_lease_and_release_is_idempotent() {
+    let now = Instant::now();
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+    engine.reduce(Event::Heartbeat {
+        control_id: 1,
+        now: now + Duration::from_millis(250),
+    });
+    assert!(
+        engine
+            .reduce(Event::LeaseExpired {
+                now: now + Duration::from_millis(500)
+            })
+            .is_empty()
+    );
+    engine.reduce(Event::Release {
+        control_id: 1,
+        reason: ReleaseReason::PeerRelease,
+    });
+    let completed = engine.reduce(Event::ReleaseCompleted { succeeded: true });
+    assert!(
+        completed
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendReleased(_)))
+    );
+    let repeated = engine.reduce(Event::Release {
+        control_id: 1,
+        reason: ReleaseReason::PeerRelease,
+    });
+    assert!(
+        repeated
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendReleased(_)))
+    );
+}
+
+#[test]
+fn reducer_replacement_tears_down_before_new_acquire() {
+    let now = Instant::now();
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+    let replacement = protocol::MouseEnterV2 {
+        control_id: 2,
+        route_id: 3,
+        normalized_y: 0,
+        opening_lower_y: 0,
+        opening_upper_y: u16::MAX,
+        entry_edge: MouseEntryEdge::Right,
+    };
+    let effects = engine.reduce(Event::Enter {
+        generation: 7,
+        request: replacement,
+        width: 100,
+        height: 100,
+        now,
+    });
+    assert_eq!(engine.state(), EngineState::Releasing);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::PrepareHid { .. }))
+    );
+    let completed = engine.reduce(Event::ReleaseCompleted { succeeded: true });
+    assert_eq!(engine.state(), EngineState::Acquiring);
+    assert!(
+        completed
+            .iter()
+            .any(|effect| matches!(effect, Effect::PrepareHid { .. }))
+    );
+}
+
+#[test]
+fn reducer_failed_release_never_sends_success_confirmation() {
+    let now = Instant::now();
+    let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+    engine.reduce(Event::Release {
+        control_id: 1,
+        reason: ReleaseReason::PeerRelease,
+    });
+    let effects = engine.reduce(Event::ReleaseCompleted { succeeded: false });
+    assert_eq!(engine.state(), EngineState::Faulted);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendDriverUnavailable))
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CloseChannel))
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendReleased(_) | Effect::SendLeave { .. }))
+    );
+}
+
+#[test]
+fn reducer_queue_overflow_and_display_change_fail_closed_through_teardown() {
+    for event in [Event::QueueOverflow, Event::DisplayChanged] {
+        let now = Instant::now();
+        let mut engine = acquired_engine(MouseEntryEdge::Left, 0, u16::MAX, now);
+        let is_queue_overflow = matches!(event, Event::QueueOverflow);
+        let effects = engine.reduce(event);
+        assert_eq!(engine.state(), EngineState::Releasing);
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Neutralize { .. }))
+        );
+        let completed = engine.reduce(Event::ReleaseCompleted { succeeded: true });
+        if is_queue_overflow {
+            assert_eq!(engine.state(), EngineState::Faulted);
+            assert!(
+                completed
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::CloseChannel))
+            );
+            assert!(!completed.iter().any(|effect| matches!(
+                effect,
+                Effect::SendReleased(_) | Effect::SendLeave { .. }
+            )));
+        } else {
+            assert_eq!(engine.state(), EngineState::Idle);
+        }
     }
-    assert_eq!(control.active_control_id(), Some(7));
-    assert_eq!(
-        control.lease_deadline(),
-        Some(start + Duration::from_millis(1000))
-    );
 }
 
-#[test]
-fn session_expires_at_lease_before_mac_fallback() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(9, MouseEntryEdge::Right, start).unwrap();
-
-    assert_eq!(
-        control.expire_lease(start + Duration::from_millis(399)),
-        None
-    );
-    assert_eq!(
-        control.expire_lease(start + Duration::from_millis(400)),
-        Some(9)
-    );
-    assert_eq!(control.active_control_id(), None);
-    assert_eq!(control.active_entry_edge(), None);
-    assert_eq!(control.release_all(9), ReleaseOutcome::ReAck(9));
-}
-
-#[test]
-fn leave_clears_session_and_rejects_further_input() {
-    let mut control = MouseControl::new();
-    let start = Instant::now();
-    control.enter(3, MouseEntryEdge::Right, start).unwrap();
-
-    assert!(control.leave(3));
-    assert_eq!(control.active_control_id(), None);
-    assert_eq!(control.active_entry_edge(), None);
-    assert!(!control.accept(3, start));
-    assert!(!control.leave(3));
-    assert_eq!(control.release_all(3), ReleaseOutcome::ReAck(3));
-}
-
-#[test]
-fn clear_disconnects_session_without_ack() {
-    let mut control = MouseControl::new();
-    control
-        .enter(4, MouseEntryEdge::Right, Instant::now())
-        .unwrap();
-
-    assert_eq!(control.clear(), Some(4));
-    assert_eq!(control.active_control_id(), None);
-    assert_eq!(control.active_entry_edge(), None);
-    assert_eq!(control.lease_deadline(), None);
-}
-
-#[test]
-fn entry_positions_are_one_pixel_inside_the_selected_edge() {
-    let maximum_x = 3839;
-    assert_eq!(
-        mouse_control::entry_position(MouseEntryEdge::Left, maximum_x),
-        1
-    );
-    assert_eq!(
-        mouse_control::entry_position(MouseEntryEdge::Right, maximum_x),
-        3838
-    );
-}
-
-#[test]
-fn right_entry_accepts_negative_remaining_motion_into_the_screen() {
-    let maximum_x = 2193;
-    let mut cursor = mouse_control::LogicalCursor::new(
-        mouse_control::entry_position(MouseEntryEdge::Right, maximum_x),
-        0,
-        maximum_x,
-        1233,
-    );
-
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample(-20)], true, MouseEntryEdge::Right);
-
-    assert_eq!(positions, vec![(2172, 0)]);
-    assert_eq!(trigger, None);
-}
-
-#[test]
-fn right_edge_crossing_and_boundary_motion_trigger_leave() {
-    let mut cursor = mouse_control::LogicalCursor::new(998, 0, 999, 999);
-    let (positions, trigger) = cursor.advance_batch(&[move_sample(1)], true, MouseEntryEdge::Right);
-    assert_eq!(positions, vec![(999, 0)]);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.kind, mouse_control::EdgeTriggerKind::Crossed);
-    assert_eq!(trigger.previous_x, 998);
-    assert_eq!(trigger.proposed_x, 999);
-
-    let (positions, trigger) = cursor.advance_batch(&[move_sample(1)], true, MouseEntryEdge::Right);
-    assert_eq!(positions, vec![(999, 0)]);
-    assert_eq!(
-        trigger.unwrap().kind,
-        mouse_control::EdgeTriggerKind::AtBoundary
-    );
-}
-
-#[test]
-fn edge_step_exactly_to_boundary_fires_immediately() {
-    let mut cursor = mouse_control::LogicalCursor::new(10, 0, 999, 999);
-
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample(-10)], true, MouseEntryEdge::Left);
-
-    assert_eq!(positions.len(), 1);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.kind, mouse_control::EdgeTriggerKind::Crossed);
-    assert_eq!(trigger.previous_x, 10);
-    assert_eq!(trigger.proposed_x, 0);
-    assert_eq!(trigger.dx, -10);
-}
-
-#[test]
-fn edge_overshoot_fires_immediately() {
-    let mut cursor = mouse_control::LogicalCursor::new(10, 0, 999, 999);
-
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample(-25)], true, MouseEntryEdge::Left);
-
-    assert_eq!(positions.len(), 1);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.kind, mouse_control::EdgeTriggerKind::Crossed);
-    assert_eq!(trigger.proposed_x, -15);
-}
-
-#[test]
-fn edge_at_boundary_with_negative_dx_fires_immediately() {
-    let mut cursor = mouse_control::LogicalCursor::new(0, 0, 999, 999);
-
-    let (positions, trigger) = cursor.advance_batch(&[move_sample(-1)], true, MouseEntryEdge::Left);
-
-    assert_eq!(positions.len(), 1);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.kind, mouse_control::EdgeTriggerKind::AtBoundary);
-    assert_eq!(trigger.previous_x, 0);
-}
-
-#[test]
-fn edge_mid_batch_cross_stops_injection_for_the_rest() {
-    let mut cursor = mouse_control::LogicalCursor::new(5, 0, 999, 999);
-
-    let (positions, trigger) = cursor.advance_batch(
-        &[
-            move_sample(2),
-            move_sample(-3),
-            move_sample(-10),
-            move_sample(50),
-        ],
-        true,
-        MouseEntryEdge::Left,
-    );
-
-    assert_eq!(positions, vec![(7, 0), (4, 0), (0, 0)]);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.kind, mouse_control::EdgeTriggerKind::Crossed);
-    assert_eq!(trigger.previous_x, 4);
-    assert_eq!(trigger.proposed_x, -6);
-    assert_eq!(trigger.dx, -10);
-}
-
-#[test]
-fn edge_enter_anchor_fires_on_first_left_sample() {
-    let mut cursor = mouse_control::LogicalCursor::new(1, 0, 2193, 1233);
-
-    let (positions, trigger) = cursor.advance_batch(&[move_sample(-1)], true, MouseEntryEdge::Left);
-
-    assert_eq!(positions.len(), 1);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.previous_x, 1);
-    assert_eq!(trigger.proposed_x, 0);
-}
-
-#[test]
-fn edge_does_not_fire_without_crossing() {
-    let mut cursor = mouse_control::LogicalCursor::new(100, 0, 999, 999);
-
-    let (positions, trigger) = cursor.advance_batch(
-        &[move_sample(-10), move_sample(5), move_sample(-20)],
-        true,
-        MouseEntryEdge::Left,
-    );
-
-    assert_eq!(positions.len(), 3);
-    assert_eq!(trigger, None);
-    assert_eq!(cursor.x(), 75);
-}
-
-#[test]
-fn edge_at_boundary_ignores_zero_and_motion_away_from_entry_edge() {
-    for (entry_edge, start, dx, expected_x) in [
-        (MouseEntryEdge::Left, 0, 5, 5),
-        (MouseEntryEdge::Right, 999, -5, 994),
-    ] {
-        let mut cursor = mouse_control::LogicalCursor::new(start, 0, 999, 999);
-
-        let (positions, trigger) = cursor.advance_batch(&[move_sample(0)], true, entry_edge);
-        assert!(positions.len() == 1 && trigger.is_none());
-        let (positions, trigger) = cursor.advance_batch(&[move_sample(dx)], true, entry_edge);
-        assert!(positions.len() == 1 && trigger.is_none());
-        assert_eq!(cursor.x(), expected_x);
+fn enter_event(
+    edge: MouseEntryEdge,
+    opening_lower_y: u16,
+    opening_upper_y: u16,
+    now: Instant,
+) -> Event {
+    Event::Enter {
+        generation: 7,
+        request: protocol::MouseEnterV2 {
+            control_id: 1,
+            route_id: 2,
+            normalized_y: 0x8000,
+            opening_lower_y,
+            opening_upper_y,
+            entry_edge: edge,
+        },
+        width: 100,
+        height: 100,
+        now,
     }
 }
 
-#[test]
-fn edge_right_clamp_keeps_walkback_exact() {
-    let mut cursor = mouse_control::LogicalCursor::new(2190, 0, 2193, 1233);
-
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample(100)], true, MouseEntryEdge::Left);
-    assert!(positions.len() == 1 && trigger.is_none());
-    assert_eq!(cursor.x(), 2193);
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample(-2193)], true, MouseEntryEdge::Left);
-    assert_eq!(positions.len(), 1);
-    let trigger = trigger.unwrap();
-    assert_eq!(trigger.previous_x, 2193);
-    assert_eq!(trigger.proposed_x, 0);
-}
-
-#[test]
-fn cursor_tracks_and_clamps_y() {
-    let mut cursor = mouse_control::LogicalCursor::new(500, 500, 999, 999);
-
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample_xy(0, 600)], true, MouseEntryEdge::Left);
-    assert_eq!(positions, vec![(500, 999)]);
-    assert_eq!(trigger, None);
-    assert_eq!(cursor.y(), 999);
-    let (positions, _) =
-        cursor.advance_batch(&[move_sample_xy(0, -2000)], true, MouseEntryEdge::Left);
-    assert_eq!(positions, vec![(500, 0)]);
-    assert_eq!(cursor.y(), 0);
-}
-
-#[test]
-fn edge_detection_is_disabled_while_dragging() {
-    for (entry_edge, start, dx, expected) in [
-        (MouseEntryEdge::Left, 10, -25, 0),
-        (MouseEntryEdge::Right, 989, 25, 999),
-    ] {
-        let mut cursor = mouse_control::LogicalCursor::new(start, 0, 999, 999);
-
-        let (positions, trigger) = cursor.advance_batch(&[move_sample(dx)], false, entry_edge);
-
-        assert_eq!(positions.len(), 1);
-        assert_eq!(trigger, None);
-        assert_eq!(cursor.x(), expected);
-    }
-}
-
-#[test]
-fn group_final_position_matches_per_sample_clamping() {
-    // Hitting the left edge and reversing inside one group must end at the
-    // per-sample clamped position, not the naive summed one.
-    let mut cursor = mouse_control::LogicalCursor::new(5, 7, 999, 999);
-    let samples = [move_sample_xy(-10, 2), move_sample_xy(3, 1)];
-
-    let (positions, trigger) = cursor.advance_batch(&samples, false, MouseEntryEdge::Left);
-
-    assert_eq!(trigger, None);
-    assert_eq!(positions.last(), Some(&(3, 10)));
-    assert_eq!((cursor.x(), cursor.y()), (3, 10));
-    let naive = 5 + samples
-        .iter()
-        .map(|sample| i32::from(sample.dx))
-        .sum::<i32>();
-    assert_eq!(naive.clamp(0, 999), 0);
-}
-
-#[test]
-fn group_collapse_keeps_edge_position_as_final() {
-    // The first left-edge trigger inside a group stops the group there: the
-    // collapsed final position is the edge position, not a later sample.
-    let mut cursor = mouse_control::LogicalCursor::new(5, 0, 999, 999);
-
-    let (positions, trigger) = cursor.advance_batch(
-        &[move_sample(-3), move_sample(-10), move_sample(50)],
-        true,
-        MouseEntryEdge::Left,
-    );
-
-    assert!(trigger.is_some());
-    assert_eq!(positions.last(), Some(&(0, 0)));
-    assert_eq!(cursor.x(), 0);
-}
-
-#[test]
-fn group_collapse_single_sample_unchanged() {
-    let mut cursor = mouse_control::LogicalCursor::new(100, 100, 999, 999);
-
-    let (positions, trigger) =
-        cursor.advance_batch(&[move_sample_xy(-5, 9)], true, MouseEntryEdge::Left);
-
-    assert_eq!(trigger, None);
-    assert_eq!(positions.last(), Some(&(95, 109)));
-}
-
-#[test]
-fn button_up_at_entry_edge_after_motion_toward_it_leaves() {
-    assert!(mouse_control::should_leave_on_button_up(
-        0,
-        0,
-        999,
-        MouseEntryEdge::Left,
-        true
-    ));
-    assert!(mouse_control::should_leave_on_button_up(
-        0,
-        999,
-        999,
-        MouseEntryEdge::Right,
-        true
-    ));
-}
-
-#[test]
-fn button_up_does_not_leave_with_button_held_off_edge_or_without_toward_motion() {
-    assert!(!mouse_control::should_leave_on_button_up(
-        1,
-        0,
-        999,
-        MouseEntryEdge::Left,
-        true
-    ));
-    assert!(!mouse_control::should_leave_on_button_up(
-        0,
-        5,
-        999,
-        MouseEntryEdge::Left,
-        true
-    ));
-    assert!(!mouse_control::should_leave_on_button_up(
-        0,
-        0,
-        999,
-        MouseEntryEdge::Left,
-        false
-    ));
-    assert!(!mouse_control::should_leave_on_button_up(
-        1,
-        999,
-        999,
-        MouseEntryEdge::Right,
-        true
-    ));
-    assert!(!mouse_control::should_leave_on_button_up(
-        0,
-        998,
-        999,
-        MouseEntryEdge::Right,
-        true
-    ));
-}
-
-#[test]
-fn release_verdict_never_confirms_a_failed_teardown() {
-    use mouse_control::ReleaseVerdict;
-    assert_eq!(
-        mouse_control::release_verdict(false, true),
-        ReleaseVerdict::DriverUnavailable
-    );
-    assert_eq!(
-        mouse_control::release_verdict(false, false),
-        ReleaseVerdict::DriverUnavailable
-    );
-    assert_eq!(
-        mouse_control::release_verdict(true, true),
-        ReleaseVerdict::ConfirmLeave
-    );
-    assert_eq!(
-        mouse_control::release_verdict(true, false),
-        ReleaseVerdict::ConfirmReleased
-    );
+fn acquired_engine(
+    edge: MouseEntryEdge,
+    opening_lower_y: u16,
+    opening_upper_y: u16,
+    now: Instant,
+) -> RemoteInputEngine {
+    let mut engine = RemoteInputEngine::new();
+    engine.reduce(enter_event(edge, opening_lower_y, opening_upper_y, now));
+    engine.reduce(Event::HidAcquireSucceeded);
+    engine
 }
 
 #[test]

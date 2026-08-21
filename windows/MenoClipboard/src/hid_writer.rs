@@ -25,6 +25,7 @@ pub struct HidWriterStatus {
     pub available: bool,
     pub faults: u64,
     pub last_error: Option<String>,
+    pub queue_high_water: usize,
 }
 
 pub struct HidWriter {
@@ -43,6 +44,7 @@ struct State {
     available: bool,
     faults: u64,
     last_error: Option<String>,
+    queue_high_water: usize,
 }
 
 struct QueuedCommand {
@@ -55,6 +57,7 @@ enum CommandKind {
     Reports(Vec<HidReport>),
     Keyboard { modifiers: u8, keys: Vec<u8> },
     Reset(Option<HidReport>),
+    Neutralize(Option<HidReport>),
 }
 
 trait HidBackend {
@@ -98,6 +101,7 @@ impl HidWriter {
                 available: false,
                 faults: 0,
                 last_error: None,
+                queue_high_water: 0,
             }),
             changed: Condvar::new(),
         });
@@ -138,6 +142,7 @@ impl HidWriter {
             available: state.available,
             faults: state.faults,
             last_error: state.last_error.clone(),
+            queue_high_water: state.queue_high_water,
         }
     }
 
@@ -151,12 +156,13 @@ impl HidWriter {
             return Ok(());
         }
         if state.queue.len() == QUEUE_CAPACITY {
-            return Ok(());
+            return Err("Meno HID command queue is full".to_string());
         }
         state.queue.push_back(QueuedCommand {
             kind: CommandKind::Move(report),
             reply: None,
         });
+        state.queue_high_water = state.queue_high_water.max(state.queue.len());
         self.shared.changed.notify_one();
         Ok(())
     }
@@ -184,6 +190,10 @@ impl HidWriter {
             true,
             true,
         )
+    }
+
+    pub fn neutralize_barrier(&self, position: Option<HidReport>) -> Result<(), String> {
+        self.enqueue(CommandKind::Neutralize(position), true, true)
     }
 
     fn enqueue(
@@ -215,6 +225,7 @@ impl HidWriter {
             }
         }
         state.queue.push_back(QueuedCommand { kind, reply });
+        state.queue_high_water = state.queue_high_water.max(state.queue.len());
         self.shared.changed.notify_one();
         drop(state);
 
@@ -406,6 +417,10 @@ fn execute(backend: &mut Box<dyn HidBackend>, command: &CommandKind) -> Result<(
         CommandKind::Reports(reports) => backend.submit(reports),
         CommandKind::Keyboard { modifiers, keys } => backend.keyboard(*modifiers, keys),
         CommandKind::Reset(position) => backend.reset(*position),
+        CommandKind::Neutralize(position) => {
+            backend.keyboard(0, &[])?;
+            backend.reset(*position)
+        }
     }
 }
 
@@ -539,6 +554,7 @@ mod tests {
                     available: true,
                     faults: 0,
                     last_error: None,
+                    queue_high_water: 0,
                 }),
                 changed: Condvar::new(),
             }),
@@ -641,6 +657,24 @@ mod tests {
             state.queue.back().unwrap().kind,
             CommandKind::Reports(_)
         ));
+    }
+
+    #[test]
+    fn full_queue_rejects_a_move_instead_of_silently_dropping_it() {
+        let writer = idle_writer();
+        {
+            let mut state = lock_state(&writer.shared);
+            for _ in 0..QUEUE_CAPACITY {
+                state.queue.push_back(QueuedCommand {
+                    kind: CommandKind::Reports(vec![report(1)]),
+                    reply: None,
+                });
+            }
+        }
+        assert_eq!(
+            writer.submit_move(report(2)).unwrap_err(),
+            "Meno HID command queue is full"
+        );
     }
 
     #[test]

@@ -303,7 +303,7 @@ struct ConnectionState {
     mouse_handshake: bool,
     mouse_ready: bool,
     mouse_keyboard: bool,
-    directional_mouse_handoff: bool,
+    mouse_route_contract: bool,
     remote_shutdown: bool,
     mouse_driver_abi: u16,
     remote_name: String,
@@ -320,7 +320,7 @@ impl ConnectionState {
             mouse_handshake: mouse_channel_missing,
             mouse_ready: false,
             mouse_keyboard: false,
-            directional_mouse_handoff: false,
+            mouse_route_contract: false,
             remote_shutdown: false,
             mouse_driver_abi: 0,
             remote_name: String::new(),
@@ -623,7 +623,7 @@ fn run_connection(
                 SessionEvent::Ready {
                     mouse,
                     keyboard,
-                    directional_mouse_handoff: negotiated_directional_mouse_handoff,
+                    mouse_route_contract: negotiated_mouse_route_contract,
                     remote_shutdown: negotiated_remote_shutdown,
                     driver_abi,
                 } => {
@@ -633,7 +633,7 @@ fn run_connection(
                     state.mouse_handshake = true;
                     state.mouse_ready = mouse;
                     state.mouse_keyboard = keyboard;
-                    state.directional_mouse_handoff = negotiated_directional_mouse_handoff;
+                    state.mouse_route_contract = negotiated_mouse_route_contract;
                     state.remote_shutdown = negotiated_remote_shutdown;
                     state.mouse_driver_abi = driver_abi;
                     report_connection(hwnd, &address_text, &mut state);
@@ -729,7 +729,7 @@ fn report_connection(hwnd: HWND, address: &str, state: &mut ConnectionState) {
             CAPABILITY_FILE_CLIPBOARD,
         ]));
     crate::logging::info(&format!(
-        "Negotiated MENO capabilities: content={} text={} png={} file={} microphone={} windowsOnline={} mouse={} keyboard={} directionalMouseHandoff={} shutdown={} driver_abi={}",
+        "Negotiated MENO capabilities: content={} text={} png={} file={} microphone={} windowsOnline={} mouse={} keyboard={} mouseRouteContract={} shutdown={} driver_abi={}",
         !content_capabilities.is_empty(),
         state
             .clipboard_capabilities
@@ -746,7 +746,7 @@ fn report_connection(hwnd: HWND, address: &str, state: &mut ConnectionState) {
             .contains(CAPABILITY_WINDOWS_ONLINE_NOTIFICATION),
         state.mouse_ready,
         state.mouse_keyboard,
-        state.directional_mouse_handoff,
+        state.mouse_route_contract,
         state.remote_shutdown,
         state.mouse_driver_abi,
     ));
