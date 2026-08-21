@@ -1,6 +1,5 @@
 @preconcurrency import CoreGraphics
 import Foundation
-import OSLog
 
 @MainActor
 final class LocalDisplayPortalTopology {
@@ -76,10 +75,6 @@ final class LocalDisplayPortalTopology {
                 return true
             }
             activeBaseline = baseline
-            let scope = nativeOption == .permanently ? "permanent" : "session"
-            CrossScreenMouseController.logger.info(
-                "Local display portal repaired the native base layout scope=\(scope, privacy: .public)"
-            )
             return true
         }
         if Self.matches(origins: origins, displays: displays) {
@@ -93,13 +88,6 @@ final class LocalDisplayPortalTopology {
             return false
         }
         activeBaseline = baseline
-        let activeIDs = Set(displays.map(\.id))
-        let order = baseline.routingOrderIDs
-            .filter(activeIDs.contains)
-            .joined(separator: "->")
-        CrossScreenMouseController.logger.info(
-            "Local display portal reconciled order=\(order, privacy: .public)"
-        )
         return true
     }
 
@@ -116,16 +104,12 @@ final class LocalDisplayPortalTopology {
             return false
         }
         let option: CGConfigureOption
-        let scope: String
         if permanentOrigins != nil {
             option = .permanently
-            scope = "permanent"
         } else if verifiedOrigins != nil {
             option = .forSession
-            scope = "session"
         } else {
             option = .forAppOnly
-            scope = "application"
         }
         guard origins.isEmpty || Self.apply(origins: origins, option: option) else {
             CrossScreenMouseController.logger.error(
@@ -134,9 +118,6 @@ final class LocalDisplayPortalTopology {
             return false
         }
         self.activeBaseline = nil
-        CrossScreenMouseController.logger.info(
-            "Local display portal restored the native layout scope=\(scope, privacy: .public)"
-        )
         return true
     }
 
@@ -195,7 +176,6 @@ final class LocalDisplayPortalTopology {
 }
 
 private struct CrossScreenGeometrySnapshot {
-    let displays: [CrossScreenDisplay]
     let windows: WindowsDisplayHandoffGeometry?
     let local: HorizontalDisplayHandoffGeometry?
     let sharedDisplayIsVisible: Bool
@@ -212,7 +192,6 @@ extension CrossScreenMouseController {
             displays: CrossScreenDisplay.currentDisplays()
         )
         let snapshot = resolvedDisplayGeometries()
-        let displays = snapshot.displays
         let windowsGeometry = snapshot.windows
         let displayHandoffGeometry = snapshot.local
         let sharedDisplayIsVisible = snapshot.sharedDisplayIsVisible
@@ -224,8 +203,6 @@ extension CrossScreenMouseController {
                 shouldResetWindowsRoute: forceWindowsRouteReset
                     || windowsGeometryChanged
                     || displayGeometryChanged,
-                windowsGeometryChanged: windowsGeometryChanged,
-                displayGeometryChanged: displayGeometryChanged,
                 sharedDisplayReappeared: state.windowsRouteEnabled
                     && sharedDisplayIsVisible
             )
@@ -250,12 +227,6 @@ extension CrossScreenMouseController {
                     pointerLocation: state.mode.capturesInput ? nil : pointerLocation
                 )
             }
-            if changes.displayGeometryChanged {
-                logDisplayHandoffGeometry(displayHandoffGeometry, displays: displays)
-            }
-            if changes.windowsGeometryChanged {
-                logWindowsGeometry(windowsGeometry)
-            }
             if changes.sharedDisplayReappeared {
                 Self.logger.error(
                     "Windows route disabled because the shared display reappeared in macOS"
@@ -275,7 +246,6 @@ extension CrossScreenMouseController {
             state.softKVMTopologyPlan
         }
         return CrossScreenGeometrySnapshot(
-            displays: displays,
             windows: WindowsDisplayHandoffGeometry.resolve(
                 sharedDisplayID: sharedDisplayID,
                 topologyPlan: topologyPlan,
@@ -320,47 +290,6 @@ extension CrossScreenMouseController {
         }
         if transition.changed {
             refreshDisplaysAndGeometry()
-            let description = "enabled=\(configuration.enabled) "
-                + "alignment=\(configuration.alignment.rawValue)"
-            Self.logger.info(
-                "Display handoff configuration changed \(description, privacy: .public)"
-            )
         }
-    }
-
-    private func logDisplayHandoffGeometry(
-        _ geometry: HorizontalDisplayHandoffGeometry?,
-        displays: [CrossScreenDisplay]
-    ) {
-        guard let geometry else {
-            let description = displays.map(Self.displayLogDescription).joined(separator: " | ")
-            Self.logger.info(
-                "Display handoff unavailable displays=\(description, privacy: .public)"
-            )
-            return
-        }
-        let displayDescription = geometry.displays.map(Self.displayLogDescription)
-            .joined(separator: " | ")
-        let seamDescription = geometry.seams.map {
-            "\($0.leftDisplay.id)->\($0.rightDisplay.id)@\($0.seamX)"
-        }.joined(separator: ",")
-        let description = "displays=\(displayDescription) seams=\(seamDescription)"
-        Self.logger.info("Display handoff ready \(description, privacy: .public)")
-    }
-
-    private func logWindowsGeometry(_ geometry: WindowsDisplayHandoffGeometry?) {
-        guard let geometry else {
-            Self.logger.info("Windows display handoff unavailable")
-            return
-        }
-        let description = "display=\(geometry.macDisplay.name) "
-            + "macEdge=\(geometry.macEdge) windowsEdge=\(geometry.windowsEntryEdge) "
-            + "source=three-display-baseline"
-        Self.logger.info("Windows display handoff ready \(description, privacy: .public)")
-    }
-
-    private static func displayLogDescription(_ display: CrossScreenDisplay) -> String {
-        let height = display.physicalHeightMM.map(String.init(describing:)) ?? "unknown"
-        return "\(display.name) id=\(display.id) frame=\(display.frame) heightMM=\(height)"
     }
 }

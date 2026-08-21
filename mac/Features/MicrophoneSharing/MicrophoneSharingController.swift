@@ -273,13 +273,12 @@ final class MicrophoneSharingController {
         }
     }
 
-    private func audioReady(connectionID: UUID, peerName: String) {
+    private func audioReady(connectionID: UUID, peerName _: String) {
         guard audioConnection?.id == connectionID,
               controlConnectionID != nil,
               availableForNegotiation else { return }
         captureFailure = nil
         audioIsReady = true
-        logger.info("Microphone audio connected to \(peerName, privacy: .public)")
         if activationHeld {
             startCaptureIfPossible()
         } else {
@@ -421,7 +420,6 @@ final class MicrophoneSharingController {
         do {
             try startCapture(connectionID: connectionID)
             captureFailure = nil
-            logger.info("Microphone input device changed")
         } catch {
             captureFailed(connectionID: connectionID, message: error.localizedDescription)
         }

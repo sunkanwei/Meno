@@ -174,7 +174,6 @@ final class ClosedLidBehaviorController {
             if requestDisplaySleep {
                 requestDisplaySleepNow(generation: generation)
             }
-            logger.info("Closed-lid mode active: \(request.reason.rawValue, privacy: .public)")
 
         case let .sleep(requestSystemSleep):
             idleSleepAssertion.release()
@@ -182,7 +181,6 @@ final class ClosedLidBehaviorController {
             if requestSystemSleep {
                 requestSystemSleepNow(generation: generation)
             }
-            logger.info("Closed-lid system sleep active: \(request.reason.rawValue, privacy: .public)")
 
         case .failSafe:
             failSafe("无法确认 MacBook 的开合状态，已恢复系统默认行为。")
@@ -198,7 +196,6 @@ final class ClosedLidBehaviorController {
                 failSafe("系统未能关闭显示器，功能已停用并恢复系统默认行为。")
                 return
             }
-            logger.info("Display sleep requested")
         }
     }
 
@@ -211,7 +208,6 @@ final class ClosedLidBehaviorController {
                 failSafe("系统未能进入睡眠，已恢复系统默认行为。")
                 return
             }
-            logger.info("System sleep requested")
         }
     }
 

@@ -206,7 +206,6 @@ targets:
       - path: Features/CrossScreenMouse/MouseControlProtocol.swift
       - path: Features/CrossScreenMouse/MouseOutboundMailbox.swift
       - path: Features/CrossScreenMouse/PhysicalDisplayHandoff.swift
-      - path: Features/CrossScreenMouse/RemoteDiagnostics.swift
       - path: Features/CrossScreenMouse/WindowsDisplayHandoff.swift
       - path: Features/SoftKVM/DisplayModels.swift
       - path: Features/SoftKVM/DesktopIconLayout.swift

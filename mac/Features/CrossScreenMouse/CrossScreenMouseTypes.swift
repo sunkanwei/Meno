@@ -66,7 +66,6 @@ struct CrossScreenMouseState {
     var movementScaler = MouseMovementScaler(scaleX: 1, scaleY: 1)
     var lastWindowsNormalizedY: UInt16 = UInt16.max / 2
     private var cursorCapture: MacCursorOwnership.CaptureToken?
-    var controlStartedAt: ContinuousClock.Instant?
     var tapFailure: String?
     var runtimeFailure: String?
     var softKVMShortcut = SoftKVMShortcut.defaultValue
@@ -353,12 +352,4 @@ func currentMouseButtonMask() -> UInt8 {
     if CGEventSource.buttonState(.combinedSessionState, button: .right) { mask |= 2 }
     if CGEventSource.buttonState(.combinedSessionState, button: .center) { mask |= 4 }
     return mask
-}
-
-extension Duration {
-    var crossScreenTimeInterval: TimeInterval {
-        let components = self.components
-        return TimeInterval(components.seconds)
-            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-    }
 }

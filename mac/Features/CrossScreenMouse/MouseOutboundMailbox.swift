@@ -4,7 +4,6 @@ struct MouseOutboundFrameSpec: Sendable {
     let kind: ClipboardMessageKind
     let payload: Data
     let controlID: UInt64?
-    let capturedAt: ContinuousClock.Instant
 }
 
 enum MouseMailboxSubmission: Equatable, Sendable {
@@ -12,16 +11,6 @@ enum MouseMailboxSubmission: Equatable, Sendable {
     case queued
     case scheduleDrain
     case failed
-}
-
-struct MouseMailboxDiagnostics: Sendable {
-    let capturedSamples: Int
-    let mergedMovements: Int
-    let deduplicatedHeartbeats: Int
-    let returnCandidates: Int
-    let blockedReturnCandidates: Int
-    let currentDepth: Int
-    let maximumDepth: Int
 }
 
 struct MouseOutboundMailbox: Sendable {
@@ -37,7 +26,6 @@ struct MouseOutboundMailbox: Sendable {
         let maximumX: Int32
         let entryEdge: HorizontalDisplaySide
         var endsWithEdgeProbe: Bool
-        let capturedAt: ContinuousClock.Instant
 
         var frames: [MouseOutboundFrameSpec] {
             let samples: [MouseMoveSample]
@@ -62,8 +50,7 @@ struct MouseOutboundMailbox: Sendable {
                 MouseOutboundFrameSpec(
                     kind: .mouseMove,
                     payload: MousePayload.move(controlID: controlID, samples: Array($0)),
-                    controlID: controlID,
-                    capturedAt: capturedAt
+                    controlID: controlID
                 )
             }
         }
@@ -118,12 +105,6 @@ struct MouseOutboundMailbox: Sendable {
     private var failed = false
     private var wheelAccumulator = MouseWheelAccumulator()
     private var lastWheelInputAt: ContinuousClock.Instant?
-    private var capturedSamples = 0
-    private var mergedMovements = 0
-    private var deduplicatedHeartbeats = 0
-    private var returnCandidates = 0
-    private var blockedReturnCandidates = 0
-    private var maximumDepth = 0
 
     init(maximumItems: Int = 16) {
         precondition(maximumItems > 0)
@@ -153,16 +134,14 @@ struct MouseOutboundMailbox: Sendable {
 
     mutating func enqueueConnectionFrame(
         kind: ClipboardMessageKind,
-        payload: Data,
-        capturedAt: ContinuousClock.Instant = .now
+        payload: Data
     ) -> MouseMailboxSubmission {
         guard ready else { return .ignored }
         return append(.frames([
             MouseOutboundFrameSpec(
                 kind: kind,
                 payload: payload,
-                controlID: nil,
-                capturedAt: capturedAt
+                controlID: nil
             ),
         ]))
     }
@@ -172,8 +151,7 @@ struct MouseOutboundMailbox: Sendable {
         normalizedY: UInt16,
         residualX: Int32,
         entryEdge: HorizontalDisplaySide = .left,
-        returnOpeningY: ClosedRange<Int32>,
-        capturedAt: ContinuousClock.Instant = .now
+        returnOpeningY: ClosedRange<Int32>
     ) -> MouseMailboxSubmission {
         guard ready, controlID != 0, session == nil, let screenMetrics,
               screenMetrics.width > 0, screenMetrics.height > 0 else {
@@ -201,7 +179,6 @@ struct MouseOutboundMailbox: Sendable {
             entryEdge: entryEdge
         )
         let residualSamples = MousePayload.split(dx: residualX, dy: 0)
-        capturedSamples += residualSamples.count
         for sample in residualSamples {
             _ = apply(sample, to: &newSession, detectsLeave: false)
         }
@@ -209,8 +186,7 @@ struct MouseOutboundMailbox: Sendable {
         var frames = [enterFrame(
             controlID: controlID,
             normalizedY: normalizedY,
-            entryEdge: entryEdge,
-            capturedAt: capturedAt
+            entryEdge: entryEdge
         )]
         let residual = MousePayload.split(
             dx: newSession.position.x - initial.x,
@@ -220,8 +196,7 @@ struct MouseOutboundMailbox: Sendable {
             MouseOutboundFrameSpec(
                 kind: .mouseMove,
                 payload: MousePayload.move(controlID: controlID, samples: Array($0)),
-                controlID: controlID,
-                capturedAt: capturedAt
+                controlID: controlID
             )
         })
         session = newSession
@@ -232,22 +207,19 @@ struct MouseOutboundMailbox: Sendable {
     mutating func enqueueMove(
         controlID: UInt64,
         dx: Int32,
-        dy: Int32,
-        capturedAt: ContinuousClock.Instant = .now
+        dy: Int32
     ) -> MouseMailboxSubmission {
         guard var active = acceptedSession(controlID), dx != 0 || dy != 0 else {
             return .ignored
         }
         let start = active.position
         let samples = MousePayload.split(dx: dx, dy: dy)
-        capturedSamples += samples.count
         var forcesLeave = false
         for sample in samples {
             if apply(sample, to: &active, detectsLeave: true) {
                 forcesLeave = true
                 active.waitingForLeave = true
                 active.acceptingInput = false
-                returnCandidates += 1
                 break
             }
         }
@@ -264,7 +236,6 @@ struct MouseOutboundMailbox: Sendable {
             previous.target = active.position
             previous.endsWithEdgeProbe = endsWithEdgeProbe
             items[items.count - 1] = .movement(previous)
-            mergedMovements += 1
             return drainResult()
         }
         guard start != active.position || endsWithEdgeProbe else { return .ignored }
@@ -274,16 +245,14 @@ struct MouseOutboundMailbox: Sendable {
             target: active.position,
             maximumX: active.maximumX,
             entryEdge: active.entryEdge,
-            endsWithEdgeProbe: endsWithEdgeProbe,
-            capturedAt: capturedAt
+            endsWithEdgeProbe: endsWithEdgeProbe
         )))
     }
 
     mutating func enqueueButton(
         controlID: UInt64,
         button: UInt8,
-        down: Bool,
-        capturedAt: ContinuousClock.Instant = .now
+        down: Bool
     ) -> MouseMailboxSubmission {
         guard var active = acceptedSession(controlID), (1...3).contains(button) else {
             return .ignored
@@ -301,14 +270,12 @@ struct MouseOutboundMailbox: Sendable {
         if expectsLeave {
             active.waitingForLeave = true
             active.acceptingInput = false
-            returnCandidates += 1
         }
         session = active
         return appendSessionFrame(
             kind: .mouseButton,
             payload: MousePayload.button(controlID: controlID, button: button, down: down),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         )
     }
 
@@ -331,15 +298,13 @@ struct MouseOutboundMailbox: Sendable {
         return appendSessionFrame(
             kind: .mouseWheel,
             payload: MousePayload.wheel(controlID: controlID, lines: lines),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         )
     }
 
     mutating func enqueueKeyboard(
         controlID: UInt64,
-        report: KeyboardReport,
-        capturedAt: ContinuousClock.Instant = .now
+        report: KeyboardReport
     ) -> MouseMailboxSubmission {
         guard keyboardSupported, var active = acceptedSession(controlID) else { return .ignored }
         active.keyboardReport = report
@@ -347,30 +312,24 @@ struct MouseOutboundMailbox: Sendable {
         return appendSessionFrame(
             kind: .keyboardState,
             payload: MousePayload.keyboard(controlID: controlID, report: report),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         )
     }
 
-    mutating func enqueueHeartbeat(
-        controlID: UInt64,
-        capturedAt: ContinuousClock.Instant = .now
-    ) -> MouseMailboxSubmission {
+    mutating func enqueueHeartbeat(controlID: UInt64) -> MouseMailboxSubmission {
         guard let active = acceptedSession(controlID) else { return .ignored }
         let keyboard = keyboardSupported && !active.keyboardReport.isReleased
             ? active.keyboardReport : nil
         var frames = [MouseOutboundFrameSpec(
             kind: .mouseControlHeartbeat,
             payload: MousePayload.control(controlID: controlID),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         )]
         if let keyboard {
             frames.append(MouseOutboundFrameSpec(
                 kind: .keyboardState,
                 payload: MousePayload.keyboard(controlID: controlID, report: keyboard),
-                controlID: controlID,
-                capturedAt: capturedAt
+                controlID: controlID
             ))
         }
         if case let .heartbeat(previousID, previousKeyboard, _)? = items.last,
@@ -381,7 +340,6 @@ struct MouseOutboundMailbox: Sendable {
                 keyboardReport: keyboard,
                 frames: frames
             )
-            deduplicatedHeartbeats += 1
             return drainResult()
         }
         return append(.heartbeat(
@@ -391,10 +349,7 @@ struct MouseOutboundMailbox: Sendable {
         ))
     }
 
-    mutating func enqueueRelease(
-        controlID: UInt64,
-        capturedAt: ContinuousClock.Instant = .now
-    ) -> MouseMailboxSubmission {
+    mutating func enqueueRelease(controlID: UInt64) -> MouseMailboxSubmission {
         guard ready, !failed, var active = session,
               active.controlID == controlID,
               active.acceptingInput || active.waitingForLeave else { return .ignored }
@@ -407,23 +362,18 @@ struct MouseOutboundMailbox: Sendable {
             frames.append(MouseOutboundFrameSpec(
                 kind: .keyboardState,
                 payload: MousePayload.keyboard(controlID: controlID, report: .released),
-                controlID: controlID,
-                capturedAt: capturedAt
+                controlID: controlID
             ))
         }
         frames.append(MouseOutboundFrameSpec(
             kind: .mouseReleaseAll,
             payload: MousePayload.control(controlID: controlID),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         ))
         return append(.frames(frames))
     }
 
-    mutating func abortControl(
-        controlID: UInt64,
-        capturedAt: ContinuousClock.Instant = .now
-    ) -> MouseMailboxSubmission {
+    mutating func abortControl(controlID: UInt64) -> MouseMailboxSubmission {
         guard ready, !failed, var active = session,
               active.controlID == controlID else { return .ignored }
         active.acceptingInput = false
@@ -437,18 +387,15 @@ struct MouseOutboundMailbox: Sendable {
             frames.append(MouseOutboundFrameSpec(
                 kind: .keyboardState,
                 payload: MousePayload.keyboard(controlID: controlID, report: .released),
-                controlID: controlID,
-                capturedAt: capturedAt
+                controlID: controlID
             ))
         }
         frames.append(MouseOutboundFrameSpec(
             kind: .mouseReleaseAll,
             payload: MousePayload.control(controlID: controlID),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         ))
         items.insert(.frames(frames), at: 0)
-        maximumDepth = max(maximumDepth, items.count)
         return drainResult()
     }
 
@@ -485,25 +432,6 @@ struct MouseOutboundMailbox: Sendable {
         if result.isEmpty, items.isEmpty {
             drainScheduled = false
         }
-        return result
-    }
-
-    mutating func diagnostics() -> MouseMailboxDiagnostics {
-        let result = MouseMailboxDiagnostics(
-            capturedSamples: capturedSamples,
-            mergedMovements: mergedMovements,
-            deduplicatedHeartbeats: deduplicatedHeartbeats,
-            returnCandidates: returnCandidates,
-            blockedReturnCandidates: blockedReturnCandidates,
-            currentDepth: items.count,
-            maximumDepth: maximumDepth
-        )
-        capturedSamples = 0
-        mergedMovements = 0
-        deduplicatedHeartbeats = 0
-        returnCandidates = 0
-        blockedReturnCandidates = 0
-        maximumDepth = items.count
         return result
     }
 
@@ -553,7 +481,6 @@ struct MouseOutboundMailbox: Sendable {
                 ? min(1, session.maximumX)
                 : max(0, session.maximumX - 1)
             session.position.y = proposedY
-            blockedReturnCandidates += 1
             if sample.dx != 0 {
                 session.recentMovedTowardEdge = true
             }
@@ -585,8 +512,7 @@ struct MouseOutboundMailbox: Sendable {
     private func enterFrame(
         controlID: UInt64,
         normalizedY: UInt16,
-        entryEdge: HorizontalDisplaySide,
-        capturedAt: ContinuousClock.Instant
+        entryEdge: HorizontalDisplaySide
     ) -> MouseOutboundFrameSpec {
         return MouseOutboundFrameSpec(
             kind: .directionalMouseEnter,
@@ -595,23 +521,20 @@ struct MouseOutboundMailbox: Sendable {
                 normalizedY: normalizedY,
                 entryEdge: entryEdge
             ),
-            controlID: controlID,
-            capturedAt: capturedAt
+            controlID: controlID
         )
     }
 
     private mutating func appendSessionFrame(
         kind: ClipboardMessageKind,
         payload: Data,
-        controlID: UInt64,
-        capturedAt: ContinuousClock.Instant
+        controlID: UInt64
     ) -> MouseMailboxSubmission {
         append(.frames([
             MouseOutboundFrameSpec(
                 kind: kind,
                 payload: payload,
-                controlID: controlID,
-                capturedAt: capturedAt
+                controlID: controlID
             ),
         ]))
     }
@@ -620,7 +543,6 @@ struct MouseOutboundMailbox: Sendable {
         guard !failed else { return .ignored }
         guard items.count < maximumItems else { return fail() }
         items.append(item)
-        maximumDepth = max(maximumDepth, items.count)
         return drainResult()
     }
 

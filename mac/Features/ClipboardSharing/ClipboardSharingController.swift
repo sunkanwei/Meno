@@ -279,11 +279,6 @@ final class WindowsCompanionController {
                         connectionID: connectionID,
                         microphoneNegotiated: capabilities.contains(.macMicrophone)
                     )
-                    let capabilityIDs = capabilities.map(\.rawValue).sorted().map(String.init)
-                        .joined(separator: ",")
-                    let connectedMessage = "Windows control connected to \(name); "
-                        + "negotiated capabilities=[\(capabilityIDs)]"
-                    logger.info("\(connectedMessage, privacy: .public)")
                 }
             },
             onContent: { [weak self] content in
@@ -385,7 +380,6 @@ final class WindowsCompanionController {
                     } else {
                         onMouseReadinessChanged(nil)
                     }
-                    logger.info("Mouse channel connected to \(peer.name, privacy: .public)")
                 }
             },
             onAcquired: { [weak self] controlID in

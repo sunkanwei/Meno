@@ -1,6 +1,5 @@
 import Foundation
 import Network
-import OSLog
 
 final class MouseConnection: @unchecked Sendable {
     typealias ReadyHandler = @Sendable (MousePeer) -> Void
@@ -13,7 +12,6 @@ final class MouseConnection: @unchecked Sendable {
 
     private struct ActiveWrite {
         let id: UInt64
-        let startedAt: ContinuousClock.Instant
         let deadline: ContinuousClock.Instant
         let includesRemoteShutdown: Bool
     }
@@ -27,7 +25,6 @@ final class MouseConnection: @unchecked Sendable {
         autoreleaseFrequency: .workItem
     )
     private let mailboxLock = NSLock()
-    private let logger = Logger(subsystem: "com.sunkanwei.Meno", category: "MouseConnection")
     private let localName: String
     private let onReady: ReadyHandler
     private let onAcquired: AcquiredHandler
@@ -53,15 +50,12 @@ final class MouseConnection: @unchecked Sendable {
     private var didDisconnect = false
     private var handshakeTimer: DispatchSourceTimer?
     private var remoteShutdownSupported = false
-    private var remoteDiagnosticsSupported = false
     private var remoteShutdownCompletion: RemoteShutdownCompletion?
     private var sending = false
     private var activeWrite: ActiveWrite?
     private var nextWriteID: UInt64 = 1
     private var nextMessageID = UInt64.random(in: 1...UInt64.max)
     private var keepaliveTimer: DispatchSourceTimer?
-    private var diagnosticsTimer: DispatchSourceTimer?
-    private var diagnostics = MouseConnectionDiagnostics()
     private var controlHeartbeatTimer: DispatchSourceTimer?
     private var writeWatchdogTimer: DispatchSourceTimer?
     private var activeControlID: UInt64?
@@ -73,11 +67,6 @@ final class MouseConnection: @unchecked Sendable {
     private static let idleBeforePing: Duration = .seconds(30)
     private static let pongTimeout: Duration = .seconds(10)
     private static let controlHeartbeatInterval: TimeInterval = 0.1
-    private static let diagnosticsQueue = DispatchQueue(
-        label: "com.sunkanwei.Meno.MouseConnection.Diagnostics",
-        qos: .utility
-    )
-
     init(
         id: UUID,
         connection: NWConnection,
@@ -120,15 +109,13 @@ final class MouseConnection: @unchecked Sendable {
         entryEdge: HorizontalDisplaySide,
         returnOpeningY: ClosedRange<Int32>
     ) {
-        let capturedAt = ContinuousClock.now
         let result = mailboxLock.withCriticalSection {
             mailbox.beginSession(
                 controlID: controlID,
                 normalizedY: normalizedY,
                 residualX: residualX,
                 entryEdge: entryEdge,
-                returnOpeningY: returnOpeningY,
-                capturedAt: capturedAt
+                returnOpeningY: returnOpeningY
             )
         }
         switch result {
@@ -155,52 +142,47 @@ final class MouseConnection: @unchecked Sendable {
 
     func sendMove(controlID: UInt64, dx: Int32, dy: Int32) {
         guard dx != 0 || dy != 0 else { return }
-        submit { mailbox, capturedAt in
+        submit { mailbox in
             mailbox.enqueueMove(
                 controlID: controlID,
                 dx: dx,
-                dy: dy,
-                capturedAt: capturedAt
+                dy: dy
             )
         }
     }
 
     func sendButton(controlID: UInt64, _ button: UInt8, down: Bool) {
-        submit { mailbox, capturedAt in
+        submit { mailbox in
             mailbox.enqueueButton(
                 controlID: controlID,
                 button: button,
-                down: down,
-                capturedAt: capturedAt
+                down: down
             )
         }
     }
 
     func sendWheel(controlID: UInt64, _ inputLines: Double) {
         guard inputLines != 0 else { return }
-        submit { mailbox, capturedAt in
+        submit { mailbox in
             mailbox.enqueueWheel(
                 controlID: controlID,
-                inputLines: inputLines,
-                capturedAt: capturedAt
+                inputLines: inputLines
             )
         }
     }
 
     func sendKeyboardState(controlID: UInt64, _ report: KeyboardReport) {
-        submit { mailbox, capturedAt in
+        submit { mailbox in
             mailbox.enqueueKeyboard(
                 controlID: controlID,
-                report: report,
-                capturedAt: capturedAt
+                report: report
             )
         }
     }
 
     func sendReleaseAll(controlID: UInt64) {
-        let capturedAt = ContinuousClock.now
         let result = mailboxLock.withCriticalSection {
-            mailbox.enqueueRelease(controlID: controlID, capturedAt: capturedAt)
+            mailbox.enqueueRelease(controlID: controlID)
         }
         queue.async { [weak self] in
             guard let self else { return }
@@ -210,9 +192,8 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     func abortControl(controlID: UInt64) {
-        let capturedAt = ContinuousClock.now
         let result = mailboxLock.withCriticalSection {
-            mailbox.abortControl(controlID: controlID, capturedAt: capturedAt)
+            mailbox.abortControl(controlID: controlID)
         }
         queue.async { [weak self] in
             guard let self else { return }
@@ -247,14 +228,10 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     private func submit(
-        _ operation: (
-            inout MouseOutboundMailbox,
-            ContinuousClock.Instant
-        ) -> MouseMailboxSubmission
+        _ operation: (inout MouseOutboundMailbox) -> MouseMailboxSubmission
     ) {
-        let capturedAt = ContinuousClock.now
         let result = mailboxLock.withCriticalSection {
-            operation(&mailbox, capturedAt)
+            operation(&mailbox)
         }
         switch result {
         case .scheduleDrain:
@@ -290,14 +267,6 @@ final class MouseConnection: @unchecked Sendable {
         }
         guard !specs.isEmpty else { return }
 
-        let now = ContinuousClock.now
-        for spec in specs {
-            diagnostics.recordMailboxWait(spec.capturedAt.duration(to: now))
-            if spec.kind == .mouseMove, spec.payload.count >= 9 {
-                let batchSize = Int(spec.payload[spec.payload.startIndex + 8])
-                diagnostics.recordMouseMove(batchSize: batchSize)
-            }
-        }
         var content = Data(capacity: specs.reduce(0) {
             $0 + ClipboardWire.headerSize + $1.payload.count
         })
@@ -311,7 +280,6 @@ final class MouseConnection: @unchecked Sendable {
         let startedAt = ContinuousClock.now
         activeWrite = ActiveWrite(
             id: writeID,
-            startedAt: startedAt,
             deadline: startedAt.advanced(by: Self.writeTimeout),
             includesRemoteShutdown: specs.contains { $0.kind == .shutdownRequest }
         )
@@ -325,7 +293,6 @@ final class MouseConnection: @unchecked Sendable {
         guard let write = activeWrite, write.id == id, !didDisconnect else { return }
         let now = ContinuousClock.now
         if now >= write.deadline {
-            diagnostics.recordWriteTimeout()
             failConnection("跨屏鼠标网络写入超过 100 毫秒。")
             return
         }
@@ -333,8 +300,6 @@ final class MouseConnection: @unchecked Sendable {
             failConnection(error.localizedDescription)
             return
         }
-        let duration = write.startedAt.duration(to: now)
-        diagnostics.recordWrite(duration)
         activeWrite = nil
         sending = false
         disarmWriteWatchdog()
@@ -374,7 +339,6 @@ final class MouseConnection: @unchecked Sendable {
             )
             return
         }
-        diagnostics.recordWriteTimeout()
         failConnection("跨屏鼠标网络写入超过 100 毫秒。")
     }
 
@@ -403,10 +367,7 @@ final class MouseConnection: @unchecked Sendable {
             guard readiness.isReady, let controlID = MousePayload.decodeControl(frame.payload) else {
                 throw ClipboardFrameDecoderError.invalidHeader
             }
-            guard activeControlID == controlID else {
-                logger.info("Ignoring stale mouse acquired id=\(controlID, privacy: .public)")
-                return
-            }
+            guard activeControlID == controlID else { return }
             onAcquired(controlID)
         case .mouseReleased:
             guard readiness.isReady, let controlID = MousePayload.decodeControl(frame.payload) else {
@@ -423,18 +384,6 @@ final class MouseConnection: @unchecked Sendable {
             }
             mailboxLock.withCriticalSection { mailbox.disableKeyboard() }
             onDriverUnavailable()
-        case .diagnosticEvent:
-            guard readiness.isReady, remoteDiagnosticsSupported else {
-                throw ClipboardFrameDecoderError.invalidHeader
-            }
-            switch RemoteDiagnosticPayload.decode(frame.payload) {
-            case let .event(event):
-                RemoteDiagnosticsJournal.shared.record(event, connectionID: id)
-            case .ignored:
-                break
-            case .invalid:
-                throw ClipboardFrameDecoderError.invalidHeader
-            }
         case .ping:
             guard readiness.isReady, frame.payload.isEmpty else {
                 throw ClipboardFrameDecoderError.invalidHeader
@@ -453,7 +402,8 @@ final class MouseConnection: @unchecked Sendable {
              .mouseMove, .mouseButton, .mouseWheel,
              .mouseReleaseAll, .keyboardState, .mouseControlHeartbeat,
              .fileOffer, .fileAccept, .fileChunk, .fileComplete, .fileResult,
-             .fileCancel, .fileAck, .shutdownRequest, .microphonePCM, .windowsOnline:
+             .fileCancel, .fileAck, .shutdownRequest, .microphonePCM, .windowsOnline,
+             .diagnosticEvent:
             throw ClipboardFrameDecoderError.invalidHeader
         }
     }
@@ -496,10 +446,7 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     private func finishControl(controlID: UInt64) -> Bool {
-        guard activeControlID == controlID else {
-            logger.info("Ignoring stale mouse release id=\(controlID, privacy: .public)")
-            return false
-        }
+        guard activeControlID == controlID else { return false }
         stopControlHeartbeat()
         activeControlID = nil
         mailboxLock.withCriticalSection { mailbox.finishSession(controlID: controlID) }
@@ -529,14 +476,12 @@ final class MouseConnection: @unchecked Sendable {
                 return
             }
             remoteShutdownSupported = peer.remoteShutdownSupported
-            remoteDiagnosticsSupported = peer.remoteDiagnosticsSupported
             mailboxLock.withCriticalSection {
                 mailbox.activate(
                     screenMetrics: peer.screenMetrics,
                     keyboardSupported: peer.keyboardSupported
                 )
             }
-            startDiagnostics()
             recordActivity()
             onReady(peer)
         })
@@ -583,29 +528,10 @@ final class MouseConnection: @unchecked Sendable {
         }
         waitingForPong = true
         let result = mailboxLock.withCriticalSection {
-            mailbox.enqueueConnectionFrame(kind: .ping, payload: Data(), capturedAt: now)
+            mailbox.enqueueConnectionFrame(kind: .ping, payload: Data())
         }
         handleQueueSubmission(result)
         scheduleKeepalive(after: Self.pongTimeout)
-    }
-
-    private func startDiagnostics() {
-        guard diagnosticsTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(
-            deadline: .now() + .seconds(5),
-            repeating: .seconds(5),
-            leeway: .milliseconds(500)
-        )
-        timer.setEventHandler { [weak self] in self?.reportDiagnostics() }
-        diagnosticsTimer = timer
-        timer.resume()
-    }
-
-    private func reportDiagnostics() {
-        let mailboxStats = mailboxLock.withCriticalSection { mailbox.diagnostics() }
-        guard let message = diagnostics.takeReport(mailbox: mailboxStats) else { return }
-        Self.diagnosticsQueue.async { [logger] in logger.info("\(message, privacy: .public)") }
     }
 
     private func failConnection(_ reason: String?) {
@@ -619,11 +545,7 @@ final class MouseConnection: @unchecked Sendable {
         handshakeTimer?.cancel()
         handshakeTimer = nil
         remoteShutdownSupported = false
-        remoteDiagnosticsSupported = false
         finishRemoteShutdownWrite(succeeded: false)
-        reportDiagnostics()
-        diagnosticsTimer?.cancel()
-        diagnosticsTimer = nil
         keepaliveTimer?.cancel()
         keepaliveTimer = nil
         stopControlHeartbeat()

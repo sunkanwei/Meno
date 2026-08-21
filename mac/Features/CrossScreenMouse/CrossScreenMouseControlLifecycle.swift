@@ -10,8 +10,6 @@ extension CrossScreenMouseController {
     private struct CursorRestoreContext {
         let capture: MacCursorOwnership.CaptureToken?
         let point: CGPoint?
-        let mappingMethod: WindowsVerticalMappingMethod?
-        let physicalOffsetMM: CGFloat?
     }
 
     @MainActor
@@ -19,10 +17,10 @@ extension CrossScreenMouseController {
         let acquire = inputEventLock.withCriticalSection {
             let result = stateLock.withCriticalSection {
                 () -> (
-                    startedAt: ContinuousClock.Instant?,
+                    isCurrent: Bool,
                     activation: (MouseConnection, KeyboardReport)?
                 ) in
-                guard case .acquiring(controlID) = state.mode else { return (nil, nil) }
+                guard case .acquiring(controlID) = state.mode else { return (false, nil) }
                 state.mode = .remote(controlID)
                 let activation: (MouseConnection, KeyboardReport)?
                 if state.keyboardSupported,
@@ -32,25 +30,17 @@ extension CrossScreenMouseController {
                 } else {
                     activation = nil
                 }
-                return (state.controlStartedAt, activation)
+                return (true, activation)
             }
             if let activation = result.activation {
                 activation.0.sendKeyboardState(controlID: controlID, activation.1)
             }
-            return (startedAt: result.startedAt, activated: result.activation != nil)
+            return (isCurrent: result.isCurrent, activated: result.activation != nil)
         }
-        guard let startedAt = acquire.startedAt else {
-            Self.logger.info("Ignored stale mouse acquired id=\(controlID, privacy: .public)")
-            return
-        }
+        guard acquire.isCurrent else { return }
         controlTimeoutWorkItem?.cancel()
         controlTimeoutWorkItem = nil
-        let milliseconds = Int(
-            (startedAt.duration(to: .now).crossScreenTimeInterval * 1_000).rounded()
-        )
-        Self.logger.info(
-            "Mouse control acquired id=\(controlID, privacy: .public) rttMs=\(milliseconds)"
-        )
+        Self.logger.notice("Mouse control acquired id=\(controlID, privacy: .public)")
         if acquire.activated {
             publishMicrophoneActivation(true)
         }
@@ -170,7 +160,7 @@ extension CrossScreenMouseController {
 
         controlTimeoutWorkItem?.cancel()
         controlTimeoutWorkItem = nil
-        Self.logger.info(
+        Self.logger.notice(
             "Mouse control releasing id=\(release.controlID, privacy: .public) reason=\(reason, privacy: .public)"
         )
         if sendRelease {
@@ -262,10 +252,7 @@ extension CrossScreenMouseController {
         let shouldComplete = stateLock.withCriticalSection {
             state.mode.controlID == controlID
         }
-        guard shouldComplete else {
-            Self.logger.info("Ignored stale mouse release id=\(controlID, privacy: .public)")
-            return
-        }
+        guard shouldComplete else { return }
         let currentDisplays = CrossScreenDisplay.currentDisplays()
         hidInputTap.performCursorTransition { [weak self] in
             guard let self else { return }
@@ -296,19 +283,10 @@ extension CrossScreenMouseController {
                 stateLock.withCriticalSection {
                     state.displayHandoff.resetTracking(at: actualPointerLocation)
                 }
-                let resultDescription = "id=\(controlID) "
-                    + "background=\(result.backgroundControl.logValue) "
-                    + "suppress=\(result.suppressionError?.rawValue ?? -1) "
-                    + "warp=\(result.warpError?.rawValue ?? 0) "
-                    + "associate=\(result.associationError.rawValue) "
-                    + "show=\(result.showError.rawValue) "
-                    + "cursor=visible "
-                    + "mapping=\(restore.mappingMethod?.rawValue ?? "none") "
-                    + "offsetMM=\(restore.physicalOffsetMM.map(String.init(describing:)) ?? "none")"
-                Self.logger.info(
-                    "Mouse cursor restored \(resultDescription, privacy: .public)"
-                )
                 if !result.succeeded {
+                    Self.logger.error(
+                        "Mouse cursor restoration failed id=\(controlID, privacy: .public)"
+                    )
                     Task { @MainActor [weak self] in
                         self?.setRuntimeFailure("macOS 无法完整恢复本地指针，跨屏鼠标已停止接管。")
                     }
@@ -317,7 +295,7 @@ extension CrossScreenMouseController {
         }
         controlTimeoutWorkItem?.cancel()
         controlTimeoutWorkItem = nil
-        Self.logger.info(
+        Self.logger.notice(
             "Mouse control local id=\(controlID, privacy: .public) reason=\(reason, privacy: .public)"
         )
         stopTapIfUnneededAndLocal()
@@ -346,14 +324,11 @@ extension CrossScreenMouseController {
             state.displayHandoff.resetTracking(at: cursorReturn?.point)
             let restore = CursorRestoreContext(
                 capture: state.takeCursorCaptureForRestore(),
-                point: cursorReturn?.point,
-                mappingMethod: cursorReturn?.method,
-                physicalOffsetMM: cursorReturn?.physicalOffsetMM
+                point: cursorReturn?.point
             )
             state.mode = .local
             state.windowsSession = nil
             state.localButtons = localButtons
-            state.controlStartedAt = nil
             state.entryGate.disarm(stabilizationPoint: cursorReturn?.point)
             _ = state.keyboard.releaseAll()
             return restore

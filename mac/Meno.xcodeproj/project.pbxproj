@@ -14,7 +14,6 @@
 		050B519ECCC455F38DB7F3F0 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED8E9E655051A9D17B629C6 /* LaunchAtLoginController.swift */; };
 		08D43D96B9381B8F6E05A682 /* KeyboardShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C980A376F347646F593CA78 /* KeyboardShortcutsSettingsView.swift */; };
 		09ED6C4007632FB66DBB7D03 /* FinderCommandSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7782B7FCBAF59E45038844 /* FinderCommandSender.swift */; };
-		0ADAFD71ADD798371A1E42E2 /* RemoteDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B969180DD538AFFFA448E77 /* RemoteDiagnosticsTests.swift */; };
 		0AE3CDAED139EEDC33CB8A42 /* DisplayHandoffSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51EEEE4BF6BBE25AA8BA0AE3 /* DisplayHandoffSettingsView.swift */; };
 		0AF780A2E0534938CA74AFC9 /* NSLockCriticalSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52F535939B8AEDBE7B1A6C2E /* NSLockCriticalSection.swift */; };
 		0BDB788CCC26AA608C46770A /* WindowProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCCA57E050C23CD814E2C44 /* WindowProbe.swift */; };
@@ -76,7 +75,6 @@
 		39C59E7A03AF5E19D0735243 /* MarkdownImageDataCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DF3AA275E5A3B2DDA458E41 /* MarkdownImageDataCollector.swift */; };
 		3A50CB90C710DDADA9A6E80C /* MouseConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B4E4A456737F6A3A17F301A /* MouseConnection.swift */; };
 		3BA95F1F7D5D9F9C948A7E30 /* HorizontalDisplayHandoffTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91079199132F832DAB4AC80 /* HorizontalDisplayHandoffTestSupport.swift */; };
-		3CB08DD605F09259E7BA3FCF /* MouseConnectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2303189B0264A20D3CFD2415 /* MouseConnectionDiagnostics.swift */; };
 		3ECC97A280E3F784DA8C3C59 /* SoftKVMStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D99EAE99AE3D1E6CCB7F777 /* SoftKVMStateMachineTests.swift */; };
 		406EB17F299447B0D3A6743B /* FinderShortcutsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0771C52F75D1127DB4B2ECE /* FinderShortcutsController.swift */; };
 		40F2B09ACD67B4A61522F116 /* ClosedLidShutdownValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB4D1AE1E958A78EAAF610C /* ClosedLidShutdownValidation.swift */; };
@@ -185,7 +183,6 @@
 		A7EFD5C6389232F746828D2B /* DesktopIconLayoutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 632E516FF09F4F8318447DBE /* DesktopIconLayoutController.swift */; };
 		AE0C31FF5A0B207C999DFF7F /* PowerHelperDaemon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4556B8FFE98247BA2F35DBB7 /* PowerHelperDaemon.swift */; };
 		AE29A3E59DD8DF06D449A0C5 /* MouseOutboundMailbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1E671196A1894D9BBA1BF42 /* MouseOutboundMailbox.swift */; };
-		AF626206C16A040BD500C06F /* RemoteDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0780FB468ECF121DDFDF88C1 /* RemoteDiagnostics.swift */; };
 		B16DC593C1E0632F9920B8AF /* TerminalApplicationDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173938CB346CCFE40B74DCAE /* TerminalApplicationDetector.swift */; };
 		B4F0B60C9FE3D021E6F47173 /* ClosedLidShutdownContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2095CBEE3F3DD8B0CD79509F /* ClosedLidShutdownContract.swift */; };
 		B78CC1D4685A1C926817551D /* ClosedLidShutdownCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C1687D6BC56047180932DC /* ClosedLidShutdownCoordinator.swift */; };
@@ -219,7 +216,6 @@
 		CDBE46DD3EC0688AD2A4C9A0 /* WindowsDisplayHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A3E1698041298B642EC349 /* WindowsDisplayHandoffTests.swift */; };
 		CE55E6262EDB211C5D43C94A /* MarkdownPreviewSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69F39D1791BA90E48E58E780 /* MarkdownPreviewSettingsView.swift */; };
 		D0C99473828EA35BAAE7DE4E /* HorizontalDisplayHandoffStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC33CE38C24B9D6B07A0CB5 /* HorizontalDisplayHandoffStateTests.swift */; };
-		D14EAD415E68A1105F64AF0E /* RemoteDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0780FB468ECF121DDFDF88C1 /* RemoteDiagnostics.swift */; };
 		D2E1F71494589571AEAFAB4C /* SettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59A43E127B5DB5BF43CDB6D4 /* SettingsComponents.swift */; };
 		D3DC175398E4125270F49274 /* DesktopIconLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5B497896056C2DED21D522 /* DesktopIconLayout.swift */; };
 		D48CBF0A5A15DEE5D4D1AAE7 /* FinderExtensionCommandBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277BDC738377B5FF392A59AE /* FinderExtensionCommandBridge.swift */; };
@@ -336,9 +332,7 @@
 		059AE7A0C7E5EBB57D176008 /* LidStateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidStateMonitor.swift; sourceTree = "<group>"; };
 		06210692D68042E041F50C04 /* KeyboardShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTests.swift; sourceTree = "<group>"; };
 		0666C3EDE2B51885969E671E /* WindowsAgentHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentHealthTests.swift; sourceTree = "<group>"; };
-		0780FB468ECF121DDFDF88C1 /* RemoteDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDiagnostics.swift; sourceTree = "<group>"; };
 		09B2CE92CEF279B3F1518423 /* clipboard-copy-cut.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "clipboard-copy-cut.png"; sourceTree = "<group>"; };
-		0B969180DD538AFFFA448E77 /* RemoteDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDiagnosticsTests.swift; sourceTree = "<group>"; };
 		0DF471045EE1A098E2A90383 /* IdleSleepAssertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleSleepAssertion.swift; sourceTree = "<group>"; };
 		0F03DB50C09870F2B41807F3 /* WindowsAgentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentController.swift; sourceTree = "<group>"; };
 		14F4CAFA33A289B511FFD70A /* CrossScreenDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenDisplay.swift; sourceTree = "<group>"; };
@@ -355,7 +349,6 @@
 		2095CBEE3F3DD8B0CD79509F /* ClosedLidShutdownContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidShutdownContract.swift; sourceTree = "<group>"; };
 		210EF63D42A02796E3052939 /* MicrophoneActivationKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneActivationKey.swift; sourceTree = "<group>"; };
 		21B722AAAB5453CA7BAFF3BA /* RendererBundleSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererBundleSchemeHandler.swift; sourceTree = "<group>"; };
-		2303189B0264A20D3CFD2415 /* MouseConnectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseConnectionDiagnostics.swift; sourceTree = "<group>"; };
 		24EBFC333CC4509F3D4F9B35 /* CrossScreenMouseNetworkOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenMouseNetworkOutput.swift; sourceTree = "<group>"; };
 		277BDC738377B5FF392A59AE /* FinderExtensionCommandBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderExtensionCommandBridge.swift; sourceTree = "<group>"; };
 		27E35BE4DA29498378FC648B /* ActivityMonitorShortcutController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitorShortcutController.swift; sourceTree = "<group>"; };
@@ -959,11 +952,9 @@
 				EC6A6D1A8FAE0AA819B6649E /* LocalDisplayPortalBaseline.swift */,
 				3F34FDD9409F3F7180DC78B6 /* MacCursorOwnership.swift */,
 				4B4E4A456737F6A3A17F301A /* MouseConnection.swift */,
-				2303189B0264A20D3CFD2415 /* MouseConnectionDiagnostics.swift */,
 				988893F22832A4BA05EF086F /* MouseControlProtocol.swift */,
 				C1E671196A1894D9BBA1BF42 /* MouseOutboundMailbox.swift */,
 				1A7A191A996D44814A2EA8E2 /* PhysicalDisplayHandoff.swift */,
-				0780FB468ECF121DDFDF88C1 /* RemoteDiagnostics.swift */,
 				FC9EF87637D9FA20CD117FAA /* WindowsDisplayHandoff.swift */,
 			);
 			path = CrossScreenMouse;
@@ -1047,7 +1038,6 @@
 				62EFF1E8B6D74FE75FAAD077 /* PasteboardCopyPollerTests.swift */,
 				34FE4D5CF5D893298A527727 /* PhysicalDisplayHandoffTests.swift */,
 				0527CD4431AF1272803B3120 /* RemediationBoundaryTests.swift */,
-				0B969180DD538AFFFA448E77 /* RemoteDiagnosticsTests.swift */,
 				3E242E9EEB8EB445EDD1E288 /* ScrollDirectionPolicyTests.swift */,
 				1D99EAE99AE3D1E6CCB7F777 /* SoftKVMStateMachineTests.swift */,
 				7B736DD638D590FD1F7FE50D /* SoftKVMStateTests.swift */,
@@ -1382,8 +1372,6 @@
 				EB4CC47728F41F25E4B08A1C /* PhysicalDisplayHandoffTests.swift in Sources */,
 				3972EAA9972E1F79A0E47BC9 /* PowerModeConfiguration.swift in Sources */,
 				2A852A16B3E21EEC4A9EA9A7 /* RemediationBoundaryTests.swift in Sources */,
-				AF626206C16A040BD500C06F /* RemoteDiagnostics.swift in Sources */,
-				0ADAFD71ADD798371A1E42E2 /* RemoteDiagnosticsTests.swift in Sources */,
 				E97A0E0DA5BAD0433F1CBFA8 /* ScrollDirectionPolicy.swift in Sources */,
 				673F5D661507535F82DB39A6 /* ScrollDirectionPolicyTests.swift in Sources */,
 				0016525F8C88011BCFE7A049 /* SoftKVMShortcut.swift in Sources */,
@@ -1539,14 +1527,12 @@
 				C409938C010400292339A729 /* MicrophonePCM.swift in Sources */,
 				652B93244DF7DC921A0B721B /* MicrophoneSharingController.swift in Sources */,
 				3A50CB90C710DDADA9A6E80C /* MouseConnection.swift in Sources */,
-				3CB08DD605F09259E7BA3FCF /* MouseConnectionDiagnostics.swift in Sources */,
 				2688E3438BE68E8BC2E74163 /* MouseControlProtocol.swift in Sources */,
 				7494469E95219655249DB340 /* MouseOutboundMailbox.swift in Sources */,
 				5C07F9A56E7A687A9477FD9E /* NSLockCriticalSection.swift in Sources */,
 				8C3FEA59EBA0C1425AD820A4 /* PasteboardCopyPoller.swift in Sources */,
 				F4450C89ADC87CF1F874E4C3 /* PermissionsAndNotificationsSettingsView.swift in Sources */,
 				A50D3092EEAB5648D09D5963 /* PhysicalDisplayHandoff.swift in Sources */,
-				D14EAD415E68A1105F64AF0E /* RemoteDiagnostics.swift in Sources */,
 				DD2BD5E87283C85E062F7D1F /* ScrollDirectionPolicy.swift in Sources */,
 				43740A03817562E3EDA32E86 /* ScrollEventTap.swift in Sources */,
 				10A13421ADAC4766358E7E07 /* ScrollingController.swift in Sources */,

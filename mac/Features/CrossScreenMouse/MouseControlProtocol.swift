@@ -27,9 +27,6 @@ struct MousePeer: Equatable, Sendable {
         capabilities.contains(.directionalMouseHandoff)
     }
 
-    var remoteDiagnosticsSupported: Bool {
-        capabilities.contains(.remoteDiagnostics)
-    }
 }
 
 struct MouseMoveSample: Equatable, Sendable {
@@ -296,7 +293,6 @@ enum MousePayload {
             .keyboardState,
             .remoteShutdown,
             .directionalMouseHandoff,
-            .remoteDiagnostics,
         ])
         return MousePeer(
             name: hello.name.isEmpty ? "Windows" : hello.name,

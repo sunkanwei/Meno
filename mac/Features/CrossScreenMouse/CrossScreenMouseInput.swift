@@ -175,15 +175,8 @@ extension CrossScreenMouseController {
         state.mode = .acquiring(controlID)
         state.windowsSession = session
         state.lastWindowsNormalizedY = normalizedY
-        state.controlStartedAt = .now
         state.movementScaler.reset()
         let scaledResidual = state.movementScaler.convert(dx: Double(residualX), dy: 0)
-        logWindowsEntry(
-            controlID: controlID,
-            session: session,
-            mapping: mapping,
-            movementScaler: state.movementScaler
-        )
         return .send(.enter(
             connection: connection,
             controlID: controlID,
@@ -192,28 +185,6 @@ extension CrossScreenMouseController {
             entryEdge: session.windowsEntryEdge,
             returnOpeningY: session.windowsReturnOpeningY
         ))
-    }
-
-    private static func logWindowsEntry(
-        controlID: UInt64,
-        session: WindowsDisplayHandoffSession,
-        mapping: WindowsVerticalMapping,
-        movementScaler: MouseMovementScaler
-    ) {
-        let physicalOffset = mapping.physicalOffsetMM.map(String.init(describing:)) ?? "none"
-        let movementMethod = movementScaler.usesPhysicalScreenSize ? "physical" : "pixels"
-        let opening = session.windowsReturnOpeningY
-        let entryDescription = "id=\(controlID) display=\(session.macDisplay.id) "
-            + "macEdge=\(session.macEdge) windowsEdge=\(session.windowsEntryEdge) "
-            + "alignment=\(session.configuration.alignment.rawValue) "
-            + "method=\(mapping.method.rawValue) offsetMM=\(physicalOffset) "
-            + "normalizedY=\(mapping.normalizedY) "
-            + "returnOpeningY=\(opening.lowerBound)...\(opening.upperBound) "
-            + "movement=\(movementMethod) scaleX=\(movementScaler.scaleX) "
-            + "scaleY=\(movementScaler.scaleY)"
-        Self.logger.info(
-            "Windows display handoff enter \(entryDescription, privacy: .public)"
-        )
     }
 
     private static func remoteModeAction(
@@ -276,7 +247,6 @@ extension CrossScreenMouseController {
                 state.mode = .local
                 state.windowsSession = nil
                 _ = state.takeCursorCaptureForRestore()
-                state.controlStartedAt = nil
                 return true
             }
             guard didReset else { return false }
@@ -301,20 +271,17 @@ extension CrossScreenMouseController {
         }
         guard didAcceptCapture else {
             let restore = MacCursorOwnership.restore(captureToken, at: nil)
-            let resultDescription = "id=\(controlID) restored=\(restore.succeeded)"
-            Self.logger.info(
-                "Mouse cursor capture superseded \(resultDescription, privacy: .public)"
-            )
             if !restore.succeeded {
+                Self.logger.error(
+                    "Superseded mouse cursor capture could not be restored id=\(controlID, privacy: .public)"
+                )
                 Task { @MainActor [weak self] in
                     self?.setRuntimeFailure("macOS 无法完整恢复本地指针，跨屏鼠标已停止接管。")
                 }
             }
             return false
         }
-        Self.logger.info(
-            "Mouse control acquiring id=\(controlID, privacy: .public) cursor=hidden detach=0"
-        )
+        Self.logger.notice("Mouse control acquiring id=\(controlID, privacy: .public)")
         Task { @MainActor [weak self] in
             self?.scheduleAcquireTimeout(controlID: controlID)
             self?.publishStatus()
@@ -348,7 +315,6 @@ extension CrossScreenMouseController {
                 return false
             }
             handoff.apply(to: event)
-            logDisplayHandoff(handoff)
             return false
         case let .stabilizeDisplayHandoff(point):
             event.location = point
@@ -357,17 +323,6 @@ extension CrossScreenMouseController {
             return false
         case let .displayHandoffWall(wall):
             wall.apply(to: event)
-            if wall.beginsContact {
-                let crossingPoint = "\(wall.crossingPoint.x),\(wall.crossingPoint.y)"
-                let retainedPoint = "\(wall.retainedPoint.x),\(wall.retainedPoint.y)"
-                let description = "source=\(wall.sourceDisplayID) "
-                    + "destination=\(wall.destinationDisplayID) "
-                    + "direction=\(wall.direction.rawValue) "
-                    + "crossing=\(crossingPoint) retained=\(retainedPoint)"
-                Self.logger.info(
-                    "Display handoff wall \(description, privacy: .public)"
-                )
-            }
             return false
         case .swallow:
             return true
@@ -399,21 +354,6 @@ extension CrossScreenMouseController {
             requestSoftKVMToggle()
             return true
         }
-    }
-
-    private func logDisplayHandoff(_ handoff: HorizontalDisplayHandoff) {
-        let crossingPoint = "\(handoff.crossingPoint.x),\(handoff.crossingPoint.y)"
-        let targetPoint = "\(handoff.targetPoint.x),\(handoff.targetPoint.y)"
-        let handoffDescription = "source=\(handoff.sourceDisplayID) "
-            + "destination=\(handoff.destinationDisplayID) "
-            + "direction=\(handoff.direction.rawValue) "
-            + "crossing=\(crossingPoint) "
-            + "alignment=\(handoff.alignment.rawValue) "
-            + "offsetMM=\(handoff.physicalOffsetMM) "
-            + "target=\(targetPoint)"
-        Self.logger.info(
-            "Display handoff \(handoffDescription, privacy: .public)"
-        )
     }
 
     private static func keyboardAction(

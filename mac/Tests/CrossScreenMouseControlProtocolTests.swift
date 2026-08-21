@@ -420,9 +420,6 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
         XCTAssertTrue(mailbox.isWaitingForLeave)
         XCTAssertEqual(mailbox.sessionPosition?.x, 0)
         XCTAssertEqual(mailbox.sessionPosition?.y, 50)
-        let diagnostics = mailbox.diagnostics()
-        XCTAssertEqual(diagnostics.blockedReturnCandidates, 1)
-        XCTAssertEqual(diagnostics.returnCandidates, 1)
     }
 
     func testMailboxBuildsMirroredRemoteWallAtRightEntryEdge() {
@@ -470,7 +467,6 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
         )
         XCTAssertFalse(mailbox.isWaitingForLeave)
         XCTAssertEqual(mailbox.sessionPosition?.x, 1)
-        XCTAssertEqual(mailbox.diagnostics().returnCandidates, 0)
     }
 
     func testMailboxPreservesAtBoundaryLeftProbe() throws {
@@ -666,7 +662,6 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
         XCTAssertEqual(mailbox.enqueueHeartbeat(controlID: 7), .queued)
 
         XCTAssertEqual(mailbox.queuedItemCount, 1)
-        XCTAssertEqual(mailbox.diagnostics().deduplicatedHeartbeats, 1)
     }
 
     func testMailboxHeartbeatRefreshesHeldKeyboardStateAndDeduplicates() {
@@ -682,7 +677,6 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
 
         XCTAssertEqual(frames.map(\.kind), [.mouseControlHeartbeat, .keyboardState])
         XCTAssertEqual(frames[1].payload, MousePayload.keyboard(controlID: 7, report: report))
-        XCTAssertEqual(mailbox.diagnostics().deduplicatedHeartbeats, 1)
     }
 
     func testMailboxSchedulesOnlyOneDrainUntilQueueIsObservedEmpty() {
@@ -822,7 +816,7 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
         XCTAssertNil(frames.first?.controlID)
     }
 
-    func testHelloNegotiatesCapabilities() throws {
+    func testHelloNegotiatesOnlySupportedCapabilities() throws {
         let payload = CompanionHello(
             name: "Windows",
             capabilities: [
@@ -849,13 +843,11 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
                 .keyboardState,
                 .remoteShutdown,
                 .directionalMouseHandoff,
-                .remoteDiagnostics,
             ]
         )
         XCTAssertTrue(peer.keyboardSupported)
         XCTAssertTrue(peer.remoteShutdownSupported)
         XCTAssertTrue(peer.directionalHandoffSupported)
-        XCTAssertTrue(peer.remoteDiagnosticsSupported)
     }
 
     func testHelloKeepsCapabilitiesIndependentFromDriverAvailability() throws {

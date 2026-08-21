@@ -27,7 +27,6 @@ final class PowerHelperDaemon: @unchecked Sendable {
         guard lidMonitor.start() else { return false }
         observeModeChanges()
         evaluateCurrentState(reason: "startup")
-        logger.info("Power helper is ready")
         return true
     }
 
@@ -79,8 +78,6 @@ final class PowerHelperDaemon: @unchecked Sendable {
             logger.error("Shutdown cancelled because login session relaunch state could not be cleared")
             return
         }
-        logger.notice("Login session relaunch state cleared")
-
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/sbin/shutdown")
         process.arguments = ["-h", "now", "Meno: MacBook lid closed"]
