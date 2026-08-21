@@ -14,6 +14,8 @@ mod file_transfer;
 mod logging;
 #[path = "../src/protocol.rs"]
 mod protocol;
+#[path = "../src/transfer_cache.rs"]
+mod transfer_cache;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};

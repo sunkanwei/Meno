@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
 use crate::audio_session::{AudioSession, AudioStatus};
+use crate::channel_health::{ChannelHealth, HealthAction};
 use crate::discovery;
 use crate::file_transfer::WorkerEvent as FileWorkerEvent;
 use crate::mouse_session::{self, SessionEvent};
@@ -22,9 +23,6 @@ const MAX_DISCOVERY_DELAY: Duration = Duration::from_secs(10);
 const RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-const IDLE_BEFORE_PING: Duration = Duration::from_secs(30);
-const PONG_TIMEOUT: Duration = Duration::from_secs(10);
 const WORKER_EVENT_CAPACITY: usize = 4;
 const NETWORK_COMMAND_CAPACITY: usize = 32;
 const MAX_CONNECT_CANDIDATES: usize = 4;
@@ -299,32 +297,44 @@ enum ConnectionExit {
     Stop,
 }
 
-pub(crate) struct ChannelHealth {
-    pub(crate) ready: bool,
-    pub(crate) connected_at: Instant,
-    pub(crate) last_activity: Instant,
-    pub(crate) ping_sent: Option<Instant>,
+struct ConnectionState {
+    clipboard: ChannelHealth,
+    clipboard_capabilities: Capabilities,
+    mouse_handshake: bool,
+    mouse_ready: bool,
+    mouse_keyboard: bool,
+    directional_mouse_handoff: bool,
+    remote_shutdown: bool,
+    mouse_driver_abi: u16,
+    remote_name: String,
+    connected_reported: bool,
+    negotiated_reported: bool,
+    audio_negotiated: bool,
 }
 
-impl ChannelHealth {
-    pub(crate) fn new() -> Self {
-        let now = Instant::now();
+impl ConnectionState {
+    fn new(mouse_channel_missing: bool) -> Self {
         Self {
-            ready: false,
-            connected_at: now,
-            last_activity: now,
-            ping_sent: None,
+            clipboard: ChannelHealth::new(),
+            clipboard_capabilities: Capabilities::empty(),
+            mouse_handshake: mouse_channel_missing,
+            mouse_ready: false,
+            mouse_keyboard: false,
+            directional_mouse_handoff: false,
+            remote_shutdown: false,
+            mouse_driver_abi: 0,
+            remote_name: String::new(),
+            connected_reported: false,
+            negotiated_reported: false,
+            audio_negotiated: false,
         }
     }
 
-    pub(crate) fn deadline(&self) -> Instant {
-        if !self.ready {
-            self.connected_at + HANDSHAKE_TIMEOUT
-        } else if let Some(sent) = self.ping_sent {
-            sent + PONG_TIMEOUT
-        } else {
-            self.last_activity + IDLE_BEFORE_PING
-        }
+    fn mouse_exited(&mut self) -> bool {
+        let reconnect = self.mouse_handshake;
+        self.mouse_handshake = true;
+        self.mouse_ready = false;
+        reconnect
     }
 }
 
@@ -388,38 +398,30 @@ fn run_connection(
         None => (None, None),
     };
 
-    let mut clipboard_health = ChannelHealth::new();
-    let mut clipboard_capabilities = Capabilities::empty();
-    let mut mouse_handshake = mouse_session.is_none();
-    let mut mouse_ready = false;
-    let mut mouse_keyboard = false;
-    let mut directional_mouse_handoff = false;
-    let mut remote_shutdown = false;
-    let mut mouse_driver_abi = 0_u16;
-    let mut remote_name = String::new();
-    let mut connected_reported = false;
-    let mut negotiated_reported = false;
-    let mut audio_negotiated = false;
+    let mut state = ConnectionState::new(mouse_session.is_none());
     let mut audio_session: Option<AudioSession> = None;
     let exit = 'connected: loop {
-        let wait = clipboard_health
+        let wait = state
+            .clipboard
             .deadline()
             .saturating_duration_since(Instant::now());
         match receiver.recv_timeout(wait) {
-            Ok(WorkerEvent::Command(NetworkCommand::Clipboard(frame)))
-                if clipboard_health.ready =>
-            {
+            Ok(WorkerEvent::Command(NetworkCommand::Clipboard(frame))) if state.clipboard.ready => {
                 // Only content types confirmed in Ready may be sent.
                 let negotiated = match frame.kind {
-                    MessageKind::Text => clipboard_capabilities.contains(CAPABILITY_TEXT_CLIPBOARD),
-                    MessageKind::Png => clipboard_capabilities.contains(CAPABILITY_PNG_CLIPBOARD),
+                    MessageKind::Text => state
+                        .clipboard_capabilities
+                        .contains(CAPABILITY_TEXT_CLIPBOARD),
+                    MessageKind::Png => state
+                        .clipboard_capabilities
+                        .contains(CAPABILITY_PNG_CLIPBOARD),
                     _ => false,
                 };
                 if negotiated {
                     if frame.write_to(&mut clipboard_stream).is_err() {
                         break 'connected ConnectionExit::Reconnect;
                     }
-                    clipboard_health.last_activity = Instant::now();
+                    state.clipboard.last_activity = Instant::now();
                 }
             }
             Ok(WorkerEvent::Command(NetworkCommand::Clipboard(_))) => {}
@@ -431,13 +433,15 @@ fn run_connection(
                 frame,
             })) => {
                 let message_id = frame.message_id;
-                let writable = clipboard_health.ready
+                let writable = state.clipboard.ready
                     && command_connection_id == connection_id
                     && frame.kind.is_file_transfer()
-                    && clipboard_capabilities.contains(CAPABILITY_FILE_CLIPBOARD);
+                    && state
+                        .clipboard_capabilities
+                        .contains(CAPABILITY_FILE_CLIPBOARD);
                 let ok = writable && frame.write_to(&mut clipboard_stream).is_ok();
                 if ok {
-                    clipboard_health.last_activity = Instant::now();
+                    state.clipboard.last_activity = Instant::now();
                 }
                 if !send_file_event(
                     file_events,
@@ -480,12 +484,12 @@ fn run_connection(
                 let Ok(frames) = result else {
                     break 'connected ConnectionExit::Reconnect;
                 };
-                clipboard_health.last_activity = Instant::now();
+                state.clipboard.last_activity = Instant::now();
 
                 for frame in frames {
                     match frame.kind {
                         MessageKind::Ready => {
-                            if clipboard_health.ready {
+                            if state.clipboard.ready {
                                 break 'connected ConnectionExit::Reconnect;
                             }
                             let Ok(hello) = parse_hello(&frame.payload) else {
@@ -498,10 +502,10 @@ fn run_connection(
                                     CAPABILITY_FILE_CLIPBOARD,
                                     CAPABILITY_WINDOWS_ONLINE_NOTIFICATION,
                                 ]));
-                            clipboard_capabilities = negotiated;
-                            clipboard_health.ready = true;
-                            clipboard_health.last_activity = Instant::now();
-                            remote_name = crate::peer_name::normalize(&hello.name);
+                            state.clipboard_capabilities = negotiated;
+                            state.clipboard.ready = true;
+                            state.clipboard.last_activity = Instant::now();
+                            state.remote_name = crate::peer_name::normalize(&hello.name);
                             match negotiated_audio_port(&hello) {
                                 Err(()) => crate::logging::error(
                                     "audio protocol error: control Ready must contain capability 8 and audioPort together",
@@ -510,7 +514,7 @@ fn run_connection(
                                 Ok(Some(port)) => {
                                     let endpoint = SocketAddr::V4(SocketAddrV4::new(address, port));
                                     let audio_sender = sender.clone();
-                                    audio_negotiated = true;
+                                    state.audio_negotiated = true;
                                     audio_session = Some(AudioSession::spawn(
                                         endpoint,
                                         connection_id,
@@ -529,7 +533,9 @@ fn run_connection(
                                     ));
                                 }
                             }
-                            if clipboard_capabilities.contains(CAPABILITY_FILE_CLIPBOARD)
+                            if state
+                                .clipboard_capabilities
+                                .contains(CAPABILITY_FILE_CLIPBOARD)
                                 && !send_file_event(
                                     file_events,
                                     FileWorkerEvent::Link { connection_id },
@@ -539,38 +545,22 @@ fn run_connection(
                             }
                             match send_windows_online_if_needed(
                                 &mut clipboard_stream,
-                                clipboard_capabilities,
+                                state.clipboard_capabilities,
                                 windows_online_sent,
                             ) {
                                 Ok(true) => {
-                                    clipboard_health.last_activity = Instant::now();
+                                    state.clipboard.last_activity = Instant::now();
                                 }
                                 Ok(false) => {}
                                 Err(_) => break 'connected ConnectionExit::Reconnect,
                             }
-                            connected_reported = report_connected(
-                                hwnd,
-                                &address_text,
-                                &remote_name,
-                                clipboard_health.ready,
-                                connected_reported,
-                            );
-                            negotiated_reported = report_negotiated(
-                                clipboard_health.ready,
-                                mouse_handshake,
-                                mouse_ready,
-                                &clipboard_capabilities,
-                                mouse_keyboard,
-                                directional_mouse_handoff,
-                                remote_shutdown,
-                                mouse_driver_abi,
-                                audio_negotiated,
-                                negotiated_reported,
-                            );
+                            report_connection(hwnd, &address_text, &mut state);
                         }
                         MessageKind::Text => {
-                            if !clipboard_health.ready
-                                || !clipboard_capabilities.contains(CAPABILITY_TEXT_CLIPBOARD)
+                            if !state.clipboard.ready
+                                || !state
+                                    .clipboard_capabilities
+                                    .contains(CAPABILITY_TEXT_CLIPBOARD)
                                 || frame.payload.len() > MAX_TEXT_SIZE
                                 || std::str::from_utf8(&frame.payload).is_err()
                             {
@@ -579,8 +569,10 @@ fn run_connection(
                             post(hwnd, NetworkEvent::Clipboard(frame));
                         }
                         MessageKind::Png => {
-                            if !clipboard_health.ready
-                                || !clipboard_capabilities.contains(CAPABILITY_PNG_CLIPBOARD)
+                            if !state.clipboard.ready
+                                || !state
+                                    .clipboard_capabilities
+                                    .contains(CAPABILITY_PNG_CLIPBOARD)
                                 || frame.payload.len() > MAX_IMAGE_SIZE
                             {
                                 break 'connected ConnectionExit::Reconnect;
@@ -594,14 +586,16 @@ fn run_connection(
                             {
                                 break 'connected ConnectionExit::Reconnect;
                             }
-                            clipboard_health.last_activity = Instant::now();
+                            state.clipboard.last_activity = Instant::now();
                         }
                         MessageKind::Pong if frame.payload.is_empty() => {
-                            clipboard_health.ping_sent = None;
+                            state.clipboard.ping_sent = None;
                         }
                         kind if kind.is_file_transfer() => {
-                            if !clipboard_health.ready
-                                || !clipboard_capabilities.contains(CAPABILITY_FILE_CLIPBOARD)
+                            if !state.clipboard.ready
+                                || !state
+                                    .clipboard_capabilities
+                                    .contains(CAPABILITY_FILE_CLIPBOARD)
                             {
                                 break 'connected ConnectionExit::Reconnect;
                             }
@@ -633,60 +627,23 @@ fn run_connection(
                     remote_shutdown: negotiated_remote_shutdown,
                     driver_abi,
                 } => {
-                    if mouse_handshake {
+                    if state.mouse_handshake {
                         break 'connected ConnectionExit::Reconnect;
                     }
-                    mouse_handshake = true;
-                    mouse_ready = mouse;
-                    mouse_keyboard = keyboard;
-                    directional_mouse_handoff = negotiated_directional_mouse_handoff;
-                    remote_shutdown = negotiated_remote_shutdown;
-                    mouse_driver_abi = driver_abi;
-                    connected_reported = report_connected(
-                        hwnd,
-                        &address_text,
-                        &remote_name,
-                        clipboard_health.ready,
-                        connected_reported,
-                    );
-                    negotiated_reported = report_negotiated(
-                        clipboard_health.ready,
-                        mouse_handshake,
-                        mouse_ready,
-                        &clipboard_capabilities,
-                        mouse_keyboard,
-                        directional_mouse_handoff,
-                        remote_shutdown,
-                        mouse_driver_abi,
-                        audio_negotiated,
-                        negotiated_reported,
-                    );
+                    state.mouse_handshake = true;
+                    state.mouse_ready = mouse;
+                    state.mouse_keyboard = keyboard;
+                    state.directional_mouse_handoff = negotiated_directional_mouse_handoff;
+                    state.remote_shutdown = negotiated_remote_shutdown;
+                    state.mouse_driver_abi = driver_abi;
+                    report_connection(hwnd, &address_text, &mut state);
                 }
                 SessionEvent::Exited => {
-                    if mouse_exit_requires_reconnect(&mut mouse_handshake) {
+                    if state.mouse_exited() {
                         break 'connected ConnectionExit::Reconnect;
                     }
                     crate::logging::error("mouse session unavailable before Ready");
-                    mouse_ready = false;
-                    connected_reported = report_connected(
-                        hwnd,
-                        &address_text,
-                        &remote_name,
-                        clipboard_health.ready,
-                        connected_reported,
-                    );
-                    negotiated_reported = report_negotiated(
-                        clipboard_health.ready,
-                        mouse_handshake,
-                        mouse_ready,
-                        &clipboard_capabilities,
-                        mouse_keyboard,
-                        directional_mouse_handoff,
-                        remote_shutdown,
-                        mouse_driver_abi,
-                        audio_negotiated,
-                        negotiated_reported,
-                    );
+                    report_connection(hwnd, &address_text, &mut state);
                 }
             },
             Ok(WorkerEvent::Audio {
@@ -696,7 +653,7 @@ fn run_connection(
                 post(hwnd, NetworkEvent::AudioStatus(status));
             }
             Err(RecvTimeoutError::Timeout) => {
-                if service_health(&mut clipboard_stream, &mut clipboard_health).is_err() {
+                if service_health(&mut clipboard_stream, &mut state.clipboard).is_err() {
                     break 'connected ConnectionExit::Reconnect;
                 }
             }
@@ -746,76 +703,54 @@ fn send_windows_online_if_needed(
     Ok(true)
 }
 
-fn mouse_exit_requires_reconnect(mouse_handshake: &mut bool) -> bool {
-    let reconnect = *mouse_handshake;
-    *mouse_handshake = true;
-    reconnect
-}
-
-fn should_report_connected(clipboard_ready: bool, already_reported: bool) -> bool {
-    clipboard_ready && !already_reported
-}
-
-fn report_connected(
-    hwnd: HWND,
-    address: &str,
-    remote_name: &str,
-    clipboard_ready: bool,
-    already_reported: bool,
-) -> bool {
-    if !should_report_connected(clipboard_ready, already_reported) {
-        return already_reported;
-    }
-    post(
-        hwnd,
-        NetworkEvent::Connected {
-            name: if remote_name.is_empty() {
-                "Mac".to_string()
-            } else {
-                remote_name.to_string()
+fn report_connection(hwnd: HWND, address: &str, state: &mut ConnectionState) {
+    if state.clipboard.ready && !state.connected_reported {
+        post(
+            hwnd,
+            NetworkEvent::Connected {
+                name: if state.remote_name.is_empty() {
+                    "Mac".to_string()
+                } else {
+                    state.remote_name.clone()
+                },
+                address: address.to_string(),
             },
-            address: address.to_string(),
-        },
-    );
-    true
-}
-
-#[allow(clippy::too_many_arguments)]
-fn report_negotiated(
-    clipboard_ready: bool,
-    mouse_handshake: bool,
-    mouse_ready: bool,
-    clipboard_capabilities: &Capabilities,
-    mouse_keyboard: bool,
-    directional_mouse_handoff: bool,
-    remote_shutdown: bool,
-    mouse_driver_abi: u16,
-    audio_negotiated: bool,
-    already_reported: bool,
-) -> bool {
-    if already_reported || !clipboard_ready || !mouse_handshake {
-        return already_reported;
+        );
+        state.connected_reported = true;
     }
-    let content_capabilities = clipboard_capabilities.intersect(Capabilities::from_slice(&[
-        CAPABILITY_TEXT_CLIPBOARD,
-        CAPABILITY_PNG_CLIPBOARD,
-        CAPABILITY_FILE_CLIPBOARD,
-    ]));
+    if state.negotiated_reported || !state.clipboard.ready || !state.mouse_handshake {
+        return;
+    }
+    let content_capabilities = state
+        .clipboard_capabilities
+        .intersect(Capabilities::from_slice(&[
+            CAPABILITY_TEXT_CLIPBOARD,
+            CAPABILITY_PNG_CLIPBOARD,
+            CAPABILITY_FILE_CLIPBOARD,
+        ]));
     crate::logging::info(&format!(
         "Negotiated MENO capabilities: content={} text={} png={} file={} microphone={} windowsOnline={} mouse={} keyboard={} directionalMouseHandoff={} shutdown={} driver_abi={}",
         !content_capabilities.is_empty(),
-        clipboard_capabilities.contains(CAPABILITY_TEXT_CLIPBOARD),
-        clipboard_capabilities.contains(CAPABILITY_PNG_CLIPBOARD),
-        clipboard_capabilities.contains(CAPABILITY_FILE_CLIPBOARD),
-        audio_negotiated,
-        clipboard_capabilities.contains(CAPABILITY_WINDOWS_ONLINE_NOTIFICATION),
-        mouse_ready,
-        mouse_keyboard,
-        directional_mouse_handoff,
-        remote_shutdown,
-        mouse_driver_abi,
+        state
+            .clipboard_capabilities
+            .contains(CAPABILITY_TEXT_CLIPBOARD),
+        state
+            .clipboard_capabilities
+            .contains(CAPABILITY_PNG_CLIPBOARD),
+        state
+            .clipboard_capabilities
+            .contains(CAPABILITY_FILE_CLIPBOARD),
+        state.audio_negotiated,
+        state
+            .clipboard_capabilities
+            .contains(CAPABILITY_WINDOWS_ONLINE_NOTIFICATION),
+        state.mouse_ready,
+        state.mouse_keyboard,
+        state.directional_mouse_handoff,
+        state.remote_shutdown,
+        state.mouse_driver_abi,
     ));
-    true
+    state.negotiated_reported = true;
 }
 
 fn configure_stream(stream: &TcpStream) -> std::io::Result<()> {
@@ -826,21 +761,17 @@ fn configure_stream(stream: &TcpStream) -> std::io::Result<()> {
 
 pub(crate) fn service_health(stream: &mut TcpStream, health: &mut ChannelHealth) -> Result<(), ()> {
     let now = Instant::now();
-    if !health.ready {
-        return (now < health.connected_at + HANDSHAKE_TIMEOUT)
-            .then_some(())
-            .ok_or(());
+    match health.action(now) {
+        HealthAction::Wait => Ok(()),
+        HealthAction::SendPing => {
+            Frame::new(MessageKind::Ping, Vec::new())
+                .write_to(stream)
+                .map_err(|_| ())?;
+            health.ping_sent = Some(now);
+            Ok(())
+        }
+        HealthAction::TimedOut => Err(()),
     }
-    if let Some(sent) = health.ping_sent {
-        return (now < sent + PONG_TIMEOUT).then_some(()).ok_or(());
-    }
-    if now >= health.last_activity + IDLE_BEFORE_PING {
-        Frame::new(MessageKind::Ping, Vec::new())
-            .write_to(stream)
-            .map_err(|_| ())?;
-        health.ping_sent = Some(now);
-    }
-    Ok(())
 }
 
 fn spawn_reader(
@@ -973,13 +904,13 @@ mod tests {
 
     #[test]
     fn mouse_failure_before_ready_keeps_control_but_failure_after_ready_reconnects() {
-        let mut before_ready = false;
-        assert!(!mouse_exit_requires_reconnect(&mut before_ready));
-        assert!(before_ready);
-        assert!(should_report_connected(true, false));
+        let mut before_ready = ConnectionState::new(false);
+        assert!(!before_ready.mouse_exited());
+        assert!(before_ready.mouse_handshake);
 
-        let mut after_ready = true;
-        assert!(mouse_exit_requires_reconnect(&mut after_ready));
+        let mut after_ready = ConnectionState::new(false);
+        after_ready.mouse_handshake = true;
+        assert!(after_ready.mouse_exited());
     }
 
     #[test]

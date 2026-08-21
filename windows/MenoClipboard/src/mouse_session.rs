@@ -12,7 +12,8 @@ use windows::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
 };
 
-use crate::connection::{ChannelHealth, WorkerEvent};
+use crate::channel_health::{ChannelHealth, HealthAction};
+use crate::connection::WorkerEvent;
 use crate::display_contract::DisplayContract;
 use crate::mouse_control::{MouseControl, ReleaseOutcome, ReleaseVerdict, release_verdict};
 use crate::mouse_input::{InputOutcome, LeaveInfo, MouseInputController};
@@ -29,9 +30,6 @@ use crate::remote_shutdown::{handle_remote_shutdown, start_remote_shutdown};
 // Small confirmations that cannot be written promptly mean the session is
 // already unhealthy; retrying stale control frames would be worse.
 const MOUSE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-const IDLE_BEFORE_PING: Duration = Duration::from_secs(30);
-const PONG_TIMEOUT: Duration = Duration::from_secs(10);
 // A single read+process round is bounded so a flooded socket cannot starve
 // the lease, the health deadlines or the stop signal.
 const MAX_ROUND_BYTES: usize = 256 * 1024;
@@ -828,21 +826,17 @@ fn elevate_priority(_thread_name: &str) {
 
 fn service_mouse_health(writer: &Arc<MouseSender>, health: &mut ChannelHealth) -> Result<(), ()> {
     let now = Instant::now();
-    if !health.ready {
-        return (now < health.connected_at + HANDSHAKE_TIMEOUT)
-            .then_some(())
-            .ok_or(());
+    match health.action(now) {
+        HealthAction::Wait => Ok(()),
+        HealthAction::SendPing => {
+            writer
+                .send_control(Frame::new(MessageKind::Ping, Vec::new()))
+                .map_err(|_| ())?;
+            health.ping_sent = Some(now);
+            Ok(())
+        }
+        HealthAction::TimedOut => Err(()),
     }
-    if let Some(sent) = health.ping_sent {
-        return (now < sent + PONG_TIMEOUT).then_some(()).ok_or(());
-    }
-    if now >= health.last_activity + IDLE_BEFORE_PING {
-        writer
-            .send_control(Frame::new(MessageKind::Ping, Vec::new()))
-            .map_err(|_| ())?;
-        health.ping_sent = Some(now);
-    }
-    Ok(())
 }
 
 fn readable_bytes(stream: &TcpStream) -> std::io::Result<u32> {

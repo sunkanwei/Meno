@@ -1,159 +1,31 @@
 use std::{
     collections::HashMap,
-    fs,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::FutureExt;
 use parking_lot::RwLock;
-use rmcp::schemars;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    capture::{IsolatedCaptureRequest, capture_isolated},
     config::{ConfigStore, DataPaths, ModelProfile},
     error::{AgentError, AgentResult},
-    files::{ListFilesRequest, ReadFileRequest, SearchFilesRequest},
-    inspect::InspectSystemRequest,
     model::{ModelClient, investigation_tools},
     security,
+    task_store::TaskStore,
+    task_tools,
 };
 
-#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskState {
-    Queued,
-    Running,
-    Succeeded,
-    Failed,
-    Cancelled,
-    Expired,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct Evidence {
-    pub source_type: String,
-    pub location: String,
-    pub observed_utc: String,
-    pub fact: String,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ModelResult {
-    pub profile: String,
-    pub service: String,
-    pub actual_model: String,
-    pub input_tokens: Option<u64>,
-    pub output_tokens: Option<u64>,
-    pub estimated_cost: Option<String>,
-    pub tool_calls: usize,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct InvestigationResult {
-    pub conclusion: String,
-    pub evidence: Vec<Evidence>,
-    pub model: ModelResult,
-    pub limitations: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct TaskEvent {
-    pub sequence: u64,
-    pub utc: String,
-    pub level: String,
-    pub event: String,
-    pub detail: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct TaskRecord {
-    pub id: String,
-    pub workspace: Option<String>,
-    pub model_profile: String,
-    pub state: TaskState,
-    pub created_utc: String,
-    pub started_utc: Option<String>,
-    pub completed_utc: Option<String>,
-    pub elapsed_ms: Option<u64>,
-    pub stage: String,
-    pub cancellation_requested: bool,
-    pub error_code: Option<String>,
-    pub error: Option<String>,
-    pub actual_model: Option<String>,
-    pub result: Option<InvestigationResult>,
-    pub logs: Vec<TaskEvent>,
-    pub output_truncated: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, schemars::JsonSchema)]
-pub struct SubmitInvestigationRequest {
-    /// Optional registered project used as context. System-wide investigations may omit it.
-    #[serde(default)]
-    pub workspace: Option<String>,
-    pub prompt: String,
-}
-
-#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
-pub struct SubmitInvestigationResponse {
-    pub task_id: String,
-    pub state: TaskState,
-    pub model_profile: String,
-}
-
-#[derive(Clone, Debug, Deserialize, schemars::JsonSchema)]
-pub struct TaskIdRequest {
-    pub task_id: String,
-}
-
-#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
-pub struct TaskStatusResponse {
-    pub task: TaskRecord,
-}
-
-pub type CancelTaskResponse = TaskStatusResponse;
-
-#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
-pub struct TaskResultResponse {
-    pub task_id: String,
-    pub state: TaskState,
-    pub result: Option<InvestigationResult>,
-    pub error_code: Option<String>,
-    pub error: Option<String>,
-    pub image_count: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct TaskImageAttachment {
-    pub data: String,
-    pub mime_type: String,
-    pub location: String,
-}
-
-#[derive(Clone, Debug, Deserialize, schemars::JsonSchema)]
-pub struct TaskLogRequest {
-    pub task_id: String,
-    #[serde(default)]
-    pub cursor: usize,
-    pub limit: Option<usize>,
-}
-
-#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
-pub struct TaskLogResponse {
-    pub events: Vec<TaskEvent>,
-    pub next_cursor: Option<usize>,
-}
+pub use crate::task_types::*;
 
 pub struct TaskManager {
     config: ConfigStore,
     paths: DataPaths,
+    store: TaskStore,
     client: ModelClient,
     tasks: RwLock<HashMap<String, TaskRecord>>,
     images: RwLock<HashMap<String, Vec<TaskImageAttachment>>>,
@@ -164,9 +36,11 @@ pub struct TaskManager {
 impl TaskManager {
     pub fn new(config: ConfigStore, paths: DataPaths) -> AgentResult<Arc<Self>> {
         let max_tasks = config.snapshot().max_tasks.clamp(1, 16);
+        let store = TaskStore::new(&paths);
         let manager = Arc::new(Self {
             config,
             paths,
+            store,
             client: ModelClient::new()?,
             tasks: RwLock::new(HashMap::new()),
             images: RwLock::new(HashMap::new()),
@@ -486,9 +360,9 @@ impl TaskManager {
             }
             for call in turn.tool_calls {
                 tool_call_count += 1;
-                let execution = self
-                    .execute_read_tool(&config, profile, &call.name, &call.arguments)
-                    .await;
+                let execution =
+                    task_tools::execute(&config, &self.paths, profile, &call.name, &call.arguments)
+                        .await;
                 match execution {
                     Ok(execution) => {
                         evidence.push(execution.evidence);
@@ -550,137 +424,6 @@ impl TaskManager {
         Err(AgentError::Internal("模型调查循环异常结束".to_owned()))
     }
 
-    async fn execute_read_tool(
-        &self,
-        config: &crate::config::AppConfig,
-        profile: &ModelProfile,
-        name: &str,
-        arguments: &str,
-    ) -> AgentResult<ToolExecution> {
-        let observed_utc = chrono::Utc::now().to_rfc3339();
-        match name {
-            "list_files" => {
-                let request: ListFilesRequest = parse_args(arguments)?;
-                let response = crate::files::list(config, &request)?;
-                Ok(ToolExecution::text(
-                    serde_json::to_string(&response)?,
-                    "directory",
-                    request.target.path,
-                    observed_utc,
-                    format!("列出 {} 个项目", response.entries.len()),
-                ))
-            }
-            "read_file" => {
-                let request: ReadFileRequest = parse_args(arguments)?;
-                let response = crate::files::read(config, &request)?;
-                Ok(ToolExecution::text(
-                    serde_json::to_string(&response)?,
-                    "file",
-                    request.target.path,
-                    observed_utc,
-                    format!(
-                        "读取 {} 个单位，SHA-256 {}",
-                        response.returned, response.sha256
-                    ),
-                ))
-            }
-            "search_files" => {
-                let request: SearchFilesRequest = parse_args(arguments)?;
-                let response = crate::files::search(config, &request)?;
-                Ok(ToolExecution::text(
-                    serde_json::to_string(&response)?,
-                    "search",
-                    request.root,
-                    observed_utc,
-                    format!("搜索得到 {} 条结果", response.matches.len()),
-                ))
-            }
-            "inspect_system" => {
-                let request: InspectSystemRequest = parse_args(arguments)?;
-                let response = crate::inspect::inspect_system(&request)?;
-                Ok(ToolExecution::text(
-                    serde_json::to_string(&response)?,
-                    "system",
-                    request
-                        .path
-                        .unwrap_or_else(|| request.category.as_str().to_owned()),
-                    observed_utc,
-                    format!(
-                        "系统查询 {} 返回 {} 项",
-                        request.category.as_str(),
-                        response.items.len()
-                    ),
-                ))
-            }
-            "capture_screen" => {
-                let request: ModelCaptureRequest = parse_args(arguments)?;
-                if request.action == "list" {
-                    let response = json!({
-                        "monitors": crate::capture::enumerate("monitor").map_err(capture_error)?,
-                        "windows": crate::capture::enumerate("window").map_err(capture_error)?
-                    });
-                    return Ok(ToolExecution::text(
-                        response.to_string(),
-                        "capture_targets",
-                        "Windows desktop".to_owned(),
-                        observed_utc,
-                        "已枚举可用截图目标".to_owned(),
-                    ));
-                }
-                let target = request.target.unwrap_or_else(|| "primary".to_owned());
-                let id = request
-                    .id
-                    .as_deref()
-                    .map(str::parse::<u64>)
-                    .transpose()
-                    .map_err(|_| AgentError::InvalidArgument("截图 id 无效".to_owned()))?;
-                let capture = capture_isolated(
-                    &self.paths,
-                    &IsolatedCaptureRequest {
-                        target: target.clone(),
-                        id,
-                        region: None,
-                        max_dimension: request.max_dimension.or(Some(1920)),
-                    },
-                )
-                .await?;
-                let sha = hex::encode(Sha256::digest(&capture.png));
-                let location = format!("screenshot://sha256/{sha}");
-                let attachment = TaskImageAttachment {
-                    data: STANDARD.encode(capture.png),
-                    mime_type: "image/png".to_owned(),
-                    location: location.clone(),
-                };
-                let content = json!({
-                    "ok":true,
-                    "location":location,
-                    "target":target,
-                    "width":capture.width,
-                    "height":capture.height,
-                    "scaled":capture.scaled,
-                    "model_received_image":profile.supports_images
-                })
-                .to_string();
-                Ok(ToolExecution {
-                    content,
-                    image: Some(attachment),
-                    evidence: Evidence {
-                        source_type: "screenshot".to_owned(),
-                        location,
-                        observed_utc,
-                        fact: format!(
-                            "已截取 {}，尺寸 {}×{}",
-                            target, capture.width, capture.height
-                        ),
-                    },
-                })
-            }
-            _ => Err(AgentError::PermissionDenied(
-                "模型请求了未授权工具".to_owned(),
-            )),
-        }
-    }
-
     fn update<F>(&self, id: &str, update: F) -> AgentResult<()>
     where
         F: FnOnce(&mut TaskRecord),
@@ -704,38 +447,14 @@ impl TaskManager {
     }
 
     fn persist_record(&self, task: &TaskRecord) -> AgentResult<()> {
-        let path = self.paths.tasks_dir.join(format!("{}.json", task.id));
-        let temporary = path.with_extension("json.tmp");
-        fs::write(&temporary, serde_json::to_vec_pretty(task)?)?;
-        fs::rename(temporary, path)?;
-        Ok(())
+        self.store.persist(task)
     }
 
     fn load_existing(&self) -> AgentResult<()> {
         let retention = Duration::from_secs(
             self.config.snapshot().task_retention_days.clamp(1, 365) * 24 * 60 * 60,
         );
-        for entry in fs::read_dir(&self.paths.tasks_dir)? {
-            let Ok(entry) = entry else { continue };
-            if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let old = entry
-                .metadata()
-                .and_then(|metadata| metadata.modified())
-                .ok()
-                .and_then(|modified| modified.elapsed().ok())
-                .is_some_and(|age| age > retention);
-            if old {
-                let _ = fs::remove_file(entry.path());
-                continue;
-            }
-            let Ok(bytes) = fs::read(entry.path()) else {
-                continue;
-            };
-            let Ok(mut task) = serde_json::from_slice::<TaskRecord>(&bytes) else {
-                continue;
-            };
+        for mut task in self.store.load(retention)? {
             if matches!(task.state, TaskState::Queued | TaskState::Running) {
                 task.state = TaskState::Failed;
                 task.stage = "interrupted".to_owned();
@@ -778,51 +497,6 @@ impl TaskManager {
         self.cancellations.write().remove(id);
     }
 }
-
-struct ToolExecution {
-    content: String,
-    image: Option<TaskImageAttachment>,
-    evidence: Evidence,
-}
-
-impl ToolExecution {
-    fn text(
-        content: String,
-        source_type: &str,
-        location: String,
-        observed_utc: String,
-        fact: String,
-    ) -> Self {
-        Self {
-            content,
-            image: None,
-            evidence: Evidence {
-                source_type: source_type.to_owned(),
-                location,
-                observed_utc,
-                fact,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct ModelCaptureRequest {
-    action: String,
-    target: Option<String>,
-    id: Option<String>,
-    max_dimension: Option<u32>,
-}
-
-fn parse_args<T: for<'de> Deserialize<'de>>(arguments: &str) -> AgentResult<T> {
-    serde_json::from_str(arguments)
-        .map_err(|error| AgentError::InvalidArgument(format!("模型工具参数无效: {error}")))
-}
-
-fn capture_error(code: i32) -> AgentError {
-    AgentError::ScreenshotFailed(format!("截图目标枚举失败: {code:#x}"))
-}
-
 fn estimate_cost(profile: &ModelProfile, input: u64, output: u64) -> Option<String> {
     let input_cost = profile
         .input_cost_per_million

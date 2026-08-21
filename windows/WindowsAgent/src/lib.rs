@@ -41,6 +41,9 @@ mod projects;
 mod security;
 mod server;
 mod settings;
+mod task_store;
+mod task_tools;
+mod task_types;
 mod tasks;
 
 const CAPTURE_WORKER_COMMAND: &str = "--meno-agent-capture-worker";
@@ -515,6 +518,7 @@ mod tests {
         String,
         CancellationToken,
         Arc<server::AppState>,
+        tokio::task::JoinHandle<()>,
     ) {
         let directory = TestDirectory::new();
         let paths = directory.data_paths();
@@ -535,13 +539,14 @@ mod tests {
         let address = listener.local_addr().expect("read test MCP address");
         let service = mcp_service(state.clone(), shutdown.child_token());
         let router = Router::new().nest_service("/mcp", service);
-        tokio::spawn({
+        let server_task = tokio::spawn({
             let shutdown = shutdown.clone();
             async move {
                 let _directory = directory;
-                let _ = axum::serve(listener, router)
+                axum::serve(listener, router)
                     .with_graceful_shutdown(async move { shutdown.cancelled_owned().await })
-                    .await;
+                    .await
+                    .expect("run test MCP server");
             }
         });
         (
@@ -549,6 +554,7 @@ mod tests {
             format!("http://{address}/mcp"),
             shutdown,
             state,
+            server_task,
         )
     }
 
@@ -587,7 +593,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_is_stateless_for_initialize_tools_and_health() {
-        let (client, url, shutdown, state) = spawn_test_mcp().await;
+        let (client, url, shutdown, state, server_task) = spawn_test_mcp().await;
         let initialize = mcp_post(
             &client,
             &url,
@@ -657,6 +663,7 @@ mod tests {
 
         shutdown.cancel();
         state.tasks.shutdown().await;
+        server_task.await.expect("join test MCP server");
     }
 
     #[test]

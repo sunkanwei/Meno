@@ -1,25 +1,12 @@
 #![allow(dead_code)]
 
-#[path = "../src/bounded_queue.rs"]
-mod bounded_queue;
-#[path = "../src/discovery.rs"]
-mod discovery;
-#[path = "../src/display_contract.rs"]
-mod display_contract;
-#[path = "../src/hid_writer.rs"]
-mod hid_writer;
-#[path = "../src/image_codec.rs"]
-mod image_codec;
-#[path = "../src/logging.rs"]
-mod logging;
-#[path = "../src/mouse_control.rs"]
-mod mouse_control;
-#[path = "../src/peer_name.rs"]
-mod peer_name;
-#[path = "../src/protocol.rs"]
-mod protocol;
-#[path = "../src/virtual_hid.rs"]
-mod virtual_hid;
+#[path = "../src/core_modules.rs"]
+mod core_modules;
+
+use core_modules::{
+    bounded_queue, discovery, display_contract, hid_broker_protocol, image_codec, logging,
+    mouse_control, peer_name, protocol, virtual_hid,
+};
 
 use std::borrow::Cow;
 use std::time::{Duration, Instant};

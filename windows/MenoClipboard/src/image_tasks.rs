@@ -6,7 +6,8 @@ use windows::Win32::Foundation::HWND;
 
 use crate::bounded_queue::{BoundedQueue, PushResult};
 use crate::protocol::{Frame, MAX_IMAGE_SIZE, MessageKind};
-use crate::{clipboard_flow, image_codec, logging, post_wakeup, with_state};
+use crate::ui_events::{EVENT_BATCH, wake_queue};
+use crate::{clipboard_flow, image_codec, logging, with_state};
 
 pub(crate) const WM_IMAGE_WORKER_EVENT: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 4;
 const IMAGE_RESULT_MAX_ITEMS: usize = 4;
@@ -191,7 +192,7 @@ fn post_image_worker_event(hwnd: HWND, event: ImageWorkerEvent) -> bool {
         }
     };
     drop(queue);
-    !wake || post_wakeup(hwnd, WM_IMAGE_WORKER_EVENT, &IMAGE_WORKER_EVENTS)
+    !wake || wake_queue(hwnd, WM_IMAGE_WORKER_EVENT, &IMAGE_WORKER_EVENTS)
 }
 
 pub(crate) fn drain_events(hwnd: HWND) {
@@ -199,14 +200,14 @@ pub(crate) fn drain_events(hwnd: HWND) {
         return;
     };
     let (events, more) = match queue.lock() {
-        Ok(mut queue) => queue.take_batch(crate::UI_EVENT_BATCH),
+        Ok(mut queue) => queue.take_batch(EVENT_BATCH),
         Err(_) => return,
     };
     for event in events {
         handle_image_worker_event(event);
     }
     if more {
-        let _ = post_wakeup(hwnd, WM_IMAGE_WORKER_EVENT, &IMAGE_WORKER_EVENTS);
+        let _ = wake_queue(hwnd, WM_IMAGE_WORKER_EVENT, &IMAGE_WORKER_EVENTS);
     }
 }
 

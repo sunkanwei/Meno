@@ -36,128 +36,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, PCWSTR, w};
 
-use crate::tray::{
-    COMMAND_AGENT_SETTINGS, COMMAND_CLEAR_LOG, COMMAND_CURSOR_THEME, COMMAND_EXIT,
-    COMMAND_INSTALL_AUDIO_DRIVER, COMMAND_PAUSE, COMMAND_REDISCOVER, COMMAND_REPAIR_DRIVER,
-    COMMAND_STARTUP, COMMAND_VB_CABLE_WEBSITE, COMMAND_VIEW_LOG, ICON_ID,
-};
+use crate::menu_items::wide;
+pub(crate) use crate::menu_items::{Item, ItemKind, build_items};
+pub use crate::menu_model::{MenuModel, StatusKind, connected_status_text};
+use crate::tray::ICON_ID;
 
 const CLASS_NAME: PCWSTR = w!("MenoTrayMenuWindow");
 const APP_LIGHT_THEME_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
 const APP_LIGHT_THEME_VALUE: &str = "AppsUseLightTheme";
 const MENU_GAP_ABOVE_ICON: i32 = 8;
 const MENU_GAP_BELOW_ICON: i32 = 8;
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum StatusKind {
-    Connected,
-    Searching,
-    Paused,
-}
-
-pub struct MenuModel {
-    pub status_text: String,
-    pub status: StatusKind,
-    pub paused: bool,
-    pub startup: bool,
-    pub macos_cursor: bool,
-    pub agent_status: String,
-}
-
-impl MenuModel {
-    pub fn new(
-        detail_status: String,
-        connected: bool,
-        paused: bool,
-        suspended: bool,
-        startup: bool,
-        macos_cursor: bool,
-    ) -> Self {
-        let (status_text, status) = if suspended {
-            ("系统休眠".to_string(), StatusKind::Paused)
-        } else if paused {
-            ("已暂停".to_string(), StatusKind::Paused)
-        } else if connected {
-            (detail_status, StatusKind::Connected)
-        } else {
-            (detail_status, StatusKind::Searching)
-        };
-        Self {
-            status_text,
-            status,
-            paused,
-            startup,
-            macos_cursor,
-            agent_status: "已停止".to_owned(),
-        }
-    }
-
-    pub fn with_agent_status(mut self, agent_status: String) -> Self {
-        self.agent_status = agent_status;
-        self
-    }
-}
-
-pub fn connected_status_text(main_status: &str, audio_status: Option<&str>) -> String {
-    audio_status.map_or_else(
-        || main_status.to_string(),
-        |audio_status| format!("{main_status} · {audio_status}"),
-    )
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum ItemKind {
-    Header,
-    Action,
-    Toggle,
-    Separator,
-}
-
-impl ItemKind {
-    pub(crate) fn actionable(self) -> bool {
-        matches!(self, Self::Action | Self::Toggle)
-    }
-}
-
-pub(crate) struct Item {
-    pub(crate) kind: ItemKind,
-    pub(crate) id: usize,
-    label: Vec<u16>,
-    glyph: Option<u16>,
-    checked: bool,
-}
-
-impl Item {
-    fn action(id: usize, label: &str, glyph: u16) -> Self {
-        Self {
-            kind: ItemKind::Action,
-            id,
-            label: wide(label),
-            glyph: Some(glyph),
-            checked: false,
-        }
-    }
-
-    fn toggle(id: usize, label: &str, checked: bool) -> Self {
-        Self {
-            kind: ItemKind::Toggle,
-            id,
-            label: wide(label),
-            glyph: None,
-            checked,
-        }
-    }
-
-    fn separator() -> Self {
-        Self {
-            kind: ItemKind::Separator,
-            id: 0,
-            label: Vec::new(),
-            glyph: None,
-            checked: false,
-        }
-    }
-}
 
 struct MenuState {
     owner: HWND,
@@ -191,10 +79,6 @@ impl Drop for MenuState {
             let _ = unsafe { DeleteObject(self.glyph_font.into()) };
         }
     }
-}
-
-fn wide(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 static REGISTERED: OnceLock<bool> = OnceLock::new();
@@ -261,53 +145,6 @@ pub fn show_menu(owner: HWND, model: &MenuModel) {
     };
     let _ = unsafe { ShowWindow(hwnd, SW_SHOW) };
     let _ = unsafe { SetForegroundWindow(hwnd) };
-}
-
-pub(crate) fn build_items(model: &MenuModel) -> Vec<Item> {
-    let mut items = Vec::new();
-    items.push(Item {
-        kind: ItemKind::Header,
-        id: 0,
-        label: wide(&model.status_text),
-        glyph: None,
-        checked: false,
-    });
-    items.push(Item::separator());
-    items.push(Item::action(
-        COMMAND_PAUSE,
-        if model.paused { "继续" } else { "暂停" },
-        if model.paused { 0xE768 } else { 0xE769 },
-    ));
-    items.push(Item::action(COMMAND_REDISCOVER, "重新发现", 0xE72C));
-    items.push(Item::action(
-        COMMAND_AGENT_SETTINGS,
-        &format!("Windows Agent：{}", model.agent_status),
-        0xE713,
-    ));
-    items.push(Item::separator());
-    items.push(Item::toggle(COMMAND_STARTUP, "开机启动", model.startup));
-    items.push(Item::toggle(
-        COMMAND_CURSOR_THEME,
-        "macOS 光标",
-        model.macos_cursor,
-    ));
-    items.push(Item::separator());
-    items.push(Item::action(COMMAND_REPAIR_DRIVER, "修复鼠标驱动", 0xE90F));
-    items.push(Item::action(
-        COMMAND_INSTALL_AUDIO_DRIVER,
-        "安装音频驱动 (VB-CABLE)",
-        0xE8D6,
-    ));
-    items.push(Item::action(
-        COMMAND_VB_CABLE_WEBSITE,
-        "VB-CABLE 官网与捐赠",
-        0xE774,
-    ));
-    items.push(Item::action(COMMAND_VIEW_LOG, "查看日志", 0xE8A5));
-    items.push(Item::action(COMMAND_CLEAR_LOG, "清理日志", 0xE74D));
-    items.push(Item::separator());
-    items.push(Item::action(COMMAND_EXIT, "退出", 0xE711));
-    items
 }
 
 fn module_instance() -> Option<HINSTANCE> {

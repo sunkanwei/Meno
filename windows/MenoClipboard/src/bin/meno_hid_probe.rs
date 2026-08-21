@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 #[path = "../display_contract.rs"]
 mod display_contract;
+#[path = "../hid_broker_protocol.rs"]
+mod hid_broker_protocol;
 #[allow(dead_code)]
 #[path = "../virtual_hid.rs"]
 mod virtual_hid;

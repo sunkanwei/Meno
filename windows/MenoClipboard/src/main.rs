@@ -2,41 +2,40 @@
 
 mod audio_output;
 mod audio_session;
-mod bounded_queue;
 mod clipboard_flow;
 mod connection;
+mod core_modules;
 mod cursor_hider;
 mod cursor_theme;
-mod discovery;
-mod display_contract;
 mod file_cache;
 mod file_clipboard;
 mod file_manifest;
 mod file_protocol;
 mod file_transfer;
-mod hid_writer;
-mod image_codec;
 mod image_tasks;
 mod install;
-mod logging;
 mod menu;
-mod mouse_control;
+mod menu_items;
+mod menu_model;
 mod mouse_input;
 mod mouse_session;
-mod peer_name;
-mod protocol;
 mod qos_flow;
 mod remote_shutdown;
+mod transfer_cache;
 mod tray;
-mod virtual_hid;
+mod ui_events;
 
-use std::sync::mpsc::{Sender, SyncSender, TrySendError, sync_channel};
+pub(crate) use core_modules::{
+    bounded_queue, channel_health, discovery, display_contract, hid_broker_protocol, hid_writer,
+    image_codec, logging, mouse_control, peer_name, protocol, virtual_hid,
+};
+
+use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use arboard::Error as ClipboardError;
 use audio_session::AudioStatus;
-use bounded_queue::{BoundedQueue, PushResult};
 use connection::{NetworkCommand, NetworkEvent};
 use protocol::{Frame, MessageKind};
 use windows::Win32::Foundation::{
@@ -50,39 +49,20 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow,
-    DispatchMessageW, GetMessageW, MSG, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND, PostMessageW,
-    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, TranslateMessage, WM_CLIPBOARDUPDATE,
-    WM_COMMAND, WM_DESTROY, WM_DISPLAYCHANGE, WM_LBUTTONUP, WM_POWERBROADCAST, WM_RBUTTONUP,
-    WNDCLASSW, WS_OVERLAPPED,
+    DispatchMessageW, GetMessageW, MSG, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND, PostQuitMessage,
+    RegisterClassW, RegisterWindowMessageW, TranslateMessage, WM_CLIPBOARDUPDATE, WM_COMMAND,
+    WM_DESTROY, WM_DISPLAYCHANGE, WM_LBUTTONUP, WM_POWERBROADCAST, WM_RBUTTONUP, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 use windows::core::{Error, Result as WinResult, w};
 
-pub const WM_NETWORK_EVENT: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
-pub const WM_FILE_CLIPBOARD_REQUEST: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 3;
-pub(crate) const UI_EVENT_BATCH: usize = 8;
-const NETWORK_UI_MAX_ITEMS: usize = 64;
-const NETWORK_UI_MAX_BYTES: usize = 64 * 1024 * 1024;
-const FILE_UI_MAX_ITEMS: usize = 32;
-const FILE_UI_MAX_BYTES: usize = 1024 * 1024;
 const FILE_WORKER_EVENT_CAPACITY: usize = 16;
 
-// The file worker cannot touch the system clipboard directly: publishing the
-// received cache paths and reading the active CF_HDROP both happen on the UI
-// thread through these requests, with a oneshot channel for the answer.
-pub enum FileUiRequest {
-    Publish {
-        paths: Vec<std::path::PathBuf>,
-        result: Sender<Result<(), String>>,
-    },
-    Referenced {
-        result: Sender<Result<Vec<std::path::PathBuf>, String>>,
-    },
-}
+pub use ui_events::FileUiRequest;
+use ui_events::{WM_FILE_CLIPBOARD_REQUEST, WM_NETWORK_EVENT};
 
 static APP: OnceLock<Mutex<AppState>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
-static NETWORK_UI_EVENTS: OnceLock<Mutex<BoundedQueue<NetworkEvent>>> = OnceLock::new();
-static FILE_UI_REQUESTS: OnceLock<Mutex<BoundedQueue<FileUiRequest>>> = OnceLock::new();
 
 pub(crate) struct AppState {
     pub(crate) network: SyncSender<NetworkCommand>,
@@ -249,103 +229,20 @@ fn main() -> WinResult<()> {
 }
 
 pub(crate) fn post_network_event(hwnd: HWND, event: NetworkEvent) -> bool {
-    let bytes = match &event {
-        NetworkEvent::Searching => 1,
-        NetworkEvent::Connected { name, address } => name.len().saturating_add(address.len()),
-        NetworkEvent::AudioStatus(status) => status.label().map_or(1, str::len),
-        NetworkEvent::Clipboard(frame) => frame.payload.len(),
-        NetworkEvent::Error(error) => error.len(),
-    };
-    let queue = NETWORK_UI_EVENTS.get_or_init(|| {
-        Mutex::new(BoundedQueue::new(
-            NETWORK_UI_MAX_ITEMS,
-            NETWORK_UI_MAX_BYTES,
-        ))
-    });
-    let Ok(mut queue) = queue.lock() else {
-        return false;
-    };
-    let result = match &event {
-        NetworkEvent::Clipboard(_) => queue.push_latest(event, bytes, |queued| {
-            matches!(queued, NetworkEvent::Clipboard(_))
-        }),
-        NetworkEvent::AudioStatus(_) => queue.push_latest(event, bytes, |queued| {
-            matches!(queued, NetworkEvent::AudioStatus(_))
-        }),
-        _ => queue.push(event, bytes),
-    };
-    let wake = match result {
-        PushResult::Queued { wake } | PushResult::Replaced { wake } => wake,
-        PushResult::Full => {
-            let stats = queue.stats();
-            logging::error(&format!(
-                "network UI queue full: items={} bytes={} rejected={}",
-                stats.items, stats.bytes, stats.rejected
-            ));
-            return false;
-        }
-    };
-    drop(queue);
-    !wake || post_wakeup(hwnd, WM_NETWORK_EVENT, &NETWORK_UI_EVENTS)
+    ui_events::post_network(hwnd, event)
 }
 
 pub(crate) fn post_file_ui_request(hwnd: HWND, request: FileUiRequest) -> bool {
-    let bytes = match &request {
-        FileUiRequest::Publish { paths, .. } => paths.iter().fold(0_usize, |total, path| {
-            total.saturating_add(path.as_os_str().len())
-        }),
-        FileUiRequest::Referenced { .. } => 1,
-    };
-    let queue = FILE_UI_REQUESTS
-        .get_or_init(|| Mutex::new(BoundedQueue::new(FILE_UI_MAX_ITEMS, FILE_UI_MAX_BYTES)));
-    let Ok(mut queue) = queue.lock() else {
-        return false;
-    };
-    let result = queue.push(request, bytes);
-    let wake = match result {
-        PushResult::Queued { wake } | PushResult::Replaced { wake } => wake,
-        PushResult::Full => {
-            let stats = queue.stats();
-            logging::error(&format!(
-                "file UI queue full: items={} bytes={} rejected={}",
-                stats.items, stats.bytes, stats.rejected
-            ));
-            return false;
-        }
-    };
-    drop(queue);
-    !wake || post_wakeup(hwnd, WM_FILE_CLIPBOARD_REQUEST, &FILE_UI_REQUESTS)
-}
-
-pub(crate) fn post_wakeup<T>(
-    hwnd: HWND,
-    message: u32,
-    queue: &OnceLock<Mutex<BoundedQueue<T>>>,
-) -> bool {
-    if unsafe { PostMessageW(Some(hwnd), message, WPARAM(0), LPARAM(0)) }.is_ok() {
-        return true;
-    }
-    if let Some(queue) = queue.get()
-        && let Ok(mut queue) = queue.lock()
-    {
-        queue.wake_failed();
-    }
-    false
+    ui_events::post_file(hwnd, request)
 }
 
 fn drain_network_events(hwnd: HWND) {
-    let Some(queue) = NETWORK_UI_EVENTS.get() else {
-        return;
-    };
-    let (events, more) = match queue.lock() {
-        Ok(mut queue) => queue.take_batch(UI_EVENT_BATCH),
-        Err(_) => return,
-    };
+    let (events, more) = ui_events::take_network();
     for event in events {
         handle_network_event(hwnd, event);
     }
     if more {
-        let _ = post_wakeup(hwnd, WM_NETWORK_EVENT, &NETWORK_UI_EVENTS);
+        let _ = ui_events::wake_network(hwnd);
     }
 }
 
@@ -429,32 +326,17 @@ fn write_remote_clipboard(frame: Frame, generation: u64) {
 }
 
 fn drain_file_ui_requests(hwnd: HWND) {
-    let Some(queue) = FILE_UI_REQUESTS.get() else {
-        return;
-    };
-    let (requests, more) = match queue.lock() {
-        Ok(mut queue) => queue.take_batch(UI_EVENT_BATCH),
-        Err(_) => return,
-    };
+    let (requests, more) = ui_events::take_file();
     for request in requests {
         handle_file_ui_request(request);
     }
     if more {
-        let _ = post_wakeup(hwnd, WM_FILE_CLIPBOARD_REQUEST, &FILE_UI_REQUESTS);
+        let _ = ui_events::wake_file(hwnd);
     }
 }
 
 fn clear_ui_queues() {
-    if let Some(queue) = NETWORK_UI_EVENTS.get()
-        && let Ok(mut queue) = queue.lock()
-    {
-        queue.clear();
-    }
-    if let Some(queue) = FILE_UI_REQUESTS.get()
-        && let Ok(mut queue) = queue.lock()
-    {
-        queue.clear();
-    }
+    ui_events::clear();
     image_tasks::clear_events();
 }
 

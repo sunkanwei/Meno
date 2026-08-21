@@ -1,7 +1,7 @@
 use std::env;
 use std::ffi::c_void;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -25,6 +25,14 @@ use windows::Win32::System::JobObjects::{
 };
 use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CreateEventW, ResetEvent};
 use windows::core::{GUID, HRESULT, PCWSTR};
+
+use crate::hid_broker_protocol::{
+    BrokerFrame, OP_QUERY as BROKER_OP_QUERY, OP_WRITE as BROKER_OP_WRITE,
+    READY_SEQUENCE as BROKER_READY_SEQUENCE, STATUS_ERROR as BROKER_STATUS_ERROR,
+    STATUS_OK as BROKER_STATUS_OK, STATUS_READY as BROKER_STATUS_READY,
+    error_payload as bounded_error_payload, read_frame as read_broker_frame,
+    validate_success_payload, write_frame as write_broker_frame,
+};
 
 pub const DRIVER_ABI: u16 = 6;
 pub const DRIVER_VERSION: (u16, u16, u16) = (2, 3, 5);
@@ -50,15 +58,6 @@ const CR_SUCCESS: u32 = 0;
 const CR_BUFFER_SMALL: u32 = 0x1A;
 const CM_GET_DEVICE_INTERFACE_LIST_PRESENT: u32 = 0;
 const BROKER_ARGUMENT: &str = "--meno-hid-broker";
-const BROKER_PROTOCOL_VERSION: u8 = 1;
-const BROKER_OP_QUERY: u8 = 1;
-const BROKER_OP_WRITE: u8 = 2;
-const BROKER_STATUS_OK: u8 = 0;
-const BROKER_STATUS_ERROR: u8 = 1;
-const BROKER_STATUS_READY: u8 = 2;
-const BROKER_READY_SEQUENCE: u64 = u64::MAX;
-const BROKER_HEADER_SIZE: usize = 12;
-const BROKER_MAX_PAYLOAD: usize = 512;
 const BROKER_START_TIMEOUT: Duration = Duration::from_millis(500);
 const BROKER_RESPONSE_TIMEOUT: Duration = Duration::from_millis(50);
 
@@ -470,13 +469,6 @@ struct BrokerJob {
     handle: HANDLE,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-struct BrokerFrame {
-    code: u8,
-    sequence: u64,
-    payload: Vec<u8>,
-}
-
 struct BrokerExchangeFailure {
     error: HidWriteError,
     transport: bool,
@@ -630,12 +622,14 @@ impl BrokerClient {
         }
         match response.code {
             BROKER_STATUS_OK => {
-                validate_broker_success_payload(operation, &response.payload).map_err(|error| {
-                    BrokerExchangeFailure::transport(
-                        HidWriteError::failed(error),
-                        "response-payload",
-                    )
-                })?;
+                validate_success_payload(operation, &response.payload, INFO_SIZE).map_err(
+                    |error| {
+                        BrokerExchangeFailure::transport(
+                            HidWriteError::failed(error),
+                            "response-payload",
+                        )
+                    },
+                )?;
                 Ok(response.payload)
             }
             BROKER_STATUS_ERROR => Err(BrokerExchangeFailure::operation(HidWriteError::failed(
@@ -808,68 +802,6 @@ fn execute_broker_request(
     }
 }
 
-fn write_broker_frame(
-    output: &mut impl Write,
-    code: u8,
-    sequence: u64,
-    payload: &[u8],
-) -> io::Result<()> {
-    if payload.len() > BROKER_MAX_PAYLOAD || payload.len() > u16::MAX as usize {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "HID broker payload is too large",
-        ));
-    }
-    let mut header = [0_u8; BROKER_HEADER_SIZE];
-    header[0] = BROKER_PROTOCOL_VERSION;
-    header[1] = code;
-    header[2..4].copy_from_slice(&(payload.len() as u16).to_le_bytes());
-    header[4..12].copy_from_slice(&sequence.to_le_bytes());
-    output.write_all(&header)?;
-    output.write_all(payload)
-}
-
-fn read_broker_frame(input: &mut impl Read) -> io::Result<BrokerFrame> {
-    let mut header = [0_u8; BROKER_HEADER_SIZE];
-    input.read_exact(&mut header)?;
-    if header[0] != BROKER_PROTOCOL_VERSION {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "HID broker protocol version mismatch",
-        ));
-    }
-    let length = u16::from_le_bytes([header[2], header[3]]) as usize;
-    if length > BROKER_MAX_PAYLOAD {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "HID broker payload exceeds the protocol limit",
-        ));
-    }
-    let mut payload = vec![0_u8; length];
-    input.read_exact(&mut payload)?;
-    let sequence = u64::from_le_bytes(header[4..12].try_into().unwrap());
-    if sequence == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "HID broker sequence must be nonzero",
-        ));
-    }
-    Ok(BrokerFrame {
-        code: header[1],
-        sequence,
-        payload,
-    })
-}
-
-fn bounded_error_payload(error: &str) -> Vec<u8> {
-    let bytes = error.as_bytes();
-    let mut length = bytes.len().min(BROKER_MAX_PAYLOAD);
-    while length > 0 && !error.is_char_boundary(length) {
-        length -= 1;
-    }
-    bytes[..length].to_vec()
-}
-
 fn output_is_recoverable(output: &[u8; OUTPUT_REPORT_SIZE]) -> bool {
     match output[2] {
         COMMAND_RESET | COMMAND_KEYBOARD_STATE => true,
@@ -886,21 +818,6 @@ fn parse_broker_write_response(response: &[u8]) -> Result<u64, HidWriteError> {
         ))
     })?;
     Ok(u64::from_le_bytes(encoded))
-}
-
-fn validate_broker_success_payload(operation: u8, payload: &[u8]) -> Result<(), String> {
-    let expected = match operation {
-        BROKER_OP_QUERY => INFO_SIZE,
-        BROKER_OP_WRITE => std::mem::size_of::<u64>(),
-        _ => return Err(format!("unsupported HID broker operation {operation}")),
-    };
-    if payload.len() != expected {
-        return Err(format!(
-            "Meno HID broker returned {} of {expected} response bytes for operation {operation}",
-            payload.len()
-        ));
-    }
-    Ok(())
 }
 
 fn combined_error_kind(first: HidWriteErrorKind, retry: HidWriteErrorKind) -> HidWriteErrorKind {
@@ -1097,31 +1014,6 @@ fn hid_interface_paths(hid_guid: &GUID) -> Result<Vec<Vec<u16>>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
-
-    #[test]
-    fn broker_frame_has_a_bounded_versioned_layout() {
-        let mut encoded = Vec::new();
-        write_broker_frame(
-            &mut encoded,
-            BROKER_OP_WRITE,
-            0x0102_0304_0506_0708,
-            &[9, 8, 7],
-        )
-        .unwrap();
-        assert_eq!(
-            &encoded[..BROKER_HEADER_SIZE],
-            &[1, 2, 3, 0, 8, 7, 6, 5, 4, 3, 2, 1]
-        );
-        assert_eq!(
-            read_broker_frame(&mut Cursor::new(encoded)).unwrap(),
-            BrokerFrame {
-                code: BROKER_OP_WRITE,
-                sequence: 0x0102_0304_0506_0708,
-                payload: vec![9, 8, 7],
-            }
-        );
-    }
 
     #[test]
     fn only_idempotent_hid_outputs_can_be_replayed_after_a_broker_timeout() {
@@ -1163,23 +1055,6 @@ mod tests {
     }
 
     #[test]
-    fn broker_rejects_oversized_frames_before_allocating_payload() {
-        let mut header = [0_u8; BROKER_HEADER_SIZE];
-        header[0] = BROKER_PROTOCOL_VERSION;
-        header[2..4].copy_from_slice(&u16::MAX.to_le_bytes());
-        let error = read_broker_frame(&mut Cursor::new(header)).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    }
-
-    #[test]
-    fn broker_rejects_a_zero_sequence() {
-        let mut header = [0_u8; BROKER_HEADER_SIZE];
-        header[0] = BROKER_PROTOCOL_VERSION;
-        let error = read_broker_frame(&mut Cursor::new(header)).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    }
-
-    #[test]
     fn broker_restarts_only_for_safe_requests_after_transport_failures() {
         let transport = BrokerExchangeFailure::transport(
             HidWriteError::failed("pipe closed"),
@@ -1190,18 +1065,6 @@ mod tests {
         assert!(transport.should_restart(true));
         assert!(!transport.should_restart(false));
         assert!(!operation.should_restart(true));
-    }
-
-    #[test]
-    fn broker_success_payload_lengths_are_operation_specific() {
-        assert!(validate_broker_success_payload(BROKER_OP_QUERY, &[0; INFO_SIZE]).is_ok());
-        assert!(
-            validate_broker_success_payload(BROKER_OP_WRITE, &[0; std::mem::size_of::<u64>()])
-                .is_ok()
-        );
-        assert!(validate_broker_success_payload(BROKER_OP_QUERY, &[0; INFO_SIZE - 1]).is_err());
-        assert!(validate_broker_success_payload(BROKER_OP_WRITE, &[]).is_err());
-        assert!(validate_broker_success_payload(99, &[]).is_err());
     }
 
     #[test]
@@ -1228,14 +1091,6 @@ mod tests {
         );
         assert!(parse_broker_write_response(&[0; 7]).is_err());
         assert!(parse_broker_write_response(&[0; 9]).is_err());
-    }
-
-    #[test]
-    fn broker_error_payload_truncation_preserves_utf8() {
-        let error = "错".repeat(BROKER_MAX_PAYLOAD);
-        let payload = bounded_error_payload(&error);
-        assert!(payload.len() <= BROKER_MAX_PAYLOAD);
-        assert!(std::str::from_utf8(&payload).is_ok());
     }
 
     #[test]

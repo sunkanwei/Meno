@@ -29,6 +29,18 @@ using namespace winrt::Windows::Graphics::DirectX;
 using namespace winrt::Windows::Graphics::DirectX::Direct3D11;
 struct ApartmentGuard { ~ApartmentGuard() { uninit_apartment(); } };
 
+struct CaptureSessionGuard {
+    Direct3D11CaptureFramePool& pool;
+    GraphicsCaptureSession& session;
+    event_token token;
+
+    ~CaptureSessionGuard() noexcept {
+        try { pool.FrameArrived(token); } catch (...) {}
+        try { session.Close(); } catch (...) {}
+        try { pool.Close(); } catch (...) {}
+    }
+};
+
 IDirect3DDevice create_device(com_ptr<ID3D11Device>& d3d) {
     com_ptr<ID3D11DeviceContext> context;
     check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
@@ -60,12 +72,11 @@ std::int32_t capture_item(const GraphicsCaptureItem& item, CaptureBuffer* output
     auto session = pool.CreateCaptureSession(item);
     auto event = std::make_shared<handle>(check_pointer(CreateEventW(nullptr, TRUE, FALSE, nullptr)));
     const auto token = pool.FrameArrived([event](const auto&, const auto&) { SetEvent(event->get()); });
+    CaptureSessionGuard capture_guard{pool, session, token};
     session.StartCapture(); const auto waited = WaitForSingleObject(event->get(), 3000);
-    if (waited != WAIT_OBJECT_0) {
-        pool.FrameArrived(token); session.Close(); pool.Close();
+    if (waited != WAIT_OBJECT_0)
         throw_hresult(waited == WAIT_TIMEOUT ? HRESULT_FROM_WIN32(WAIT_TIMEOUT) : E_FAIL);
-    }
-    const auto frame = pool.TryGetNextFrame(); pool.FrameArrived(token);
+    const auto frame = pool.TryGetNextFrame();
     if (frame == nullptr) throw_hresult(E_FAIL);
     const auto access = frame.Surface().as<
         ::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
@@ -86,7 +97,8 @@ std::int32_t capture_item(const GraphicsCaptureItem& item, CaptureBuffer* output
     for (std::uint32_t row = 0; row < desc.Height; ++row)
         std::memcpy(pixels + row * stride, static_cast<const std::uint8_t*>(mapped.pData) + row * mapped.RowPitch,
             static_cast<std::size_t>(stride));
-    context->Unmap(staging.get(), 0); session.Close(); pool.Close();
+    context->Unmap(staging.get(), 0);
+    frame.Close();
     output->data = pixels; output->width = desc.Width; output->height = desc.Height;
     output->stride = static_cast<std::uint32_t>(stride); return S_OK;
 }

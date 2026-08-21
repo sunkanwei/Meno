@@ -23,6 +23,10 @@ mod logging {
 
 #[path = "../src/menu.rs"]
 mod menu;
+#[path = "../src/menu_items.rs"]
+mod menu_items;
+#[path = "../src/menu_model.rs"]
+mod menu_model;
 
 fn model(connected: bool, paused: bool, suspended: bool) -> menu::MenuModel {
     menu::MenuModel::new(

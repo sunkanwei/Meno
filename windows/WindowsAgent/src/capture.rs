@@ -480,9 +480,29 @@ impl Drop for CapturedFrame {
 #[cfg(test)]
 mod tests {
     use super::CapturedFrame;
+    use std::{env, process::Command};
+
+    const CAPTURE_TEST_CHILD: &str = "MENO_CAPTURE_TEST_CHILD";
 
     #[test]
     fn captures_primary_monitor_and_releases_cpp_buffer() {
+        if env::var_os(CAPTURE_TEST_CHILD).is_none() {
+            let result = Command::new(env::current_exe().expect("locate test executable"))
+                .args([
+                    "--exact",
+                    "capture::tests::captures_primary_monitor_and_releases_cpp_buffer",
+                ])
+                .env(CAPTURE_TEST_CHILD, "1")
+                .output()
+                .expect("start isolated capture test");
+            assert!(
+                result.status.success(),
+                "isolated capture test failed: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+
         let frame = CapturedFrame::capture_primary_monitor()
             .expect("Windows Graphics Capture should return the primary monitor frame");
         assert!(frame.width > 0);

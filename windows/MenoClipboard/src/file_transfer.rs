@@ -3,19 +3,19 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{CloseHandle, FILETIME, HWND};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, GetDiskFreeSpaceExW, OPEN_EXISTING,
-    SetFileAttributesW, SetFileTime,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING, SetFileAttributesW,
+    SetFileTime,
 };
 use windows::core::PCWSTR;
 
 use crate::FileUiRequest;
 use crate::connection::NetworkCommand;
-use crate::file_cache::{self, CacheRecord};
+use crate::file_cache;
 use crate::file_manifest::{self, SourceEntry, SourceManifest};
 use crate::file_protocol::{
     self, CANCEL_LOCAL_CLIPBOARD, CANCEL_READ_FAILED, CANCEL_SOURCE_CHANGED, CANCEL_SUPERSEDED,
@@ -24,14 +24,13 @@ use crate::file_protocol::{
     TransferId,
 };
 use crate::protocol::{Frame, MessageKind};
+use crate::transfer_cache::TransferCache;
 
 const ACCEPT_TIMEOUT: Duration = Duration::from_secs(15);
 const RESULT_TIMEOUT: Duration = Duration::from_secs(15);
 const ACK_TIMEOUT: Duration = Duration::from_secs(30);
 const UI_TIMEOUT: Duration = Duration::from_secs(15);
 const HOUSEKEEPING_INTERVAL: Duration = Duration::from_secs(60 * 60);
-const FILE_ATTRIBUTE_REPARSE_BITS: u32 = 0x400;
-const FILE_ATTRIBUTE_DIRECTORY_BITS: u32 = 0x10;
 
 pub enum WorkerEvent {
     LocalFiles(Vec<PathBuf>),
@@ -128,23 +127,19 @@ struct Worker {
     link: Option<u64>,
     send: Option<SendTask>,
     receive: Option<ReceiveTask>,
-    cache_root: PathBuf,
-    max_component: usize,
+    cache: TransferCache,
     next_housekeeping: Instant,
 }
 
 impl Worker {
     fn new(hwnd: HWND, network: SyncSender<NetworkCommand>, cache_root: PathBuf) -> Self {
-        let _ = fs::create_dir_all(file_manifest::io_path(&cache_root));
-        let max_component = file_manifest::volume_max_component(&cache_root);
         Self {
             hwnd,
             network,
             link: None,
             send: None,
             receive: None,
-            cache_root,
-            max_component,
+            cache: TransferCache::new(cache_root),
             next_housekeeping: Instant::now() + HOUSEKEEPING_INTERVAL,
         }
     }
@@ -621,13 +616,20 @@ impl Worker {
         let referenced = self
             .ui_referenced()
             .map_err(|message| (RESULT_NO_SPACE, message))?;
-        self.ensure_cache_capacity(offer.total_file_bytes, offer.entries.len(), &referenced)
+        let active_receive = self.receive.as_ref().map(|task| task.directory.as_path());
+        self.cache
+            .ensure_capacity(
+                offer.total_file_bytes,
+                offer.entries.len(),
+                &referenced,
+                active_receive,
+            )
             .map_err(|message| (RESULT_NO_SPACE, message))?;
 
-        let mapped = file_manifest::map_receive_names(&offer.entries, self.max_component);
+        let mapped = file_manifest::map_receive_names(&offer.entries, self.cache.max_component());
         let directory = self
-            .cache_root
-            .join(file_protocol::transfer_id_hex(&offer.transfer_id));
+            .cache
+            .transfer_path(&file_protocol::transfer_id_hex(&offer.transfer_id));
         let directory_io = file_manifest::io_path(&directory);
         let created = fs::create_dir(&directory_io);
         if let Err(error) = created {
@@ -885,181 +887,14 @@ impl Worker {
         .unwrap_or_else(|| Err("clipboard reference request timed out".to_string()))
     }
 
-    // ----- cache housekeeping -----
-
-    fn ensure_cache_capacity(
-        &mut self,
-        incoming_logical_bytes: u64,
-        incoming_entries: usize,
-        referenced: &[PathBuf],
-    ) -> Result<(), String> {
-        loop {
-            let (records, legacy_referenced) = self.scan_cache(referenced, true)?;
-            if legacy_referenced {
-                return Err(
-                    "the clipboard still references a legacy cache without quota metadata"
-                        .to_string(),
-                );
-            }
-            let available = free_space(&self.cache_root)
-                .ok_or_else(|| "could not query free disk space".to_string())?;
-            let plan = file_cache::plan_capacity(
-                &records,
-                incoming_logical_bytes,
-                incoming_entries,
-                available,
-            );
-            if plan.evict.is_empty() {
-                return plan
-                    .fits
-                    .then_some(())
-                    .ok_or_else(|| "cache quota or disk reserve is insufficient".to_string());
-            }
-            let mut removed = false;
-            for name in plan.evict {
-                removed |= self.delete_managed_directory(&name);
-            }
-            if !removed {
-                return Err("cache quota could not be reclaimed safely".to_string());
-            }
-        }
-    }
-
-    fn canonical_cache_root(&self) -> Option<PathBuf> {
-        let root_io = file_manifest::io_path(&self.cache_root);
-        let metadata = fs::symlink_metadata(&root_io).ok()?;
-        let attributes = std::os::windows::fs::MetadataExt::file_attributes(&metadata);
-        if attributes & FILE_ATTRIBUTE_DIRECTORY_BITS == 0
-            || attributes & FILE_ATTRIBUTE_REPARSE_BITS != 0
-        {
-            return None;
-        }
-        fs::canonicalize(root_io).ok()
-    }
-
-    fn validated_child(&self, name: &str) -> Option<PathBuf> {
-        let canonical_root = self.canonical_cache_root()?;
-        let path = file_manifest::io_path(&self.cache_root.join(name));
-        let metadata = fs::symlink_metadata(&path).ok()?;
-        let attributes = std::os::windows::fs::MetadataExt::file_attributes(&metadata);
-        if attributes & FILE_ATTRIBUTE_DIRECTORY_BITS == 0
-            || attributes & FILE_ATTRIBUTE_REPARSE_BITS != 0
-        {
-            return None;
-        }
-        let canonical = fs::canonicalize(&path).ok()?;
-        (canonical.parent() == Some(canonical_root.as_path())).then_some(path)
-    }
-
-    fn delete_tombstone(&self, name: &str) -> bool {
-        let Some(id) = name.strip_prefix(".delete-") else {
-            return false;
-        };
-        if !file_cache::is_transfer_directory_name(id) {
-            return false;
-        }
-        let Some(path) = self.validated_child(name) else {
-            return false;
-        };
-        match fs::remove_dir_all(path) {
-            Ok(()) => true,
-            Err(_) => false,
-        }
-    }
-
-    fn delete_managed_directory(&self, name: &str) -> bool {
-        if !file_cache::is_transfer_directory_name(name) {
-            return false;
-        }
-        let Some(path) = self.validated_child(name) else {
-            return false;
-        };
-        let tombstone_name = format!(".delete-{name}");
-        let tombstone = file_manifest::io_path(&self.cache_root.join(&tombstone_name));
-        if fs::symlink_metadata(&tombstone).is_ok() && !self.delete_tombstone(&tombstone_name) {
-            return false;
-        }
-        if fs::rename(&path, &tombstone).is_err() {
-            return false;
-        }
-        self.delete_tombstone(&tombstone_name)
-    }
-
-    fn scan_cache(
-        &self,
-        referenced: &[PathBuf],
-        purge_incomplete: bool,
-    ) -> Result<(Vec<CacheRecord>, bool), String> {
-        if self.canonical_cache_root().is_none() {
-            return Err("cache root is missing, redirected, or not a directory".to_string());
-        }
-        let root_io = file_manifest::io_path(&self.cache_root);
-        let Ok(children) = fs::read_dir(&root_io) else {
-            return Err("cache root could not be listed".to_string());
-        };
-        let mut records = Vec::new();
-        let mut legacy_referenced = false;
-        for child in children.flatten() {
-            let name = child.file_name();
-            let Some(name) = name.to_str() else { continue };
-            if name.starts_with(".delete-") {
-                let _ = self.delete_tombstone(name);
-                continue;
-            }
-            if !file_cache::is_transfer_directory_name(name) {
-                continue;
-            }
-            if self.validated_child(name).is_none() {
-                continue;
-            }
-            let plain = self.cache_root.join(name);
-            if self
-                .receive
-                .as_ref()
-                .is_some_and(|task| task.directory == plain)
-            {
-                continue;
-            }
-            let is_referenced = file_cache::is_referenced(&plain, referenced);
-            match file_cache::load_completed(name, &child.path()) {
-                Ok(metadata) => records.push(CacheRecord {
-                    name: name.to_string(),
-                    logical_bytes: metadata.logical_bytes,
-                    entry_count: metadata.entry_count,
-                    completed_millis: metadata.completed_millis,
-                    referenced: is_referenced,
-                }),
-                Err(_) if is_referenced => legacy_referenced = true,
-                Err(_) if purge_incomplete => {
-                    if !self.delete_managed_directory(name) {
-                        legacy_referenced = true;
-                    }
-                }
-                Err(_) => {}
-            }
-        }
-        Ok((records, legacy_referenced))
-    }
-
     // Runs only when the current clipboard reference set is known; a failed
     // read keeps every directory rather than risking an in-use one.
     fn housekeeping(&mut self) {
         let Ok(referenced) = self.ui_referenced() else {
             return;
         };
-        let Ok((records, _)) = self.scan_cache(&referenced, true) else {
-            return;
-        };
-        let now_millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64;
-        for record in records {
-            if !record.referenced && file_cache::is_expired(record.completed_millis, now_millis) {
-                let _ = self.delete_managed_directory(&record.name);
-            }
-        }
+        let active_receive = self.receive.as_ref().map(|task| task.directory.as_path());
+        self.cache.housekeeping(&referenced, active_receive);
     }
 }
 
@@ -1091,15 +926,6 @@ fn wide_path(path: &Path) -> Vec<u16> {
     std::os::windows::ffi::OsStrExt::encode_wide(path.as_os_str())
         .chain(std::iter::once(0))
         .collect()
-}
-
-fn free_space(path: &Path) -> Option<u64> {
-    let wide = wide_path(path);
-    let mut available = 0_u64;
-    unsafe {
-        GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut available), None, None).ok()?;
-    }
-    Some(available)
 }
 
 fn set_modified(path: &Path, millis: i64, directory: bool) -> Result<(), String> {
