@@ -37,7 +37,6 @@ mod virtual_hid;
 use std::sync::mpsc::{Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
 
 use arboard::Error as ClipboardError;
 use audio_session::AudioStatus;
