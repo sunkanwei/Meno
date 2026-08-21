@@ -113,6 +113,8 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
         XCTAssertEqual(CompanionCapability.directionalMouseHandoff.rawValue, 9)
         XCTAssertEqual(ClipboardMessageKind.diagnosticEvent.rawValue, 31)
         XCTAssertEqual(CompanionCapability.remoteDiagnostics.rawValue, 11)
+        XCTAssertEqual(ClipboardMessageKind.mouseEnterV2.rawValue, 32)
+        XCTAssertEqual(CompanionCapability.mouseRouteContract.rawValue, 12)
     }
 
     func testControlPayloadsCarryStableNonzeroSessionID() {
@@ -147,6 +149,86 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
             [UInt8](payload),
             [0, 0, 0, 0, 0, 0, 0, 9, 0xCA, 0xFE, HorizontalDisplaySide.right.rawValue]
         )
+    }
+
+    func testMouseEnterV2MatchesFixedPayloadAndFrameBytes() {
+        let payload = MousePayload.enterV2(
+            controlID: 0x0102_0304_0506_0708,
+            routeID: 0x2122_2324_2526_2728,
+            normalizedY: 0xCAFE,
+            openingLowerY: 0x1234,
+            openingUpperY: 0xABCD,
+            entryEdge: .right
+        )
+        let payloadBytes: [UInt8] = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+            0xCA, 0xFE,
+            0x12, 0x34,
+            0xAB, 0xCD,
+            0x02,
+        ]
+
+        XCTAssertEqual(ClipboardWire.mouseEnterV2PayloadSize, 23)
+        XCTAssertEqual([UInt8](payload), payloadBytes)
+        XCTAssertEqual(
+            MousePayload.decodeEnterV2(payload),
+            MouseEnterV2Payload(
+                controlID: 0x0102_0304_0506_0708,
+                routeID: 0x2122_2324_2526_2728,
+                normalizedY: 0xCAFE,
+                openingLowerY: 0x1234,
+                openingUpperY: 0xABCD,
+                entryEdge: .right
+            )
+        )
+
+        let frame = ClipboardFrame(
+            kind: .mouseEnterV2,
+            messageID: 0x1112_1314_1516_1718,
+            payload: payload
+        ).encoded()
+        XCTAssertEqual(
+            [UInt8](frame),
+            [
+                0x4D, 0x45, 0x4E, 0x4F,
+                0x20, 0x00, 0x00, 0x00,
+                0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+                0x00, 0x00, 0x00, 0x17,
+            ] + payloadBytes
+        )
+    }
+
+    func testMouseEnterV2RejectsMalformedPayloads() {
+        let valid = MousePayload.enterV2(
+            controlID: 1,
+            routeID: 2,
+            normalizedY: 3,
+            openingLowerY: 4,
+            openingUpperY: 5,
+            entryEdge: .left
+        )
+
+        XCTAssertNil(MousePayload.decodeEnterV2(valid.dropLast()))
+        XCTAssertNil(MousePayload.decodeEnterV2(valid + Data([0])))
+
+        var zeroControlID = valid
+        zeroControlID.replaceSubrange(0...7, with: repeatElement(0, count: 8))
+        XCTAssertNil(MousePayload.decodeEnterV2(zeroControlID))
+
+        var zeroRouteID = valid
+        zeroRouteID.replaceSubrange(8...15, with: repeatElement(0, count: 8))
+        XCTAssertNil(MousePayload.decodeEnterV2(zeroRouteID))
+
+        var reversedOpening = valid
+        reversedOpening.replaceSubrange(18...21, with: [0, 6, 0, 5])
+        XCTAssertNil(MousePayload.decodeEnterV2(reversedOpening))
+
+        for invalidEdge in [UInt8(0), 3, .max] {
+            var invalid = valid
+            invalid[22] = invalidEdge
+            XCTAssertNil(MousePayload.decodeEnterV2(invalid))
+        }
     }
 
     func testMoveRoundTripPreservesSessionAndSamples() {
@@ -825,6 +907,7 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
                 .remoteShutdown,
                 .directionalMouseHandoff,
                 .remoteDiagnostics,
+                .mouseRouteContract,
             ],
             driverABI: 4,
             screenWidth: 3_840,
@@ -843,11 +926,13 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
                 .keyboardState,
                 .remoteShutdown,
                 .directionalMouseHandoff,
+                .mouseRouteContract,
             ]
         )
         XCTAssertTrue(peer.keyboardSupported)
         XCTAssertTrue(peer.remoteShutdownSupported)
         XCTAssertTrue(peer.directionalHandoffSupported)
+        XCTAssertTrue(peer.routeContractSupported)
     }
 
     func testHelloKeepsCapabilitiesIndependentFromDriverAvailability() throws {

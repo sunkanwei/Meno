@@ -27,6 +27,10 @@ struct MousePeer: Equatable, Sendable {
         capabilities.contains(.directionalMouseHandoff)
     }
 
+    var routeContractSupported: Bool {
+        capabilities.contains(.mouseRouteContract)
+    }
+
 }
 
 struct MouseMoveSample: Equatable, Sendable {
@@ -37,6 +41,15 @@ struct MouseMoveSample: Equatable, Sendable {
 struct MouseMovePayload: Equatable, Sendable {
     let controlID: UInt64
     let samples: [MouseMoveSample]
+}
+
+struct MouseEnterV2Payload: Equatable, Sendable {
+    let controlID: UInt64
+    let routeID: UInt64
+    let normalizedY: UInt16
+    let openingLowerY: UInt16
+    let openingUpperY: UInt16
+    let entryEdge: HorizontalDisplaySide
 }
 
 struct MouseMovementScaler: Sendable {
@@ -197,6 +210,28 @@ enum MousePayload {
         return data
     }
 
+    static func enterV2(
+        controlID: UInt64,
+        routeID: UInt64,
+        normalizedY: UInt16,
+        openingLowerY: UInt16,
+        openingUpperY: UInt16,
+        entryEdge: HorizontalDisplaySide
+    ) -> Data {
+        precondition(routeID != 0)
+        precondition(openingLowerY <= openingUpperY)
+        var data = header(
+            controlID: controlID,
+            bodyCapacity: ClipboardWire.mouseEnterV2PayloadSize - 8
+        )
+        data.appendBigEndian(routeID)
+        data.appendBigEndian(normalizedY)
+        data.appendBigEndian(openingLowerY)
+        data.appendBigEndian(openingUpperY)
+        data.append(entryEdge.rawValue)
+        return data
+    }
+
     static func control(controlID: UInt64) -> Data {
         header(controlID: controlID, bodyCapacity: 0)
     }
@@ -242,6 +277,30 @@ enum MousePayload {
         guard let controlID = decodeHeader(data, expectedBodyCount: 2) else { return nil }
         let bytes = [UInt8](data)
         return (controlID, bytes.readUInt16(at: 8))
+    }
+
+    static func decodeEnterV2(_ data: Data) -> MouseEnterV2Payload? {
+        let bytes = [UInt8](data)
+        guard bytes.count == ClipboardWire.mouseEnterV2PayloadSize else { return nil }
+        let controlID = bytes.readUInt64(at: 0)
+        let routeID = bytes.readUInt64(at: 8)
+        let normalizedY = bytes.readUInt16(at: 16)
+        let openingLowerY = bytes.readUInt16(at: 18)
+        let openingUpperY = bytes.readUInt16(at: 20)
+        guard controlID != 0,
+              routeID != 0,
+              openingLowerY <= openingUpperY,
+              let entryEdge = HorizontalDisplaySide(rawValue: bytes[22]) else {
+            return nil
+        }
+        return MouseEnterV2Payload(
+            controlID: controlID,
+            routeID: routeID,
+            normalizedY: normalizedY,
+            openingLowerY: openingLowerY,
+            openingUpperY: openingUpperY,
+            entryEdge: entryEdge
+        )
     }
 
     static func decodeMove(_ data: Data) -> MouseMovePayload? {
@@ -293,6 +352,7 @@ enum MousePayload {
             .keyboardState,
             .remoteShutdown,
             .directionalMouseHandoff,
+            .mouseRouteContract,
         ])
         return MousePeer(
             name: hello.name.isEmpty ? "Windows" : hello.name,

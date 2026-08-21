@@ -220,7 +220,7 @@ final class ClipboardConnection: @unchecked Sendable {
         case .ready, .mouseEnter, .directionalMouseEnter, .mouseMove, .mouseButton, .mouseWheel,
              .mouseReleaseAll, .mouseLeave, .mouseDriverUnavailable, .keyboardState,
              .mouseAcquired, .mouseReleased, .mouseControlHeartbeat, .shutdownRequest,
-             .microphonePCM, .diagnosticEvent:
+             .microphonePCM, .diagnosticEvent, .mouseEnterV2:
             throw ClipboardFrameDecoderError.invalidHeader
         }
     }

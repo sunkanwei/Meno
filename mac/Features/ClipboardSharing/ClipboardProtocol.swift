@@ -14,6 +14,7 @@ enum CompanionCapability: UInt16, Sendable {
     case directionalMouseHandoff = 9
     case windowsOnline = 10
     case remoteDiagnostics = 11
+    case mouseRouteContract = 12
 }
 
 struct CompanionHello: Equatable, Sendable {
@@ -175,6 +176,7 @@ enum ClipboardMessageKind: UInt8, Sendable {
     case directionalMouseEnter = 29
     case windowsOnline = 30
     case diagnosticEvent = 31
+    case mouseEnterV2 = 32
 }
 
 struct ClipboardFrame: Sendable {
@@ -204,6 +206,7 @@ enum ClipboardWire {
     static let maximumImageSize = 33_554_432
     static let maximumPayloadSize = maximumImageSize
     static let maximumMouseMoveBatch = 16
+    static let mouseEnterV2PayloadSize = 23
 
     static func discoveryPacket(
         type: UInt8,
