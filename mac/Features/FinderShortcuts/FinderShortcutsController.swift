@@ -1,6 +1,5 @@
 import AppKit
 import CoreGraphics
-import OSLog
 
 enum FinderShortcutsStatus: Equatable {
     case off
@@ -48,10 +47,6 @@ final class FinderShortcutsController {
     }
 
     private let contextInspector = FinderContextInspector()
-    private let logger = Logger(
-        subsystem: "com.sunkanwei.Meno",
-        category: "FinderShortcuts"
-    )
     private let onStatusChanged: (FinderShortcutsStatus) -> Void
     private let onCutStateChanged: (_ hasCutState: Bool) -> Void
     private let onFeedbackEvent: (FinderFeedbackEvent) -> Void
@@ -196,7 +191,6 @@ private extension FinderShortcutsController {
         }
 
         if isMappedPaste, cutSession.isAwaitingCopy {
-            logger.info("Mapped paste passed through: cut copy confirmation is pending")
             cutSession.cancelPendingCopy()
             emitPasteFeedbackIfFileAvailable()
             return event
@@ -211,7 +205,6 @@ private extension FinderShortcutsController {
             enabledFeatures: enabledFeatures
         ) else {
             if isMappedPaste {
-                logger.info("Mapped paste passed through: no armed cut state")
                 emitPasteFeedbackIfFileAvailable()
             }
             return event
@@ -219,7 +212,6 @@ private extension FinderShortcutsController {
         guard let finderPID = FinderProcess.currentPID,
               let context = contextInspector.currentContext(expectedPID: finderPID) else {
             if intent == .movePaste {
-                logger.info("Mapped paste passed through: Finder context is not safely confirmed")
                 emitPasteFeedbackIfFileAvailable()
             }
             return event
@@ -257,10 +249,8 @@ private extension FinderShortcutsController {
 
         case .movePaste:
             guard cutSession.consumeForMove(finderPID: context.finderPID) else {
-                logger.info("Mapped paste passed through: armed cut state failed its health check")
                 return event
             }
-            logger.info("Mapped paste replaced with Finder native move request")
             return holdReplacement(
                 .key(keyCode: 0x09, flags: [.maskCommand, .maskAlternate]),
                 for: event,
@@ -299,15 +289,12 @@ private extension FinderShortcutsController {
 
     func observeFileCopy() {
         guard let finderPID = FinderProcess.currentPID else {
-            logger.info("Copy feedback skipped: Finder process is unavailable")
             return
         }
         guard let context = contextInspector.currentContext(expectedPID: finderPID) else {
-            logger.info("Copy feedback skipped: Finder file context is unavailable")
             return
         }
         guard !context.selectedItemURLs.isEmpty else {
-            logger.info("Copy feedback skipped: no selected files")
             return
         }
         beginCopyObservation(using: context)
@@ -316,7 +303,6 @@ private extension FinderShortcutsController {
     func emitPasteFeedbackIfFileAvailable() {
         guard let finderPID = FinderProcess.currentPID,
               contextInspector.currentContext(expectedPID: finderPID) != nil else {
-            logger.info("Paste feedback skipped: Finder file context is unavailable")
             return
         }
         let options: [NSPasteboard.ReadingOptionKey: Any] = [
@@ -326,7 +312,6 @@ private extension FinderShortcutsController {
             forClasses: [NSURL.self],
             options: options
         ) else {
-            logger.info("Paste feedback skipped: pasteboard has no file URLs")
             return
         }
         onFeedbackEvent(.pasteSubmitted)
@@ -382,9 +367,6 @@ private extension FinderShortcutsController {
     }
 
     private func beginCopyObservation(using context: FinderContextSnapshot) {
-        if pendingCopyObservation != nil {
-            logger.info("Copy feedback observation superseded by a newer copy")
-        }
         nextCopyObservationToken &+= 1
         let observation = PendingCopyObservation(
             token: nextCopyObservationToken,
@@ -414,27 +396,15 @@ private extension FinderShortcutsController {
                 guard let self else { return }
                 self.pendingCopyObservation = nil
                 guard case let .confirmed(change) = result else {
-                    if case let .failed(failure) = result {
-                        self.logger.info(
-                            "Copy feedback skipped: \(failure.rawValue, privacy: .public)"
-                        )
-                    }
                     return
                 }
                 let copiedURLs = change.fileURLs.normalizedFileURLs()
                 guard copiedURLs == observation.selectedURLs else {
-                    self.logger.info(
-                        "Copy feedback skipped: confirmed files differ copied=\(copiedURLs.count) selected=\(observation.selectedURLs.count)"
-                    )
                     return
                 }
                 guard observation.selectedURLs.allExist() else {
-                    self.logger.info("Copy feedback skipped: a selected file no longer exists")
                     return
                 }
-                self.logger.info(
-                    "Copy confirmed scope=\(String(describing: observation.scope), privacy: .public) count=\(observation.selectedURLs.count)"
-                )
                 self.onFeedbackEvent(.copied)
             }
         )

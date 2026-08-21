@@ -48,7 +48,6 @@ final class CutSessionController {
         guard !context.selectedItemURLs.isEmpty,
               contextInspector.isFrontmostFinder(pid: context.finderPID),
               context.selectedItemURLs.allExist() else {
-            logger.info("Cut skipped: Finder selection is unavailable")
             cancel()
             return
         }
@@ -69,9 +68,6 @@ final class CutSessionController {
             stateMachine.cancel()
             return
         }
-        logger.info(
-            "Cut copy submitted scope=\(String(describing: context.scope), privacy: .public) count=\(context.selectedItemURLs.count)"
-        )
         pollForCopyConfirmation(attempt: attempt)
     }
 
@@ -134,11 +130,6 @@ final class CutSessionController {
             onResult: { [weak self] result in
                 guard let self else { return }
                 guard case let .confirmed(change) = result else {
-                    if case let .failed(failure) = result {
-                        self.logger.info(
-                            "Cut skipped: \(failure.rawValue, privacy: .public)"
-                        )
-                    }
                     self.stateMachine.cancel()
                     return
                 }
@@ -151,15 +142,11 @@ final class CutSessionController {
                     sourcesExist: attempt.sourceURLs.allExist(),
                     now: now
                 ) else {
-                    self.logger.info(
-                        "Cut skipped: confirmed files differ copied=\(change.fileURLs.count) selected=\(attempt.sourceURLs.count)"
-                    )
                     return
                 }
 
                 self.startHealthMonitoring()
                 self.onStateChanged(true)
-                self.logger.info("Cut confirmed count=\(attempt.sourceURLs.count)")
                 self.onFeedbackEvent(.cutArmed)
             }
         )
@@ -202,7 +189,6 @@ final class CutSessionController {
         stateMachine.cancel()
         stopHealthMonitoring()
         onStateChanged(false)
-        logger.info("Cut state invalidated by a health check")
     }
 
     private func observeInvalidatingSystemEvents() {

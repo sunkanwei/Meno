@@ -9,8 +9,6 @@ final class AppModel: ObservableObject {
     private let markdownPreviewWindowPreferences = MarkdownPreviewWindowPreferences()
     private let notifications = AppNotifications()
     private let finderFeedback = FinderFeedbackPresenter()
-    private let closedLidShutdownConfiguration = ClosedLidShutdownConfiguration()
-    private let closedLidShutdownHelper = ClosedLidShutdownHelperManager()
     let windowsAgent = WindowsAgentController()
 
     @Published private(set) var finderShortcutsStatus: FinderShortcutsStatus = .off
@@ -44,7 +42,7 @@ final class AppModel: ObservableObject {
     @Published var menuBarGlassEnabled: Bool
     @Published var scrollingEnabled: Bool
     @Published var activityMonitorShortcutEnabled: Bool
-    @Published var closedLidMode: ClosedLidMode
+    @Published var closedLidMode: ClosedLidMode = .keepRunning
     @Published var clipboardSharingEnabled: Bool
     @Published var microphoneSharingEnabled: Bool
     @Published private(set) var microphoneActivationKey: MicrophoneActivationKey
@@ -54,7 +52,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var softKVMShortcut: SoftKVMShortcut
     @Published private(set) var softKVMShortcutTestMessage: String?
     private var softKVMStarted = false
-    private var softKVMShortcutTestTask: Task<Void, Never>?
     private var lastSoftKVMShortcutAt: ContinuousClock.Instant?
     private var finderAutomationPermissionTask: Task<Void, Never>?
     private var finderAutomationPermissionGeneration: UInt64 = 0
@@ -92,6 +89,31 @@ final class AppModel: ObservableObject {
     )
 
     private lazy var softKVMHotKey = SoftKVMHotKeyController { [weak self] in self?.handleSoftKVMShortcut() }
+
+    private lazy var softKVMShortcutTest: SoftKVMShortcutTestController = {
+        let controller = SoftKVMShortcutTestController()
+        controller.onMessageChanged = { [weak self] message in
+            self?.softKVMShortcutTestMessage = message
+        }
+        return controller
+    }()
+
+    private lazy var closedLidShutdown: ClosedLidShutdownCoordinator = {
+        let coordinator = ClosedLidShutdownCoordinator(defaults: defaults)
+        coordinator.onModeChanged = { [weak self] mode in
+            self?.closedLidMode = mode
+        }
+        coordinator.onModeApplied = { [weak self] mode in
+            self?.closedLidBehavior.setMode(mode)
+        }
+        coordinator.onHelperStatusChanged = { [weak self] status in
+            self?.closedLidShutdownHelperStatus = status
+        }
+        coordinator.onFailure = { [weak self] message in
+            self?.closedLidBehaviorStatus = .failed(message)
+        }
+        return coordinator
+    }()
 
     private lazy var closedLidBehavior = ClosedLidBehaviorController(
         shutdownHelperIsReady: { [weak self] in
@@ -155,45 +177,46 @@ final class AppModel: ObservableObject {
     private func setMicrophoneActivationHeld(_ held: Bool) { windowsCompanion.setMicrophoneActivationHeld(held) }
 
     init() {
-        if defaults.object(forKey: AppPreferenceKey.finderShortcutsEnabled) == nil {
-            finderShortcutsEnabled = true
-        } else {
-            finderShortcutsEnabled = defaults.bool(forKey: AppPreferenceKey.finderShortcutsEnabled)
-        }
-        goToParentEnabled = defaults.object(forKey: AppPreferenceKey.finderGoToParentEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.finderGoToParentEnabled)
-        openSelectionEnabled = defaults.object(forKey: AppPreferenceKey.finderOpenSelectionEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.finderOpenSelectionEnabled)
-        renameEnabled = defaults.object(forKey: AppPreferenceKey.finderRenameEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.finderRenameEnabled)
-        cutAndMoveEnabled = defaults.object(forKey: AppPreferenceKey.finderCutAndMoveEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.finderCutAndMoveEnabled)
-        moveToTrashEnabled = defaults.object(forKey: AppPreferenceKey.finderMoveToTrashEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.finderMoveToTrashEnabled)
-        menuBarGlassEnabled = defaults.object(forKey: AppPreferenceKey.menuBarGlassEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.menuBarGlassEnabled)
-        scrollingEnabled = defaults.object(forKey: AppPreferenceKey.scrollingEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.scrollingEnabled)
-        activityMonitorShortcutEnabled = defaults.object(forKey: AppPreferenceKey.activityMonitorShortcutEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.activityMonitorShortcutEnabled)
-        if let rawMode = defaults.string(forKey: AppPreferenceKey.closedLidMode),
-           let savedMode = ClosedLidMode(rawValue: rawMode) {
-            closedLidMode = savedMode
-        } else {
-            closedLidMode = .keepRunning
-            defaults.set(ClosedLidMode.keepRunning.rawValue, forKey: AppPreferenceKey.closedLidMode)
-        }
-        clipboardSharingEnabled = defaults.object(forKey: AppPreferenceKey.clipboardSharingEnabled) == nil
-            ? true
-            : defaults.bool(forKey: AppPreferenceKey.clipboardSharingEnabled)
+        finderShortcutsEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.finderShortcutsEnabled,
+            default: true
+        )
+        goToParentEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.finderGoToParentEnabled,
+            default: true
+        )
+        openSelectionEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.finderOpenSelectionEnabled,
+            default: true
+        )
+        renameEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.finderRenameEnabled,
+            default: true
+        )
+        cutAndMoveEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.finderCutAndMoveEnabled,
+            default: true
+        )
+        moveToTrashEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.finderMoveToTrashEnabled,
+            default: true
+        )
+        menuBarGlassEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.menuBarGlassEnabled,
+            default: true
+        )
+        scrollingEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.scrollingEnabled,
+            default: true
+        )
+        activityMonitorShortcutEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.activityMonitorShortcutEnabled,
+            default: true
+        )
+        clipboardSharingEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.clipboardSharingEnabled,
+            default: true
+        )
         microphoneSharingEnabled = defaults.bool(forKey: AppPreferenceKey.microphoneSharingEnabled)
         if let data = defaults.data(forKey: AppPreferenceKey.microphoneActivationKey),
            let savedKey = try? JSONDecoder().decode(MicrophoneActivationKey.self, from: data),
@@ -203,9 +226,10 @@ final class AppModel: ObservableObject {
             microphoneActivationKey = .defaultValue
         }
         crossScreenMouseEnabled = defaults.bool(forKey: AppPreferenceKey.crossScreenMouseEnabled)
-        displayHandoffEnabled = defaults.object(
-            forKey: AppPreferenceKey.displayHandoffEnabled
-        ) == nil ? true : defaults.bool(forKey: AppPreferenceKey.displayHandoffEnabled)
+        displayHandoffEnabled = defaults.boolValue(
+            forKey: AppPreferenceKey.displayHandoffEnabled,
+            default: true
+        )
         if let rawAlignment = defaults.string(forKey: AppPreferenceKey.displayHandoffAlignment),
            let savedAlignment = DisplayHandoffAlignment(rawValue: rawAlignment) {
             displayHandoffAlignment = savedAlignment
@@ -236,9 +260,10 @@ final class AppModel: ObservableObject {
         let markdownPreviewSize = markdownPreviewWindowPreferences.defaultSize
         markdownPreviewDefaultWidth = Int(markdownPreviewSize.width)
         markdownPreviewDefaultHeight = Int(markdownPreviewSize.height)
-        closedLidShutdownHelperStatus = closedLidShutdownHelper.currentStatus()
+        closedLidMode = closedLidShutdown.mode
+        closedLidShutdownHelperStatus = closedLidShutdown.helperStatus
         softKVMHotKey.onKeyboardFallbackNeededChanged = { [weak self] in self?.crossScreenMouse.setLocalKeyboardCaptureRequired($0) }
-        synchronizeClosedLidShutdownConfiguration()
+        closedLidShutdown.synchronizeConfiguration()
         windowsAgent.start()
         refreshPermissionsAndRuntime()
     }
@@ -287,18 +312,7 @@ final class AppModel: ObservableObject {
     }
 
     func requestFinderAutomationPermission() {
-        finderAutomationPermissionGeneration &+= 1
-        let generation = finderAutomationPermissionGeneration
-        finderAutomationPermissionTask?.cancel()
-        finderAutomationPermissionStatus = .checking
-        finderAutomationPermissionTask = Task { [weak self] in
-            let status = await FinderAutomationPermission.determine(askUserIfNeeded: true)
-            guard let self,
-                  !Task.isCancelled,
-                  finderAutomationPermissionGeneration == generation else { return }
-            finderAutomationPermissionStatus = status
-            finderAutomationPermissionTask = nil
-        }
+        refreshFinderAutomationPermission(askUserIfNeeded: true)
     }
 
     func openFinderAutomationSettings() {
@@ -363,7 +377,7 @@ final class AppModel: ObservableObject {
         scrolling.setEnabled(scrollingEnabled)
         activityMonitorShortcut.setEnabled(activityMonitorShortcutEnabled)
         softKVMHotKey.setShortcut(softKVMShortcut)
-        closedLidShutdownHelperStatus = closedLidShutdownHelper.currentStatus()
+        closedLidShutdown.refreshHelperStatus()
         closedLidBehavior.setMode(closedLidMode)
         applyDisplayHandoffConfiguration()
         crossScreenMouse.setMicrophoneActivationKey(microphoneActivationKey)
@@ -406,13 +420,13 @@ final class AppModel: ObservableObject {
         markdownPreviewDefaultHeight = Int(savedSize.height)
     }
 
-    private func refreshFinderAutomationPermission() {
+    private func refreshFinderAutomationPermission(askUserIfNeeded: Bool = false) {
         finderAutomationPermissionGeneration &+= 1
         let generation = finderAutomationPermissionGeneration
         finderAutomationPermissionTask?.cancel()
         finderAutomationPermissionStatus = .checking
         finderAutomationPermissionTask = Task { [weak self] in
-            let status = await FinderAutomationPermission.determine(askUserIfNeeded: false)
+            let status = await FinderAutomationPermission.determine(askUserIfNeeded: askUserIfNeeded)
             guard let self,
                   !Task.isCancelled,
                   finderAutomationPermissionGeneration == generation else { return }
@@ -558,27 +572,20 @@ extension AppModel {
 
     func beginSoftKVMShortcutTest() {
         guard crossScreenMouseEnabled else { return }
-        cancelSoftKVMShortcutTest()
-        softKVMShortcutTestMessage = "请按 \(softKVMShortcut.title)"
-        softKVMShortcutTestTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            guard let self,
-                  !Task.isCancelled,
-                  crossScreenMouseEnabled else { return }
-            softKVMShortcutTestTask = nil
-            softKVMShortcutTestMessage = "未识别到快捷键，请检查辅助功能和输入监听权限。"
-        }
+        softKVMShortcutTest.begin(
+            prompt: "请按 \(softKVMShortcut.title)",
+            timeoutMessage: "未识别到快捷键，请检查辅助功能和输入监听权限。"
+        )
     }
 
     private func handleSoftKVMShortcut() {
-        let now = ContinuousClock.now
-        if softKVMShortcutTestTask != nil {
-            softKVMShortcutTestTask?.cancel()
-            softKVMShortcutTestTask = nil
-            softKVMShortcutTestMessage = "快捷键识别成功，没有执行显示切换。"
+        if softKVMShortcutTest.handleShortcutPressed(
+            successMessage: "快捷键识别成功，没有执行显示切换。"
+        ) {
             return
         }
         guard !softKVMStatus.isBusy else { return }
+        let now = ContinuousClock.now
         if let lastSoftKVMShortcutAt,
            lastSoftKVMShortcutAt.duration(to: now) < .seconds(2) {
             return
@@ -602,9 +609,7 @@ extension AppModel {
     }
 
     private func cancelSoftKVMShortcutTest() {
-        softKVMShortcutTestTask?.cancel()
-        softKVMShortcutTestTask = nil
-        softKVMShortcutTestMessage = nil
+        softKVMShortcutTest.cancel()
         lastSoftKVMShortcutAt = nil
     }
 
@@ -619,51 +624,10 @@ extension AppModel {
 
     @discardableResult
     func setClosedLidMode(_ mode: ClosedLidMode) -> Bool {
-        let previousMode = closedLidMode
-        closedLidMode = mode
-        defaults.set(mode.rawValue, forKey: AppPreferenceKey.closedLidMode)
-        do {
-            try closedLidShutdownConfiguration.write(mode: mode)
-        } catch {
-            closedLidMode = previousMode
-            defaults.set(previousMode.rawValue, forKey: AppPreferenceKey.closedLidMode)
-            closedLidBehaviorStatus = .failed(
-                "无法保存合盖模式，原有设置保持不变：\(error.localizedDescription)"
-            )
-            return false
-        }
-        closedLidBehavior.setMode(mode)
-        if mode == .shutdown, !closedLidShutdownHelperStatus.isReady {
-            installClosedLidShutdownHelper()
-        }
-        return true
+        closedLidShutdown.setMode(mode)
     }
 
     func installClosedLidShutdownHelper() {
-        guard closedLidShutdownHelperStatus != .installing else { return }
-        closedLidShutdownHelperStatus = .installing
-        closedLidBehavior.setMode(closedLidMode)
-
-        Task { [weak self] in
-            guard let self else { return }
-            let status = await closedLidShutdownHelper.install()
-            closedLidShutdownHelperStatus = status
-            closedLidBehavior.setMode(closedLidMode)
-            if status.isReady {
-                synchronizeClosedLidShutdownConfiguration()
-            }
-        }
-    }
-
-    private func synchronizeClosedLidShutdownConfiguration() {
-        do {
-            try closedLidShutdownConfiguration.write(mode: closedLidMode)
-        } catch {
-            if closedLidMode == .shutdown {
-                closedLidBehaviorStatus = .failed(
-                    "无法把关机模式同步给系统关机助手：\(error.localizedDescription)"
-                )
-            }
-        }
+        closedLidShutdown.installHelper()
     }
 }

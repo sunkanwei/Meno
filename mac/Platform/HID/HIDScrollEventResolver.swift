@@ -2,7 +2,6 @@ import CoreFoundation
 import CoreGraphics
 import Darwin
 import Foundation
-import OSLog
 
 // Created on the main actor, then used exclusively by the scrolling event thread.
 final class HIDScrollEventResolver: @unchecked Sendable {
@@ -14,7 +13,6 @@ final class HIDScrollEventResolver: @unchecked Sendable {
         let retryAfter: TimeInterval?
     }
 
-    private let logger = Logger(subsystem: "com.sunkanwei.Meno", category: "Scrolling")
     private let topologyLock = NSLock()
     private let symbols: HIDEventSymbols?
     private var sourceCache: [UInt64: CachedSource] = [:]
@@ -73,7 +71,6 @@ final class HIDScrollEventResolver: @unchecked Sendable {
     private func resolveSource(senderID: UInt64) -> ScrollInputSource {
         guard senderID != 0 else { return .unknown }
         refreshCacheForTopologyChanges()
-        let previousSource = sourceCache[senderID]?.source
         if let cached = sourceCache[senderID] {
             guard let retryAfter = cached.retryAfter else { return cached.source }
             if ProcessInfo.processInfo.systemUptime < retryAfter {
@@ -84,16 +81,10 @@ final class HIDScrollEventResolver: @unchecked Sendable {
 
         guard let descriptor = symbols?.deviceDescriptor(senderID: senderID) else {
             cache(.unknown, senderID: senderID, now: now)
-            if previousSource != .unknown {
-                logger.info("Classified a new scrolling source as unknown")
-            }
             return .unknown
         }
         let source = ScrollInputSourceClassifier.classify(descriptor)
         cache(source, senderID: senderID, now: now)
-        if previousSource != source {
-            logger.info("Classified a new scrolling source as \(String(describing: source), privacy: .public)")
-        }
         return source
     }
 

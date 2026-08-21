@@ -299,8 +299,8 @@ final class RemoteDiagnosticsJournal: @unchecked Sendable {
 
     init(
         directoryURL: URL,
-        maximumFileSize: Int = 5 * 1_024 * 1_024,
-        maximumFileCount: Int = 5
+        maximumFileSize: Int = 1_024 * 1_024,
+        maximumFileCount: Int = 2
     ) {
         precondition(maximumFileSize > 0)
         precondition(maximumFileCount > 0)

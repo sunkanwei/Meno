@@ -175,11 +175,10 @@ final class WindowsCompanionController {
                     )
                 }
             },
-            onMouseConnection: { [weak self] networkConnection, noDelayEnabled in
+            onMouseConnection: { [weak self] networkConnection in
                 Task { @MainActor [weak self] in
                     self?.acceptMouse(
                         networkConnection,
-                        noDelayEnabled: noDelayEnabled,
                         from: serverID
                     )
                 }
@@ -311,7 +310,6 @@ final class WindowsCompanionController {
                     guard let self,
                           clipboardConnection?.id == connectionID else { return }
                     self.onWindowsOnline()
-                    self.logger.info("Windows online notification received")
                 }
             },
             onDisconnect: { [weak self] reason in
@@ -346,7 +344,6 @@ final class WindowsCompanionController {
 
     private func acceptMouse(
         _ networkConnection: NWConnection,
-        noDelayEnabled: Bool,
         from serverID: UUID
     ) {
         guard IncomingConnectionAdmission.allows(
@@ -362,7 +359,6 @@ final class WindowsCompanionController {
         let connection = MouseConnection(
             id: connectionID,
             connection: networkConnection,
-            noDelayEnabled: noDelayEnabled,
             localName: localName,
             onReady: { [weak self] peer in
                 Task { @MainActor [weak self] in
@@ -457,7 +453,6 @@ final class WindowsCompanionController {
             if clipboardEnabled, clipboardConnection == nil {
                 onClipboardStatusChanged(.listening)
             }
-            logger.info("Windows companion discovery is listening")
         case let .failure(error):
             self.serverID = nil
             server = nil

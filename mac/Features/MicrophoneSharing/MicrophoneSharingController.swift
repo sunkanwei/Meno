@@ -358,7 +358,6 @@ final class MicrophoneSharingController {
         captureFailure = nil
         isDeliveringPCM = true
         onStatusChanged(.sharing(device: MicrophoneCapture.defaultInputDeviceName()))
-        logger.info("First microphone PCM frame was written")
     }
 
     private func scheduleStartupTimeout(connectionID: UUID) {

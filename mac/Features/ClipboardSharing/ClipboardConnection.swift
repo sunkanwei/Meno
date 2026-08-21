@@ -21,7 +21,6 @@ final class ClipboardConnection: @unchecked Sendable {
     private let onFiles: FilesHandler
     private let onWindowsOnline: WindowsOnlineHandler
     private let onDisconnect: DisconnectHandler
-    private var decoder = ClipboardFrameDecoder()
     private var negotiatedCapabilities = Set<CompanionCapability>()
     private var readiness = ConnectionReadinessGate()
     private var windowsOnlineDelivery = WindowsOnlineDeliveryGate()
@@ -30,6 +29,19 @@ final class ClipboardConnection: @unchecked Sendable {
     private var keepaliveTimer: DispatchSourceTimer?
     private var lastActivity = ContinuousClock.now
     private var waitingForPongSince: ContinuousClock.Instant?
+    private lazy var transport = CompanionFrameTransport(
+        connection: connection,
+        queue: queue,
+        onFrame: { [weak self] frame in
+            try self?.handle(frame)
+        },
+        onActivity: { [weak self] in
+            self?.recordActivity()
+        },
+        onClosed: { [weak self] reason in
+            self?.disconnect(reason)
+        }
+    )
     private lazy var fileTransfer = FileClipboardTransfer(
         sendFrame: { [weak self] kind, payload, completion in
             self?.queue.async { [weak self] in
@@ -46,8 +58,7 @@ final class ClipboardConnection: @unchecked Sendable {
         onProtocolViolation: { [weak self] reason in
             self?.queue.async { [weak self] in
                 guard let self, !didDisconnect else { return }
-                disconnect(reason)
-                connection.cancel()
+                transport.close(reason)
             }
         }
     )
@@ -82,29 +93,16 @@ final class ClipboardConnection: @unchecked Sendable {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                receiveNext()
-            case let .failed(error):
-                disconnect(error.localizedDescription)
-            case .cancelled:
-                disconnect(nil)
-            default:
-                break
-            }
-        }
+        transport.start()
         queue.async { [weak self] in
             self?.scheduleHandshakeTimeout()
         }
-        connection.start(queue: queue)
     }
 
     func stop() {
         queue.async {
             self.fileTransfer.stop()
-            self.connection.cancel()
+            self.transport.cancel()
         }
     }
 
@@ -127,37 +125,6 @@ final class ClipboardConnection: @unchecked Sendable {
                     }
                 }
             }
-        }
-    }
-
-    private func receiveNext() {
-        guard !didDisconnect else { return }
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) {
-            [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            if let data, !data.isEmpty {
-                recordActivity()
-                do {
-                    for frame in try decoder.append(data) {
-                        try handle(frame)
-                    }
-                } catch {
-                    disconnect(error.localizedDescription)
-                    connection.cancel()
-                    return
-                }
-            }
-            if let error {
-                disconnect(error.localizedDescription)
-                connection.cancel()
-                return
-            }
-            if isComplete {
-                disconnect(nil)
-                connection.cancel()
-                return
-            }
-            receiveNext()
         }
     }
 
@@ -283,8 +250,7 @@ final class ClipboardConnection: @unchecked Sendable {
             }
             if let error {
                 completion?(false)
-                self.disconnect(error.localizedDescription)
-                self.connection.cancel()
+                self.transport.close(error.localizedDescription)
             } else {
                 self.recordActivity()
                 completion?(true)
@@ -310,8 +276,7 @@ final class ClipboardConnection: @unchecked Sendable {
         )
         timer.setEventHandler { [weak self] in
             guard let self, !didDisconnect, readiness.isHandshakePending else { return }
-            disconnect("Windows 未在 5 秒内完成剪贴板握手。")
-            connection.cancel()
+            transport.close("Windows 未在 5 秒内完成剪贴板握手。")
         }
         handshakeTimer = timer
         timer.resume()
@@ -334,8 +299,7 @@ final class ClipboardConnection: @unchecked Sendable {
         guard !didDisconnect else { return }
         let now = ContinuousClock.now
         if waitingForPongSince != nil {
-            disconnect("Windows 未响应保活消息。")
-            connection.cancel()
+            transport.close("Windows 未响应保活消息。")
             return
         }
         let idleDuration = lastActivity.duration(to: now)

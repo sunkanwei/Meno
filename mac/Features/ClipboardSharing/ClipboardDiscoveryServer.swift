@@ -4,7 +4,7 @@ import Network
 final class WindowsCompanionServer: @unchecked Sendable {
     typealias ConnectionHandler = @Sendable (NWConnection) -> Void
     typealias ClipboardConnectionHandler = @Sendable (NWConnection, UInt16?) -> Void
-    typealias MouseConnectionHandler = @Sendable (NWConnection, Bool) -> Void
+    typealias MouseConnectionHandler = @Sendable (NWConnection) -> Void
     typealias StateHandler = @Sendable (Result<Void, Error>) -> Void
     typealias AudioStateHandler = @Sendable (Result<UInt16, Error>) -> Void
 
@@ -81,7 +81,7 @@ final class WindowsCompanionServer: @unchecked Sendable {
             let mouseListener = try makeTCPListener(
                 noDelay: true,
                 onConnection: { [onMouseConnection] connection in
-                    onMouseConnection(connection, true)
+                    onMouseConnection(connection)
                 },
                 onReady: { [weak self] listener in
                     guard let self, let port = listener.port else {

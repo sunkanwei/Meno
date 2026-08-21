@@ -93,9 +93,6 @@ final class PreviewViewController: NSViewController,
         materialView.state = .active
         view = materialView
         preferredContentSize = initialSize
-        logger.notice(
-            "Initial preview size: \(Int(initialSize.width), privacy: .public)x\(Int(initialSize.height), privacy: .public)"
-        )
     }
 
     override func viewDidLoad() {
@@ -198,7 +195,6 @@ final class PreviewViewController: NSViewController,
             guard let text = message.body as? String else { return }
             if text == "rendererReady" {
                 rendererReady = true
-                logger.notice("Renderer ready")
                 renderIfReady()
             } else if text.range(of: "error", options: .caseInsensitive) != nil {
                 logger.error("\(text, privacy: .private)")
@@ -332,7 +328,7 @@ final class PreviewViewController: NSViewController,
             self.renderTimeoutTask = nil
             switch result {
             case .success:
-                self.logger.notice("Rendered Markdown")
+                break
             case .failure(let error):
                 self.logger.error("Markdown rendering failed: \(error.localizedDescription, privacy: .public)")
                 self.failCurrentRender(message: "预览渲染失败。")
@@ -368,7 +364,6 @@ final class PreviewViewController: NSViewController,
             logger.error("Unable to monitor the previewed document for changes")
             return
         }
-        logger.notice("Monitoring previewed document for changes")
     }
 
     private func refreshDocumentIfNeeded(at url: URL) {
@@ -384,7 +379,6 @@ final class PreviewViewController: NSViewController,
                 try configureWebView()
             }
             stagePreview(content: content, documentURL: url)
-            logger.notice("Reloaded changed Markdown document")
         } catch {
             logger.error(
                 "Unable to reload changed Markdown document: \(error.localizedDescription, privacy: .public)"
@@ -541,9 +535,6 @@ final class PreviewViewController: NSViewController,
         let size = view.bounds.size
         guard MarkdownPreviewWindowPreferences.isValidRememberedSize(size) else { return }
         windowState.saveLastSize(size)
-        logger.notice(
-            "Saved preview size: \(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public)"
-        )
     }
 
     private func constrainedToScreen(_ size: CGSize) -> CGSize {

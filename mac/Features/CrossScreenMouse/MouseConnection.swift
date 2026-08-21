@@ -28,7 +28,6 @@ final class MouseConnection: @unchecked Sendable {
     )
     private let mailboxLock = NSLock()
     private let logger = Logger(subsystem: "com.sunkanwei.Meno", category: "MouseConnection")
-    private let noDelayEnabled: Bool
     private let localName: String
     private let onReady: ReadyHandler
     private let onAcquired: AcquiredHandler
@@ -37,8 +36,20 @@ final class MouseConnection: @unchecked Sendable {
     private let onDisconnect: DisconnectHandler
     private let onDriverUnavailable: DriverUnavailableHandler
     private var mailbox = MouseOutboundMailbox()
-    private var decoder = ClipboardFrameDecoder()
     private var readiness = ConnectionReadinessGate()
+    private lazy var transport = CompanionFrameTransport(
+        connection: connection,
+        queue: queue,
+        onFrame: { [weak self] frame in
+            try self?.handle(frame)
+        },
+        onActivity: { [weak self] in
+            self?.recordActivity()
+        },
+        onClosed: { [weak self] reason in
+            self?.disconnect(reason)
+        }
+    )
     private var didDisconnect = false
     private var handshakeTimer: DispatchSourceTimer?
     private var remoteShutdownSupported = false
@@ -70,7 +81,6 @@ final class MouseConnection: @unchecked Sendable {
     init(
         id: UUID,
         connection: NWConnection,
-        noDelayEnabled: Bool,
         localName: String,
         onReady: @escaping ReadyHandler,
         onAcquired: @escaping AcquiredHandler,
@@ -81,7 +91,6 @@ final class MouseConnection: @unchecked Sendable {
     ) {
         self.id = id
         self.connection = connection
-        self.noDelayEnabled = noDelayEnabled
         self.localName = localName
         self.onReady = onReady
         self.onAcquired = onAcquired
@@ -92,28 +101,15 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                receiveNext()
-            case let .failed(error):
-                failConnection(error.localizedDescription)
-            case .cancelled:
-                disconnect(nil)
-            default:
-                break
-            }
-        }
+        transport.start()
         queue.async { [weak self] in
             self?.scheduleHandshakeTimeout()
         }
-        connection.start(queue: queue)
     }
 
     func stop() {
         queue.async {
-            self.connection.cancel()
+            self.transport.cancel()
         }
     }
 
@@ -382,34 +378,6 @@ final class MouseConnection: @unchecked Sendable {
         failConnection("跨屏鼠标网络写入超过 100 毫秒。")
     }
 
-    private func receiveNext() {
-        guard !didDisconnect else { return }
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) {
-            [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            if let data, !data.isEmpty {
-                recordActivity()
-                do {
-                    for frame in try decoder.append(data) {
-                        try handle(frame)
-                    }
-                } catch {
-                    failConnection(error.localizedDescription)
-                    return
-                }
-            }
-            if let error {
-                failConnection(error.localizedDescription)
-                return
-            }
-            if isComplete {
-                failConnection(nil)
-                return
-            }
-            receiveNext()
-        }
-    }
-
     private func handle(_ frame: ClipboardFrame) throws {
         switch frame.kind {
         case .hello:
@@ -623,7 +591,6 @@ final class MouseConnection: @unchecked Sendable {
 
     private func startDiagnostics() {
         guard diagnosticsTimer == nil else { return }
-        logger.info("Mouse TCP ready noDelay=\(self.noDelayEnabled)")
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(
             deadline: .now() + .seconds(5),
@@ -642,8 +609,7 @@ final class MouseConnection: @unchecked Sendable {
     }
 
     private func failConnection(_ reason: String?) {
-        disconnect(reason)
-        connection.cancel()
+        transport.close(reason)
     }
 
     private func disconnect(_ reason: String?) {

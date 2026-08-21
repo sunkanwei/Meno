@@ -1,6 +1,5 @@
 import Foundation
 import Network
-import OSLog
 
 final class MicrophoneConnection: @unchecked Sendable {
     typealias ReadyHandler = @Sendable (String) -> Void
@@ -11,14 +10,12 @@ final class MicrophoneConnection: @unchecked Sendable {
     let id: UUID
 
     private let connection: NWConnection
-    private let logger = Logger(subsystem: "com.sunkanwei.Meno", category: "MicrophoneConnection")
     private let queue = DispatchQueue(label: "com.sunkanwei.Meno.MicrophoneConnection")
     private let localName: String
     private let onReady: ReadyHandler
     private let onDisconnect: DisconnectHandler
     private let onPCMDelivered: DeliveryHandler
     private let onMetrics: MetricsHandler
-    private var decoder = ClipboardFrameDecoder()
     private var readiness = ConnectionReadinessGate()
     private var sequence = MicrophoneFrameSequence()
     private var pendingPCM = MicrophonePendingFrames()
@@ -33,7 +30,6 @@ final class MicrophoneConnection: @unchecked Sendable {
     private var droppedFrames: UInt64 = 0
     private var rejectedFrames: UInt64 = 0
     private var lastSequenceID: UInt64 = 0
-    private var previousMetrics: MicrophoneNetworkMetrics?
     private var startupMetricsBaseline: MicrophoneNetworkMetrics?
     private var startupIgnoredSequenceID: UInt64?
     private var handshakeTimer: DispatchSourceTimer?
@@ -42,6 +38,19 @@ final class MicrophoneConnection: @unchecked Sendable {
     private var diagnosticsTimer: DispatchSourceTimer?
     private var lastActivity = ContinuousClock.now
     private var waitingForPongSince: ContinuousClock.Instant?
+    private lazy var transport = CompanionFrameTransport(
+        connection: connection,
+        queue: queue,
+        onFrame: { [weak self] frame in
+            try self?.handle(frame)
+        },
+        onActivity: { [weak self] in
+            self?.recordActivity()
+        },
+        onClosed: { [weak self] reason in
+            self?.disconnect(reason)
+        }
+    )
 
     private static let handshakeTimeout: Duration = .seconds(5)
     private static let idleBeforePing: Duration = .seconds(15)
@@ -67,29 +76,15 @@ final class MicrophoneConnection: @unchecked Sendable {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                receiveNext()
-            case let .failed(error):
-                disconnect(error.localizedDescription)
-            case .cancelled:
-                disconnect(nil)
-            default:
-                break
-            }
-        }
+        transport.start()
         queue.async { [weak self] in
             self?.scheduleHandshakeTimeout()
         }
-        connection.start(queue: queue)
     }
 
     func stop() {
-        queue.async { [self] in
-            self.disconnect(nil)
-            self.connection.cancel()
+        queue.async { [transport] in
+            transport.close(nil)
         }
     }
 
@@ -121,37 +116,6 @@ final class MicrophoneConnection: @unchecked Sendable {
                 droppedFrames &+= 1
             }
             drainWrites()
-        }
-    }
-
-    private func receiveNext() {
-        guard !didDisconnect else { return }
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) {
-            [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            if let data, !data.isEmpty {
-                recordActivity()
-                do {
-                    for frame in try decoder.append(data) {
-                        try handle(frame)
-                    }
-                } catch {
-                    disconnect(error.localizedDescription)
-                    connection.cancel()
-                    return
-                }
-            }
-            if let error {
-                disconnect(error.localizedDescription)
-                connection.cancel()
-                return
-            }
-            if isComplete {
-                disconnect(nil)
-                connection.cancel()
-                return
-            }
-            receiveNext()
         }
     }
 
@@ -230,8 +194,7 @@ final class MicrophoneConnection: @unchecked Sendable {
             guard let payload = pendingPCM.dequeue(),
                   let frame = sequence.frame(payload: payload) else {
                 if sequence.isExhausted {
-                    disconnect("麦克风音频序列号已耗尽。")
-                    connection.cancel()
+                    transport.close("麦克风音频序列号已耗尽。")
                 }
                 return
             }
@@ -253,8 +216,7 @@ final class MicrophoneConnection: @unchecked Sendable {
             activeWrite = nil
             if let error {
                 write.completion?(false)
-                disconnect(error.localizedDescription)
-                connection.cancel()
+                transport.close(error.localizedDescription)
                 return
             }
             recordActivity()
@@ -270,8 +232,7 @@ final class MicrophoneConnection: @unchecked Sendable {
             }
             write.completion?(true)
             if write.closesAfterWrite {
-                disconnect("麦克风音频序列号已耗尽。")
-                connection.cancel()
+                transport.close("麦克风音频序列号已耗尽。")
             } else {
                 drainWrites()
             }
@@ -284,8 +245,7 @@ final class MicrophoneConnection: @unchecked Sendable {
         timer.schedule(deadline: .now() + Self.handshakeTimeout.timeInterval)
         timer.setEventHandler { [weak self] in
             guard let self, readiness.isHandshakePending, !didDisconnect else { return }
-            disconnect("Windows 未在 5 秒内完成麦克风握手。")
-            connection.cancel()
+            transport.close("Windows 未在 5 秒内完成麦克风握手。")
         }
         handshakeTimer = timer
         timer.resume()
@@ -297,8 +257,7 @@ final class MicrophoneConnection: @unchecked Sendable {
         timer.schedule(deadline: .now() + Self.writeTimeout.timeInterval)
         timer.setEventHandler { [weak self] in
             guard let self, activeWrite != nil, !didDisconnect else { return }
-            disconnect("麦克风音频写入超过 250 毫秒。")
-            connection.cancel()
+            transport.close("麦克风音频写入超过 250 毫秒。")
         }
         writeTimer = timer
         timer.resume()
@@ -316,18 +275,7 @@ final class MicrophoneConnection: @unchecked Sendable {
     }
 
     private func reportMetrics() {
-        let metrics = currentMetrics()
-        let previous = previousMetrics
-        let delta = metrics.delta(since: previous)
-        if delta.enqueuedFrames > 0 || delta.writtenFrames > 0
-            || delta.droppedFrames > 0 || delta.rejectedFrames > 0
-            || delta.pendingFrames > 0 {
-            logger.info(
-                "network enqueued=\(delta.enqueuedFrames, privacy: .public) written=\(delta.writtenFrames, privacy: .public) pcm_bytes=\(delta.writtenPCMBytes, privacy: .public) wire_bytes=\(delta.writtenWireBytes, privacy: .public) dropped=\(delta.droppedFrames, privacy: .public) rejected=\(delta.rejectedFrames, privacy: .public) pending=\(delta.pendingFrames, privacy: .public) last_sequence=\(delta.lastSequenceID, privacy: .public)"
-            )
-        }
-        previousMetrics = metrics
-        onMetrics(metrics.delta(since: startupMetricsBaseline))
+        onMetrics(currentMetrics().delta(since: startupMetricsBaseline))
     }
 
     private func currentMetrics() -> MicrophoneNetworkMetrics {
@@ -384,8 +332,7 @@ final class MicrophoneConnection: @unchecked Sendable {
         guard readiness.isReady, !didDisconnect else { return }
         let now = ContinuousClock.now
         if waitingForPongSince != nil {
-            disconnect("Windows 未响应麦克风保活消息。")
-            connection.cancel()
+            transport.close("Windows 未响应麦克风保活消息。")
             return
         }
         let idleDuration = lastActivity.duration(to: now)

@@ -143,7 +143,6 @@ final class ClipboardFeedbackPanel {
         }
 
         panel.orderFrontRegardless()
-        Self.logger.info("Clipboard feedback displayed kind=\(String(describing: kind), privacy: .public)")
 
         let workItem = DispatchWorkItem { [weak panel] in panel?.orderOut(nil) }
         hideWorkItem = workItem

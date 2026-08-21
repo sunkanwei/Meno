@@ -73,7 +73,6 @@ final class SoftKVMHotKeyController {
         }
         hotKeyRef = registeredHotKey
         reportKeyboardFallbackNeeded(false)
-        Self.logger.info("Soft KVM global hotkey registered")
     }
 
     private func reportKeyboardFallbackNeeded(_ needed: Bool) {
@@ -135,7 +134,6 @@ final class SoftKVMHotKeyController {
               id == Self.hotKeyID.id else {
             return OSStatus(eventNotHandledErr)
         }
-        Self.logger.info("Soft KVM global hotkey received")
         onPressed()
         return noErr
     }

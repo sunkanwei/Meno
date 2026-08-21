@@ -164,7 +164,6 @@ final class ClosedLidBehaviorController {
         case let .monitor(mode):
             idleSleepAssertion.release()
             onStatusChanged(.monitoring(mode))
-            logger.info("Closed-lid mode inactive: \(request.reason.rawValue, privacy: .public)")
 
         case let .keepRunning(requestDisplaySleep):
             guard idleSleepAssertion.acquire() else {

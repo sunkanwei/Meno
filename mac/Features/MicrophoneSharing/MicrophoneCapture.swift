@@ -1,7 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreAudio
 import Foundation
-import OSLog
 import Synchronization
 
 final class MicrophoneCapture: @unchecked Sendable {
@@ -10,7 +9,6 @@ final class MicrophoneCapture: @unchecked Sendable {
     typealias DeviceChangeHandler = @Sendable () -> Void
     typealias MetricsHandler = @Sendable (MicrophoneCaptureMetrics) -> Void
 
-    private let logger = Logger(subsystem: "com.sunkanwei.Meno", category: "MicrophoneCapture")
     private let worker = DispatchQueue(label: "com.sunkanwei.Meno.MicrophoneCapture")
     private let onPCM: PCMHandler
     private let onFailure: FailureHandler
@@ -34,7 +32,6 @@ final class MicrophoneCapture: @unchecked Sendable {
     private var lastConverterStatus = "not_started"
     private var intervalInputPeak: Float = 0
     private var intervalOutputPeak: Float = 0
-    private var previousMetrics: MicrophoneCaptureMetrics?
     private var isRunning = false
 
     init(
@@ -129,7 +126,6 @@ final class MicrophoneCapture: @unchecked Sendable {
             accumulator.reset()
             converter = nil
             bufferPool = nil
-            previousMetrics = nil
         }
         isRunning = false
     }
@@ -233,24 +229,6 @@ final class MicrophoneCapture: @unchecked Sendable {
             outputPeak: intervalOutputPeak,
             pcmFrames: pcmFrames
         )
-        let previous = previousMetrics
-        let tapDelta = metrics.tapCallbacks - (previous?.tapCallbacks ?? 0)
-        let inputDelta = metrics.inputFrames - (previous?.inputFrames ?? 0)
-        let converterDelta = metrics.converterCalls - (previous?.converterCalls ?? 0)
-        let outputDelta = metrics.converterOutputFrames
-            - (previous?.converterOutputFrames ?? 0)
-        let pcmDelta = metrics.pcmFrames - (previous?.pcmFrames ?? 0)
-        let lockDelta = metrics.poolLockDrops - (previous?.poolLockDrops ?? 0)
-        let slotDelta = metrics.poolNoSlotDrops - (previous?.poolNoSlotDrops ?? 0)
-        let capacityDelta = metrics.poolCapacityDrops
-            - (previous?.poolCapacityDrops ?? 0)
-        let layoutDelta = metrics.poolLayoutDrops - (previous?.poolLayoutDrops ?? 0)
-        let byteDelta = metrics.poolByteDrops - (previous?.poolByteDrops ?? 0)
-        let errorDelta = metrics.converterErrors - (previous?.converterErrors ?? 0)
-        logger.info(
-            "capture tap=\(tapDelta, privacy: .public) input_frames=\(inputDelta, privacy: .public) last_frame=\(metrics.lastInputFrameLength, privacy: .public) rate=\(metrics.inputSampleRate, privacy: .public) channels=\(metrics.inputChannels, privacy: .public) format=\(metrics.inputFormat, privacy: .public) input_peak=\(metrics.inputPeak, privacy: .public) pool_lock=\(lockDelta, privacy: .public) pool_slot=\(slotDelta, privacy: .public) pool_capacity=\(capacityDelta, privacy: .public) pool_layout=\(layoutDelta, privacy: .public) pool_bytes=\(byteDelta, privacy: .public) converter_calls=\(converterDelta, privacy: .public) converter_status=\(metrics.converterStatus, privacy: .public) converter_output_frames=\(outputDelta, privacy: .public) converter_errors=\(errorDelta, privacy: .public) output_peak=\(metrics.outputPeak, privacy: .public) pcm_frames=\(pcmDelta, privacy: .public)"
-        )
-        previousMetrics = metrics
         intervalInputPeak = 0
         intervalOutputPeak = 0
         onMetrics(metrics)

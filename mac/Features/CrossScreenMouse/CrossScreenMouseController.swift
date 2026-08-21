@@ -298,9 +298,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
             publishStatus()
             return
         }
-        if startInputTaps() {
-            Self.logger.info("HID and session keyboard input listeners started")
-        }
+        _ = startInputTaps()
     }
 
     @MainActor
@@ -327,7 +325,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
         cancelInputTapRestart()
         stopInputTaps()
         guard startInputTaps() else { return false }
-        Self.logger.info("Input listeners moved to the front for Windows routing")
         return true
     }
 

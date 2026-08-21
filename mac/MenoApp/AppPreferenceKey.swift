@@ -1,3 +1,5 @@
+import Foundation
+
 enum AppPreferenceKey {
     static let finderShortcutsEnabled = "FinderShortcutsEnabled"
     static let finderGoToParentEnabled = "FinderGoToParentEnabled"
@@ -19,4 +21,11 @@ enum AppPreferenceKey {
     static let displayHandoffEnabled = "LocalDisplayHandoffEnabled"
     static let displayHandoffAlignment = "LocalDisplayHandoffAlignment"
     static let softKVMShortcut = "SoftKVMShortcut"
+}
+
+extension UserDefaults {
+    // Features are enabled unless the user explicitly turned them off.
+    func boolValue(forKey key: String, default defaultValue: Bool) -> Bool {
+        object(forKey: key) == nil ? defaultValue : bool(forKey: key)
+    }
 }

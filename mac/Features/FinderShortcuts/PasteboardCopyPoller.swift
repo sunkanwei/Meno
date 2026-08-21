@@ -10,7 +10,7 @@ enum PasteboardCopyPoller {
         let fileURLs: [URL]
     }
 
-    enum Failure: String, Equatable {
+    enum Failure: Equatable {
         case confirmationTimedOut
         case contextInvalidated
     }

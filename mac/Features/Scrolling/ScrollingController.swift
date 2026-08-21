@@ -77,7 +77,6 @@ final class ScrollingController {
         self.eventTap = eventTap
         observeWake()
         onStatusChanged(.running)
-        logger.info("Per-device scrolling is running")
     }
 
     func stopForApplicationExit() {
@@ -90,12 +89,10 @@ final class ScrollingController {
     ) {
         guard generation == eventTapGeneration, enabled else { return }
         switch state {
-        case let .recovered(reason):
+        case .recovered:
             onStatusChanged(.running)
-            logger.info("\(reason, privacy: .public)，滚轮功能继续运行")
-        case let .needsRestart(reason):
+        case .needsRestart:
             guard enabled else { return }
-            logger.error("\(reason, privacy: .public)，正在重建滚轮监听")
             stopRuntime()
             refresh()
         }

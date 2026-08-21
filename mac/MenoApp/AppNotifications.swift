@@ -1,5 +1,4 @@
 import AppKit
-import OSLog
 @preconcurrency import UserNotifications
 
 enum AppNotificationAuthorization: Equatable, Sendable {
@@ -29,10 +28,6 @@ final class AppNotifications: NSObject, UNUserNotificationCenterDelegate, @unche
     private let enabledKey = "FinderShortcutsNotificationsEnabled"
     private let defaults: UserDefaults
     private let center: UNUserNotificationCenter
-    private let logger = Logger(
-        subsystem: "com.sunkanwei.Meno",
-        category: "Notifications"
-    )
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -105,25 +100,17 @@ final class AppNotifications: NSObject, UNUserNotificationCenterDelegate, @unche
     }
 
     func sendWindowsOnline() {
-        guard isEnabled else {
-            logger.info("Windows online notification skipped by user setting")
-            return
-        }
+        guard isEnabled else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "Windows 已启动"
         content.body = "Meno Windows 已上线并连接。"
         content.sound = .default
-        submit(content) { [logger] submitted in
-            logger.info("Windows online notification submitted: \(submitted)")
-        }
+        submit(content)
     }
 
     func sendSoftKVMShortcutAcknowledgement(message: String) {
-        guard isEnabled else {
-            logger.info("Soft KVM shortcut notification skipped by user setting")
-            return
-        }
+        guard isEnabled else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "软 KVM 快捷键已收到"
@@ -132,9 +119,7 @@ final class AppNotifications: NSObject, UNUserNotificationCenterDelegate, @unche
         submit(
             content,
             identifier: "com.sunkanwei.Meno.soft-kvm-shortcut"
-        ) { [logger] submitted in
-            logger.info("Soft KVM shortcut notification submitted: \(submitted)")
-        }
+        )
     }
 
     func userNotificationCenter(

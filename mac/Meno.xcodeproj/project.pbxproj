@@ -85,6 +85,7 @@
 		43740A03817562E3EDA32E86 /* ScrollEventTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B78ADF66A0B7CE47D8F6F7 /* ScrollEventTap.swift */; };
 		4375BB2E427264E73E31D400 /* MarkdownRenderer in Resources */ = {isa = PBXBuildFile; fileRef = 36C3A9AB3026E67299BED9CF /* MarkdownRenderer */; };
 		44162B3E53A3A6684395EFA4 /* CutStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BECC1C8C6976A15909FF82 /* CutStateMachine.swift */; };
+		449ECC84E6C6B690FFC98D51 /* SoftKVMShortcutTestController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B345F5C1BEEB61F4D03A43C3 /* SoftKVMShortcutTestController.swift */; };
 		46345FFFAA245899C38C5B52 /* MenoPowerHelperMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A05240CF1F6D9F7EE96B371 /* MenoPowerHelperMain.swift */; };
 		46EE06D80A6FA0B6DDC5B473 /* MarkdownDocumentMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7584E6FB26F94CA195F1173C /* MarkdownDocumentMonitor.swift */; };
 		470B8B73D529EE5545F9002E /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ED5CDF835488D553B5E57E6 /* AppNotifications.swift */; };
@@ -187,6 +188,7 @@
 		AF626206C16A040BD500C06F /* RemoteDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0780FB468ECF121DDFDF88C1 /* RemoteDiagnostics.swift */; };
 		B16DC593C1E0632F9920B8AF /* TerminalApplicationDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173938CB346CCFE40B74DCAE /* TerminalApplicationDetector.swift */; };
 		B4F0B60C9FE3D021E6F47173 /* ClosedLidShutdownContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2095CBEE3F3DD8B0CD79509F /* ClosedLidShutdownContract.swift */; };
+		B78CC1D4685A1C926817551D /* ClosedLidShutdownCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C1687D6BC56047180932DC /* ClosedLidShutdownCoordinator.swift */; };
 		B9194C9951ECD52357414416 /* clipboard-paste-success.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 2ADE1149681A77D87850B4D4 /* clipboard-paste-success.mp3 */; };
 		B996E5C46456F7C0FE66989D /* DisplaySystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D1F3935CA7A726130821F0 /* DisplaySystem.swift */; };
 		B9B97DBA19BB777CE5649E15 /* CrossScreenMouseSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F894CE7EDC0BEEB2AD3D6654 /* CrossScreenMouseSettingsView.swift */; };
@@ -208,6 +210,7 @@
 		C84AAA61770C5D05A069D020 /* FinderExtensionCommandBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277BDC738377B5FF392A59AE /* FinderExtensionCommandBridge.swift */; };
 		C8AC110CF49D86FE080A922B /* SleepRequester.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DDF321055B99F8A62F32735 /* SleepRequester.swift */; };
 		C9E9A92229FA67773358A273 /* FileClipboardManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1FBEE5EF212E51AE83B1D8E /* FileClipboardManifest.swift */; };
+		CA38BA54100732BFBB816146 /* CompanionFrameTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30894B264D1AC99CFCC7449C /* CompanionFrameTransport.swift */; };
 		CA5B2A203E237AB279206570 /* ClosedLidBehaviorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79ED3EBC8BBFBB5350C7B0E /* ClosedLidBehaviorPolicy.swift */; };
 		CB4EBABD915598E1384E310D /* ClipboardImageCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E04C8F5DAEA050DB6BF8E87 /* ClipboardImageCodec.swift */; };
 		CC50683309DB99105643BBB3 /* IdleSleepAssertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF471045EE1A098E2A90383 /* IdleSleepAssertion.swift */; };
@@ -365,6 +368,7 @@
 		2CEF95C3B52B18DC2FE8E7D8 /* MarkdownDocumentMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentMonitorTests.swift; sourceTree = "<group>"; };
 		2E04C8F5DAEA050DB6BF8E87 /* ClipboardImageCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardImageCodec.swift; sourceTree = "<group>"; };
 		2F07F214958E227682923A67 /* ClosedLidBehaviorSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidBehaviorSettingsView.swift; sourceTree = "<group>"; };
+		30894B264D1AC99CFCC7449C /* CompanionFrameTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionFrameTransport.swift; sourceTree = "<group>"; };
 		308BB45948ED75AC810DF548 /* LocalFileSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileSchemeHandler.swift; sourceTree = "<group>"; };
 		31C2E9A49038E151006052D0 /* ClipboardConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardConnection.swift; sourceTree = "<group>"; };
 		322FA468E18662EFE188F65C /* SoftKVMCoordinatorOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMCoordinatorOperations.swift; sourceTree = "<group>"; };
@@ -469,6 +473,7 @@
 		B253495EFEC9B3199E72E5B0 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		B2910D30C2D5CD4C66085B66 /* WindowModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowModels.swift; sourceTree = "<group>"; };
 		B328F58A792F5165080CDC05 /* KeyboardEventTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardEventTap.swift; sourceTree = "<group>"; };
+		B345F5C1BEEB61F4D03A43C3 /* SoftKVMShortcutTestController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMShortcutTestController.swift; sourceTree = "<group>"; };
 		B3845C5D306E361E92C6C66B /* FileClipboardProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileClipboardProtocolTests.swift; sourceTree = "<group>"; };
 		B397347781FE6024C95B307D /* SoftKVMStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMStateMachine.swift; sourceTree = "<group>"; };
 		B3A30E33D97B860476DEA60D /* FinderContextMenuPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderContextMenuPreferences.swift; sourceTree = "<group>"; };
@@ -483,6 +488,7 @@
 		C1FBEE5EF212E51AE83B1D8E /* FileClipboardManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileClipboardManifest.swift; sourceTree = "<group>"; };
 		C29598D1FBAFA2F3745A9D2B /* KeyboardShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcut.swift; sourceTree = "<group>"; };
 		C43669790021081BA6A4B4FC /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
+		C4C1687D6BC56047180932DC /* ClosedLidShutdownCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidShutdownCoordinator.swift; sourceTree = "<group>"; };
 		C56EEA9C1D9DDA79B180479F /* MicrophoneConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneConnection.swift; sourceTree = "<group>"; };
 		C91079199132F832DAB4AC80 /* HorizontalDisplayHandoffTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalDisplayHandoffTestSupport.swift; sourceTree = "<group>"; };
 		C94A94830D586E949AC73C97 /* ClipboardFeedbackPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFeedbackPanel.swift; sourceTree = "<group>"; };
@@ -765,6 +771,7 @@
 				FF28057939BE864086F5468B /* ClipboardMonitor.swift */,
 				5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */,
 				DBA2CA3330EA1D93D5B0D766 /* ClipboardSharingController.swift */,
+				30894B264D1AC99CFCC7449C /* CompanionFrameTransport.swift */,
 				AD01036AF3BBCCFC8A502ABD /* ConnectionReadinessGate.swift */,
 				579AB3D6911ABD3A29EB0E32 /* FileClipboardCache.swift */,
 				C1FBEE5EF212E51AE83B1D8E /* FileClipboardManifest.swift */,
@@ -892,6 +899,7 @@
 				322FA468E18662EFE188F65C /* SoftKVMCoordinatorOperations.swift */,
 				B1B19A55F8D74FC0D01E5EB1 /* SoftKVMHotKeyController.swift */,
 				F3E7FFF7599FFF550BC365F1 /* SoftKVMShortcut.swift */,
+				B345F5C1BEEB61F4D03A43C3 /* SoftKVMShortcutTestController.swift */,
 				B397347781FE6024C95B307D /* SoftKVMStateMachine.swift */,
 				E20C2128A7E73B42071B8253 /* SoftKVMTopology.swift */,
 				3DC01A26E537EA706900F7EB /* SoftKVMTypes.swift */,
@@ -966,6 +974,7 @@
 			children = (
 				AD585D18B4394EFBA7096113 /* ClosedLidBehaviorController.swift */,
 				F79ED3EBC8BBFBB5350C7B0E /* ClosedLidBehaviorPolicy.swift */,
+				C4C1687D6BC56047180932DC /* ClosedLidShutdownCoordinator.swift */,
 			);
 			path = ClosedLidBehavior;
 			sourceTree = "<group>";
@@ -1461,9 +1470,11 @@
 				801C2FC884DB106D6F6B1BDB /* ClosedLidBehaviorSettingsView.swift in Sources */,
 				64BAE4BE80CE92C9983FF8B1 /* ClosedLidShutdownConfiguration.swift in Sources */,
 				8D81343B3B57C6C3F12129C1 /* ClosedLidShutdownContract.swift in Sources */,
+				B78CC1D4685A1C926817551D /* ClosedLidShutdownCoordinator.swift in Sources */,
 				D57D62E13C34B975CA88CAB7 /* ClosedLidShutdownHelperManager.swift in Sources */,
 				BD98E0A276435827C4CA4DBF /* ClosedLidShutdownValidation.swift in Sources */,
 				858D66878071A474CED3DEA4 /* CodexMCPConfig.swift in Sources */,
+				CA38BA54100732BFBB816146 /* CompanionFrameTransport.swift in Sources */,
 				19D0AFE68F70A72F2AE5B76F /* ConnectionReadinessGate.swift in Sources */,
 				2915C1E138DC5EBDBAF9F424 /* CrossScreenDisplay.swift in Sources */,
 				A26EB6471416D3DA49105813 /* CrossScreenEntryGate.swift in Sources */,
@@ -1550,6 +1561,7 @@
 				E587B64706AE2F03BF2FC8F7 /* SoftKVMHotKeyController.swift in Sources */,
 				2E3D0D267B4C44652A64B91E /* SoftKVMShortcut.swift in Sources */,
 				4EC871B862FB12482FD4B25D /* SoftKVMShortcutRecorder.swift in Sources */,
+				449ECC84E6C6B690FFC98D51 /* SoftKVMShortcutTestController.swift in Sources */,
 				1ED7C5A404B7AF35B8FC28A7 /* SoftKVMStateMachine.swift in Sources */,
 				BB2AABE83868825F460E2BF5 /* SoftKVMTopology.swift in Sources */,
 				A5832D42A480A7367148ABCE /* SoftKVMTypes.swift in Sources */,
