@@ -45,7 +45,9 @@
 - Windows 统一使用 `verify-windows.ps1`、`build-release.ps1`、`build-user-release.ps1` 和 `MenoVirtualMouse/build-driver.ps1`。Cargo、WDK、驱动中间文件、驱动包和最终 `dist` 全部写入 `build/windows/`，不得写回源码目录。
 - 驱动编译、签名、安装和实机验证必须分开报告。构建脚本不得安装驱动、启用全局 Driver Verifier、切换 TESTSIGNING、修改启动设置或重启 Windows。
 - 删除驱动前必须精确确认硬件 ID、服务名和 `oemXX.inf`；不得批量删除 HID 或系统驱动。日常整理和用户态构建不得操作已安装驱动。
-- 修改影响 `MenoClipboard.exe` 行为的源码、资源或配置后，必须运行相关测试和 Release 构建，先正常关闭旧进程，再更新 `%LOCALAPPDATA%\Meno\MenoClipboard.exe`，从固定位置重启，并确认运行文件与 `build\windows\dist\MenoClipboard.exe` 的 SHA-256 一致。纯文档和不影响 EXE 的构建脚本修改无需重启。
+- 任何 Windows 相关修改，包括源码、资源、配置、测试、构建脚本以及 Windows 规则或说明文档，交付前都必须运行相应验证并重新生成 Release `MenoClipboard.exe`；首次构建或驱动相关修改使用完整 Release 构建，其他修改可使用用户态 Release 构建，但不得沿用修改前的 EXE 作为交付结果。
+- 新 EXE 生成后，必须先正常关闭当前 `MenoClipboard.exe`，确认未退出时再结束该进程；随后用 `build\windows\dist\MenoClipboard.exe` 更新 `%LOCALAPPDATA%\Meno\MenoClipboard.exe`，从固定位置重新启动，并确认新进程运行路径正确、两处 EXE 的 SHA-256 一致、Windows Agent 健康且工具可用。任何一步失败都不得声称 Windows 修改已经交付完成。
+- 桌面必须保留名为 `Meno` 的快捷方式，目标固定为 `%LOCALAPPDATA%\Meno\MenoClipboard.exe`；每次 Windows 交付都要确认快捷方式存在且目标正确，使用户无需进入源码或构建目录即可启动正式程序。快捷方式只指向固定安装位置，不指向可能被清理的构建产物。
 - Windows 诊断日志位于 `%LOCALAPPDATA%\Meno\MenoClipboard.log`，上一代为 `.log.old`。排查优先核对协商结果、鼠标接管与释放、剪贴板错误、启动时驱动 ABI 和驱动内嵌状态；不得记录用户输入内容。
 - Meno 驱动是 UMDF 2 DLL，不应生成自己的 `.sys`。固定驱动 ABI、最低驱动版本、控制权租约、幂等释放、断线全状态清理和不可重复输入语义不得回退。
 - VB-CABLE 必须保持官方原始 ZIP，不拆分、不修改；验证和 Release 构建须核对固定哈希与必要文件。安装只可由用户在托盘明确确认后进行，并与普通构建分离。
