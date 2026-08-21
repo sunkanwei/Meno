@@ -18,7 +18,7 @@ use axum::{
     routing::post,
 };
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
 use tokio_util::sync::CancellationToken;
 use windows::{
@@ -252,17 +252,7 @@ async fn run_service(
         shutdown.clone(),
         admin_token,
     )?);
-    let service: StreamableHttpService<server::WindowsAgent, LocalSessionManager> =
-        StreamableHttpService::new(
-            {
-                let state = state.clone();
-                move || Ok(server::WindowsAgent::new(state.clone()))
-            },
-            Default::default(),
-            StreamableHttpServerConfig::default()
-                .disable_allowed_hosts()
-                .with_cancellation_token(shutdown.child_token()),
-        );
+    let service = mcp_service(state.clone(), shutdown.child_token());
     let router = Router::new()
         .nest_service("/mcp", service)
         .route("/admin/stop", post(admin_stop))
@@ -286,6 +276,20 @@ async fn run_service(
     result?;
     log("info", "Windows Agent stopped normally");
     Ok(())
+}
+
+fn mcp_service(
+    state: Arc<server::AppState>,
+    cancellation_token: CancellationToken,
+) -> StreamableHttpService<server::WindowsAgent, NeverSessionManager> {
+    StreamableHttpService::new(
+        move || Ok(server::WindowsAgent::new(state.clone())),
+        Default::default(),
+        StreamableHttpServerConfig::default()
+            .disable_allowed_hosts()
+            .with_legacy_session_mode(false)
+            .with_cancellation_token(cancellation_token),
+    )
 }
 
 struct RuntimeFiles {
@@ -476,6 +480,184 @@ fn wide_os(value: &std::ffi::OsStr) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const MCP_ACCEPT: &str = "application/json, text/event-stream";
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let path = env::temp_dir().join(format!("meno-windows-agent-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&path).expect("create test directory");
+            Self(path)
+        }
+
+        fn data_paths(&self) -> config::DataPaths {
+            config::DataPaths {
+                root: self.0.clone(),
+                config_dir: self.0.join("config"),
+                tasks_dir: self.0.join("tasks"),
+                logs_dir: self.0.join("logs"),
+                temp_dir: self.0.join("tmp"),
+                config_file: self.0.join("config").join("config.json"),
+            }
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    async fn spawn_test_mcp() -> (
+        reqwest::Client,
+        String,
+        CancellationToken,
+        Arc<server::AppState>,
+    ) {
+        let directory = TestDirectory::new();
+        let paths = directory.data_paths();
+        config::ensure_data_directories(&paths).expect("create test data directories");
+        let shutdown = CancellationToken::new();
+        let state = Arc::new(
+            server::AppState::new(
+                config::ConfigStore::new(paths.clone(), config::AppConfig::default()),
+                paths,
+                shutdown.clone(),
+                "test-admin-token".to_owned(),
+            )
+            .expect("create app state"),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test MCP server");
+        let address = listener.local_addr().expect("read test MCP address");
+        let service = mcp_service(state.clone(), shutdown.child_token());
+        let router = Router::new().nest_service("/mcp", service);
+        tokio::spawn({
+            let shutdown = shutdown.clone();
+            async move {
+                let _directory = directory;
+                let _ = axum::serve(listener, router)
+                    .with_graceful_shutdown(async move { shutdown.cancelled_owned().await })
+                    .await;
+            }
+        });
+        (
+            reqwest::Client::new(),
+            format!("http://{address}/mcp"),
+            shutdown,
+            state,
+        )
+    }
+
+    async fn mcp_post(
+        client: &reqwest::Client,
+        url: &str,
+        body: serde_json::Value,
+        session_id: Option<&str>,
+    ) -> reqwest::Response {
+        let mut request = client
+            .post(url)
+            .header(reqwest::header::ACCEPT, MCP_ACCEPT)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&body);
+        if let Some(session_id) = session_id {
+            request = request.header("Mcp-Session-Id", session_id);
+        }
+        request.send().await.expect("send MCP request")
+    }
+
+    async fn mcp_json(response: reqwest::Response) -> serde_json::Value {
+        assert!(
+            response.status().is_success(),
+            "MCP request failed with {}",
+            response.status()
+        );
+        let body = response.text().await.expect("read MCP response");
+        let data = body
+            .lines()
+            .find_map(|line| line.strip_prefix("data:"))
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .expect("MCP SSE response contains JSON data");
+        serde_json::from_str(data).expect("parse MCP response JSON")
+    }
+
+    #[tokio::test]
+    async fn mcp_is_stateless_for_initialize_tools_and_health() {
+        let (client, url, shutdown, state) = spawn_test_mcp().await;
+        let initialize = mcp_post(
+            &client,
+            &url,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "stateless-test", "version": "1.0"}
+                }
+            }),
+            None,
+        )
+        .await;
+        assert!(initialize.status().is_success());
+        assert!(initialize.headers().get("Mcp-Session-Id").is_none());
+        assert_eq!(
+            mcp_json(initialize).await["result"]["protocolVersion"],
+            "2025-03-26"
+        );
+
+        let tools = mcp_json(
+            mcp_post(
+                &client,
+                &url,
+                serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(
+            tools["result"]["tools"]
+                .as_array()
+                .expect("tools/list returns tools")
+                .len(),
+            17
+        );
+
+        for session_id in [None, Some("stale-session-from-before-restart")] {
+            let health = mcp_json(
+                mcp_post(
+                    &client,
+                    &url,
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": {"name": "health", "arguments": {}}
+                    }),
+                    session_id,
+                )
+                .await,
+            )
+            .await;
+            assert_eq!(
+                health["result"]["isError"], false,
+                "health failed: {health}"
+            );
+            assert_eq!(
+                health["result"]["structuredContent"]["status"], "ok",
+                "health failed: {health}"
+            );
+        }
+
+        shutdown.cancel();
+        state.tasks.shutdown().await;
+    }
 
     #[test]
     fn status_labels_are_stable() {
