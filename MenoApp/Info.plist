@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>Meno</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Meno</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.sunkanwei.Meno.internal-command</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>meno-sunkanwei-internal</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Meno 使用 Finder 定位桌面新建文档，并在 KVM 切换后恢复仍由 Mac 使用的屏幕上的桌面图标位置。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Meno 使用本地网络与您的 Windows 电脑同步剪贴板、共享麦克风、传输跨屏鼠标操作，并发现 Windows Agent。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_meno-agent._tcp</string>
+	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Meno 使用这台 Mac 的麦克风，将声音实时传送到您的 Windows 电脑。</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>

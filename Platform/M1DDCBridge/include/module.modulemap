@@ -1,0 +1,4 @@
+module M1DDCBridge {
+    header "M1DDCBridge.h"
+    export *
+}

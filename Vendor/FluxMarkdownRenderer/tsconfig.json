@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist/",
+    "sourceMap": true,
+    "noImplicitAny": true,
+    "module": "ESNext",
+    "target": "ES2020",
+    "jsx": "react",
+    "allowJs": true,
+    "moduleResolution": "Bundler",
+    "esModuleInterop": true
+  },
+  "include": [
+    "src/**/*"
+  ]
+}

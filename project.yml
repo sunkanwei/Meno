@@ -1,0 +1,258 @@
+name: Meno
+
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "26.0"
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    AD_HOC_CODE_SIGNING_ALLOWED: NO
+    ARCHS: arm64
+    CODE_SIGN_IDENTITY: Meno Local Development
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGNING_ALLOWED: YES
+    CODE_SIGNING_REQUIRED: YES
+    CURRENT_PROJECT_VERSION: 1
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_DEBUG_DYLIB: NO
+    LM_FORCE_LINK_GENERATION: YES
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    MARKETING_VERSION: 0.1.0
+    SDKROOT: macosx
+    SWIFT_VERSION: "6.0"
+  configs:
+    Release:
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+
+targets:
+  MenoApp:
+    type: application
+    platform: macOS
+    productName: Meno
+    sources:
+      - path: MenoApp
+        excludes:
+          - Info.plist
+          - Meno.entitlements
+          - Resources/ClipboardFeedback/Source
+      - path: MenoApp/Resources/ClipboardFeedback/Source
+        buildPhase: none
+      - path: Features/FinderShortcuts
+      - path: Features/MenuBarGlass
+      - path: Features/Scrolling
+      - path: Features/SystemShortcuts
+      - path: Features/ClosedLidBehavior
+      - path: Features/ClipboardSharing
+      - path: Features/MicrophoneSharing
+      - path: Features/CrossScreenMouse
+      - path: Features/SoftKVM
+      - path: Features/WakeOnLAN
+      - path: Features/WindowsAgent
+      - path: Platform/Accessibility
+      - path: Platform/EventTap
+      - path: Platform/Finder
+      - path: Platform/HID
+      - path: Platform/Power
+      - path: Platform/QuickLook
+    dependencies:
+      - target: MenoFinderExtension
+        embed: true
+      - target: MenoMarkdownPreview
+        embed: true
+      - target: MenoPowerHelper
+        embed: false
+      - target: M1DDCBridge
+      - sdk: ApplicationServices.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreAudio.framework
+      - sdk: IOKit.framework
+    postCompileScripts:
+      - name: Embed Power Helper
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/com.sunkanwei.Meno.PowerHelper
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/PrivilegedHelperTools/com.sunkanwei.Meno.PowerHelper
+        script: |
+          set -euo pipefail
+          helper_source="${BUILT_PRODUCTS_DIR}/com.sunkanwei.Meno.PowerHelper"
+          helper_directory="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/PrivilegedHelperTools"
+          /bin/mkdir -p "${helper_directory}"
+          /usr/bin/ditto "${helper_source}" "${helper_directory}/com.sunkanwei.Meno.PowerHelper"
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: MenoApp/Meno.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: MenoApp/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunkanwei.Meno
+        PRODUCT_MODULE_NAME: MenoApp
+        PRODUCT_NAME: Meno
+
+  M1DDCBridge:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Platform/M1DDCBridge/M1DDCBridge.m
+      - path: Platform/M1DDCBridge/include
+        buildPhase: headers
+        headerVisibility: public
+    dependencies:
+      - sdk: CoreGraphics.framework
+      - sdk: Foundation.framework
+      - sdk: IOKit.framework
+    settings:
+      base:
+        CLANG_ENABLE_MODULES: YES
+        DEFINES_MODULE: YES
+        MODULEMAP_FILE: Platform/M1DDCBridge/include/module.modulemap
+        PRODUCT_MODULE_NAME: M1DDCBridge
+        PUBLIC_HEADERS_FOLDER_PATH: include
+        SKIP_INSTALL: YES
+
+  MenoFinderExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Extensions/MenoFinderExtension
+        excludes:
+          - Info.plist
+          - MenoFinderExtension.entitlements
+      - path: Platform/Finder/FileURLUtilities.swift
+      - path: Platform/Finder/FinderDesktopCoordinateSpace.swift
+      - path: Platform/Finder/FinderExtensionCommandBridge.swift
+      - path: Platform/Finder/FinderContextMenuPreferences.swift
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: Extensions/MenoFinderExtension/MenoFinderExtension.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Extensions/MenoFinderExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunkanwei.Meno.FinderExtension
+        PRODUCT_MODULE_NAME: MenoFinderExtension
+        SKIP_INSTALL: YES
+
+  MenoMarkdownPreview:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Extensions/MenoMarkdownPreview
+        excludes:
+          - Info.plist
+          - MenoMarkdownPreview.entitlements
+      - path: Platform/QuickLook/MarkdownPreviewWindowPreferences.swift
+      - path: Vendor/FluxMarkdownRenderer/dist
+        name: MarkdownRenderer
+        type: folder
+    dependencies:
+      - sdk: QuickLookUI.framework
+      - sdk: WebKit.framework
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: Extensions/MenoMarkdownPreview/MenoMarkdownPreview.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Extensions/MenoMarkdownPreview/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunkanwei.Meno.MarkdownPreview
+        PRODUCT_MODULE_NAME: MenoMarkdownPreview
+        PRODUCT_NAME: MenoMarkdownPreview
+        SKIP_INSTALL: YES
+
+  MenoPowerHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Helpers/MenoPowerHelper
+      - path: Platform/Power/ClosedLidShutdownContract.swift
+      - path: Platform/Power/ClosedLidShutdownValidation.swift
+    settings:
+      base:
+        OTHER_CODE_SIGN_FLAGS: --identifier com.sunkanwei.Meno.PowerHelper
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunkanwei.Meno.PowerHelper
+        PRODUCT_NAME: com.sunkanwei.Meno.PowerHelper
+        SKIP_INSTALL: YES
+
+  MenoTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      - path: Features/FinderShortcuts/CutStateMachine.swift
+      - path: Features/FinderShortcuts/KeyboardShortcut.swift
+      - path: Features/FinderShortcuts/PasteboardCopyPoller.swift
+      - path: Features/ClosedLidBehavior/ClosedLidBehaviorPolicy.swift
+      - path: Features/Scrolling/ScrollDirectionPolicy.swift
+      - path: Features/ClipboardSharing/ClipboardProtocol.swift
+      - path: Features/ClipboardSharing/ConnectionReadinessGate.swift
+      - path: Features/ClipboardSharing/ClipboardImageCodec.swift
+      - path: Features/ClipboardSharing/FileClipboardProtocol.swift
+      - path: Features/ClipboardSharing/FileClipboardManifest.swift
+      - path: Features/ClipboardSharing/FileClipboardCache.swift
+      - path: Features/ClipboardSharing/FileClipboardTransfer.swift
+      - path: Features/MicrophoneSharing/MicrophoneActivationKey.swift
+      - path: Features/MicrophoneSharing/MicrophonePCM.swift
+      - path: Features/CrossScreenMouse/CrossScreenDisplay.swift
+      - path: Features/CrossScreenMouse/CrossScreenEntryGate.swift
+      - path: Features/CrossScreenMouse/CrossScreenInputRouting.swift
+      - path: Features/CrossScreenMouse/HorizontalDisplayHandoff.swift
+      - path: Features/CrossScreenMouse/KeyboardState.swift
+      - path: Features/CrossScreenMouse/LocalDisplayPortalBaseline.swift
+      - path: Features/CrossScreenMouse/MacCursorOwnership.swift
+      - path: Features/CrossScreenMouse/MouseControlProtocol.swift
+      - path: Features/CrossScreenMouse/MouseOutboundMailbox.swift
+      - path: Features/CrossScreenMouse/PhysicalDisplayHandoff.swift
+      - path: Features/CrossScreenMouse/RemoteDiagnostics.swift
+      - path: Features/CrossScreenMouse/WindowsDisplayHandoff.swift
+      - path: Features/SoftKVM/DisplayModels.swift
+      - path: Features/SoftKVM/DesktopIconLayout.swift
+      - path: Features/SoftKVM/SoftKVMTopology.swift
+      - path: Features/SoftKVM/DisplaySystem.swift
+      - path: Features/SoftKVM/DisplayStateStore.swift
+      - path: Features/SoftKVM/SoftKVMShortcut.swift
+      - path: Features/SoftKVM/SoftKVMStateMachine.swift
+      - path: Features/SoftKVM/SoftKVMTypes.swift
+      - path: Features/SoftKVM/WindowModels.swift
+      - path: Features/WakeOnLAN/WakeOnLAN.swift
+      - path: Features/WindowsAgent/CodexMCPConfig.swift
+      - path: Features/WindowsAgent/WindowsAgentModels.swift
+      - path: Platform/Power/ClosedLidShutdownContract.swift
+      - path: Platform/Power/ClosedLidShutdownValidation.swift
+      - path: Helpers/MenoPowerHelper/PowerModeConfiguration.swift
+      - path: Platform/EventTap/NSLockCriticalSection.swift
+      - path: Platform/Finder/FileURLUtilities.swift
+      - path: Platform/Finder/FinderDesktopCoordinateSpace.swift
+      - path: Platform/Finder/FinderDesktopItemURLResolver.swift
+      - path: Platform/Finder/FinderAutomationPermission.swift
+      - path: Platform/Finder/FinderExtensionCommandBridge.swift
+      - path: Platform/Finder/FinderContextMenuPreferences.swift
+      - path: Platform/Finder/FinderProcess.swift
+      - path: Platform/Finder/TerminalApplicationDetector.swift
+      - path: Extensions/MenoMarkdownPreview/MarkdownImageDataCollector.swift
+      - path: Extensions/MenoMarkdownPreview/MarkdownDocumentMonitor.swift
+      - path: Extensions/MenoMarkdownPreview/LocalFileSchemeHandler.swift
+      - path: Extensions/MenoMarkdownPreview/MarkdownPreviewError.swift
+      - path: Extensions/MenoMarkdownPreview/MarkdownPreviewWindowState.swift
+      - path: Platform/QuickLook/MarkdownPreviewWindowPreferences.swift
+    dependencies:
+      - sdk: WebKit.framework
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunkanwei.Meno.Tests
+
+schemes:
+  MenoApp:
+    build:
+      targets:
+        MenoApp: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MenoTests
