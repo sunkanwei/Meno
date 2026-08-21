@@ -14,7 +14,6 @@ use crate::protocol::{
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-const FIRST_PCM_TIMEOUT: Duration = Duration::from_secs(5);
 const IDLE_BEFORE_PING: Duration = Duration::from_secs(15);
 const PONG_TIMEOUT: Duration = Duration::from_secs(5);
 const NETWORK_RETRY: Duration = Duration::from_secs(1);
@@ -289,7 +288,6 @@ fn run_connected(
     let mut last_activity = connected_at;
     let mut ping_sent = None;
     let mut ready_at = None;
-    let mut pcm_started = false;
     let mut decoder = FrameDecoder::new();
     let mut sequence = SequenceTracker::default();
 
@@ -301,19 +299,10 @@ fn run_connected(
             return SessionEnd::Device(error);
         }
         let now = Instant::now();
-        let deadline = session_deadline(
-            connected_at,
-            ready_at,
-            pcm_started,
-            last_activity,
-            ping_sent,
-        );
+        let deadline = session_deadline(connected_at, ready_at, last_activity, ping_sent);
         if now >= deadline {
             if ready_at.is_none() {
                 return SessionEnd::Network("audio handshake timed out".into());
-            }
-            if !pcm_started {
-                return SessionEnd::Network("audio PCM did not start within 5 seconds".into());
             }
             if ping_sent.is_some() {
                 return SessionEnd::Network("audio Pong timed out".into());
@@ -370,9 +359,6 @@ fn run_connected(
                         Err(error) => return SessionEnd::Network(error),
                     };
                     output.push(&samples);
-                    if !pcm_started {
-                        pcm_started = true;
-                    }
                     // Retry until the bounded UI queue accepts this transition;
                     // StatusReporter coalesces every later frame after delivery.
                     reporter.set(AudioStatus::Available);
@@ -397,13 +383,11 @@ fn run_connected(
 fn session_deadline(
     connected_at: Instant,
     ready_at: Option<Instant>,
-    pcm_started: bool,
     last_activity: Instant,
     ping_sent: Option<Instant>,
 ) -> Instant {
     match ready_at {
         None => connected_at + HANDSHAKE_TIMEOUT,
-        Some(ready_at) if !pcm_started => ready_at + FIRST_PCM_TIMEOUT,
         Some(_) => ping_sent.map_or(last_activity + IDLE_BEFORE_PING, |sent| sent + PONG_TIMEOUT),
     }
 }
@@ -497,38 +481,22 @@ mod tests {
     }
 
     #[test]
-    fn deadline_requires_handshake_then_real_pcm_before_keepalive() {
+    fn ready_without_pcm_uses_keepalive_deadlines() {
         let connected_at = Instant::now();
         let ready_at = connected_at + Duration::from_secs(1);
         let last_activity = ready_at + Duration::from_secs(2);
         let ping_sent = last_activity + Duration::from_secs(3);
 
         assert_eq!(
-            session_deadline(connected_at, None, false, last_activity, None),
+            session_deadline(connected_at, None, last_activity, None),
             connected_at + HANDSHAKE_TIMEOUT
         );
         assert_eq!(
-            session_deadline(
-                connected_at,
-                Some(ready_at),
-                false,
-                last_activity,
-                Some(ping_sent)
-            ),
-            ready_at + FIRST_PCM_TIMEOUT
-        );
-        assert_eq!(
-            session_deadline(connected_at, Some(ready_at), true, last_activity, None),
+            session_deadline(connected_at, Some(ready_at), last_activity, None),
             last_activity + IDLE_BEFORE_PING
         );
         assert_eq!(
-            session_deadline(
-                connected_at,
-                Some(ready_at),
-                true,
-                last_activity,
-                Some(ping_sent)
-            ),
+            session_deadline(connected_at, Some(ready_at), last_activity, Some(ping_sent)),
             ping_sent + PONG_TIMEOUT
         );
     }
