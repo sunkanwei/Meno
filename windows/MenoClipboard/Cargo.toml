@@ -1,0 +1,62 @@
+[package]
+name = "meno-clipboard"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "MenoClipboard"
+path = "src/main.rs"
+test = true
+required-features = ["windows-app"]
+
+[[bin]]
+name = "MenoHidProbe"
+path = "src/bin/meno_hid_probe.rs"
+test = false
+
+[features]
+default = ["windows-app"]
+windows-app = []
+
+[dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
+windows-agent = { path = "../WindowsAgent" }
+png = "0.18.1"
+
+[target.'cfg(windows)'.dependencies]
+cpal = "0.18.1"
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Globalization",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_QoS",
+    "Win32_Networking_WinSock",
+    "Win32_System_DataExchange",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Performance",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Storage_FileSystem",
+    "Wdk_System_SystemServices",
+] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

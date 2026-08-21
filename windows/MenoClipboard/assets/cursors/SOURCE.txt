@@ -1,0 +1,2 @@
+Cursors in this directory derive from https://github.com/ful1e5/apple_cursor (GPL-3.0), regenerated from its
+SVG sources with rounded outline joins for personal use only.

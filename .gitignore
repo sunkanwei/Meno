@@ -1,33 +1,33 @@
-# Local Codex collaboration rules and external reference projects
-/AGENTS.md
-/参考/
-
-# Finder metadata
+# Operating-system metadata
 .DS_Store
+__MACOSX/
+Thumbs.db
+Desktop.ini
 
-# Xcode user state and temporary project state
-xcuserdata/
-*.xcuserstate
-*.xccheckout
-*.moved-aside
-*.xcscmblueprint
+# Editor metadata
+.serena/
+.vs/
+*.user
+*.suo
 
-# Build products and dependency caches
-/build/
-DerivedData/
-.build/
-SourcePackages/
-.swiftpm/xcode/package.xcworkspace/xcuserdata/
-/Vendor/FluxMarkdownRenderer/node_modules/
+# Logs and crash dumps
+*.log
+*.dmp
 
-# Local secrets and signing material
+# Local configuration, credentials, and signing material
 .env
 .env.*
 !.env.example
-*.private.xcconfig
-*.local.xcconfig
+*.pfx
+*.pvk
+*.snk
 *.p12
 *.mobileprovision
-*.cer
+*.private.xcconfig
+*.local.xcconfig
 *.key
 *.pem
+
+# Transitional output from the former Mac repository layout
+/build/
+/参考/

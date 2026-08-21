@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{974D1BF1-97FD-4798-A24E-E0B069E38F43}</ProjectGuid>
+    <RootNamespace>MenoVirtualMouse</RootNamespace>
+    <ProjectName>MenoVirtualMouse</ProjectName>
+    <UMDF_VERSION_MAJOR>2</UMDF_VERSION_MAJOR>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <TargetVersion>Windows10</TargetVersion>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <DriverType>UMDF</DriverType>
+    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <SpectreMitigation>false</SpectreMitigation>
+    <SignMode>Off</SignMode>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)MenoVirtualMouse\x64\$(Configuration)\</IntDir>
+    <TargetName>MenoVirtualMouse</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);_UNICODE;UNICODE</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DDK_INC_PATH);$(DDK_INC_PATH)\wdm;$(ProjectDir)</AdditionalIncludeDirectories>
+      <ExceptionHandling>false</ExceptionHandling>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);_UNICODE;UNICODE</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DDK_INC_PATH);$(DDK_INC_PATH)\wdm;$(ProjectDir)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Link>
+      <AdditionalDependencies>%(AdditionalDependencies);mincore.lib</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="driver.c" />
+    <ClCompile Include="util.c" />
+    <ClInclude Include="driver.h" />
+    <ClInclude Include="public.h" />
+    <ResourceCompile Include="MenoVirtualMouse.rc" />
+    <Inf Include="MenoVirtualMouse.inx">
+      <SpecifyDriverVerDirectiveDate>false</SpecifyDriverVerDirectiveDate>
+      <SpecifyDriverVerDirectiveVersion>false</SpecifyDriverVerDirectiveVersion>
+    </Inf>
+    <FilesToPackage Include="$(TargetPath)" />
+    <None Include="LICENSE-MICROSOFT-SAMPLE.txt" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

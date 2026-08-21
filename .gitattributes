@@ -1,0 +1,28 @@
+* text=auto
+
+*.md text eol=lf
+*.sh text eol=lf
+*.swift text eol=lf
+*.m text eol=lf
+*.h text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+
+/windows/*.ps1 text eol=crlf
+/windows/**/*.ps1 text eol=crlf
+/windows/**/*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.cur binary
+*.ani binary
+*.mp3 binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.pdb binary

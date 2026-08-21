@@ -1,0 +1,29 @@
+# Rust build output
+/target/
+
+# Native and packaging output
+/build/
+/out/
+/.vs/
+*.obj
+*.lib
+*.dll
+*.exe
+*.pdb
+
+# Runtime data
+/data/
+/logs/
+/tasks/
+/tmp/
+*.log
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.local.json
+*.local.toml
+
+# Large model assets must remain outside the repository
+*.gguf
