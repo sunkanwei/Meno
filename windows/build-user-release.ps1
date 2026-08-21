@@ -3,14 +3,12 @@ param()
 
 $ErrorActionPreference = "Stop"
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot ".."))
+$buildRoot = Join-Path $repositoryRoot "build\windows"
 $applicationDirectory = Join-Path $projectRoot "MenoClipboard"
 $manifest = Join-Path $applicationDirectory "Cargo.toml"
-$distDirectory = Join-Path $projectRoot "dist"
-$notices = Join-Path $projectRoot "THIRD_PARTY_NOTICES.md"
-
-if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-    throw "LOCALAPPDATA is unavailable"
-}
+$distDirectory = Join-Path $buildRoot "dist"
+$notices = Join-Path $repositoryRoot "THIRD_PARTY_NOTICES.md"
 if (-not (Test-Path -LiteralPath $distDirectory -PathType Container)) {
     throw "Existing dist package is unavailable; run the full release build first"
 }
@@ -39,15 +37,18 @@ foreach ($name in $preservedFiles) {
 if ($LASTEXITCODE -ne 0) { throw "Windows verification failed" }
 
 $cargo = (Get-Command cargo.exe -ErrorAction Stop).Source
-$cargoTarget = Join-Path $env:LOCALAPPDATA "Meno\build-cache\cargo-target"
+$cargoTarget = Join-Path $buildRoot "cargo-target"
 New-Item -ItemType Directory -Force -Path $cargoTarget | Out-Null
 $previousCargoTarget = $env:CARGO_TARGET_DIR
+$previousDriverAssetDirectory = $env:MENO_DRIVER_ASSET_DIR
 $env:CARGO_TARGET_DIR = $cargoTarget
+$env:MENO_DRIVER_ASSET_DIR = $distDirectory
 try {
     & $cargo build --manifest-path $manifest --locked --release --bin MenoClipboard
     if ($LASTEXITCODE -ne 0) { throw "Rust user-mode Release build failed" }
 } finally {
     $env:CARGO_TARGET_DIR = $previousCargoTarget
+    $env:MENO_DRIVER_ASSET_DIR = $previousDriverAssetDirectory
 }
 
 $releaseExe = Join-Path $cargoTarget "release\MenoClipboard.exe"

@@ -11,8 +11,7 @@ xcuserdata/
 *.moved-aside
 *.xcscmblueprint
 
-# Build products and dependency caches
-/build/
+# Dependency caches that may be created beside their source
 DerivedData/
 .build/
 SourcePackages/

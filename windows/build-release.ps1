@@ -5,31 +5,33 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot ".."))
+$buildRoot = Join-Path $repositoryRoot "build\windows"
 $driverDirectory = Join-Path $projectRoot "MenoVirtualMouse"
 $applicationDirectory = Join-Path $projectRoot "MenoClipboard"
-$distDirectory = Join-Path $projectRoot "dist"
-$notices = Join-Path $projectRoot "THIRD_PARTY_NOTICES.md"
-
-if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-    throw "LOCALAPPDATA is unavailable"
-}
+$distDirectory = Join-Path $buildRoot "dist"
+$notices = Join-Path $repositoryRoot "THIRD_PARTY_NOTICES.md"
 
 $cargo = (Get-Command cargo.exe -ErrorAction Stop).Source
+New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 
 & (Join-Path $projectRoot "verify-windows.ps1")
 if ($LASTEXITCODE -ne 0) { throw "Windows verification failed" }
 
-$driverParameters = @{ EmbedForClipboard = $true }
+$driverParameters = @{}
 if (-not [string]::IsNullOrWhiteSpace($SigningThumbprint)) {
     $driverParameters.SigningThumbprint = $SigningThumbprint
 }
 & (Join-Path $driverDirectory "build-driver.ps1") @driverParameters
 if ($LASTEXITCODE -ne 0) { throw "Meno Virtual Mouse build failed" }
 
-$cargoTarget = Join-Path $env:LOCALAPPDATA "Meno\build-cache\cargo-target"
+$driverPackage = Join-Path $buildRoot "driver-package"
+$cargoTarget = Join-Path $buildRoot "cargo-target"
 New-Item -ItemType Directory -Force -Path $cargoTarget | Out-Null
 $previousCargoTarget = $env:CARGO_TARGET_DIR
+$previousDriverAssetDirectory = $env:MENO_DRIVER_ASSET_DIR
 $env:CARGO_TARGET_DIR = $cargoTarget
+$env:MENO_DRIVER_ASSET_DIR = $driverPackage
 try {
     Push-Location $applicationDirectory
     try {
@@ -40,9 +42,9 @@ try {
     }
 } finally {
     $env:CARGO_TARGET_DIR = $previousCargoTarget
+    $env:MENO_DRIVER_ASSET_DIR = $previousDriverAssetDirectory
 }
 
-$driverPackage = Join-Path $driverDirectory "package"
 $applicationFiles = @("MenoClipboard.exe", "MenoHidProbe.exe")
 $driverFiles = @(
     "MenoVirtualMouse.dll",

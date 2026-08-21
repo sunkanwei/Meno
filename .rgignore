@@ -1,6 +1,4 @@
+build/
 mac/Vendor/FluxMarkdownRenderer/dist/
 mac/Vendor/FluxMarkdownRenderer/node_modules/
 mac/Vendor/FluxMarkdownRenderer/src/
-mac/build/
-windows/dist/
-windows/MenoClipboard/target/

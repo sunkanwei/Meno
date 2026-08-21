@@ -29,8 +29,8 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
-    <OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir>
-    <IntDir>$(ProjectDir)MenoVirtualMouse\x64\$(Configuration)\</IntDir>
+    <OutDir>$(ProjectDir)..\..\build\windows\driver-cache\$(Configuration)\out\</OutDir>
+    <IntDir>$(ProjectDir)..\..\build\windows\driver-cache\$(Configuration)\obj\</IntDir>
     <TargetName>MenoVirtualMouse</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>

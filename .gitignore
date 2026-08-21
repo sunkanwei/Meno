@@ -28,6 +28,6 @@ Desktop.ini
 *.key
 *.pem
 
-# Transitional output from the former Mac repository layout
+# Shared local build products and caches
 /build/
 /参考/

@@ -1,27 +1,26 @@
 param(
     [string]$SigningThumbprint = "",
-    [string]$PackageCacheDirectory = "",
-    [switch]$EmbedForClipboard
+    [string]$PackageCacheDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
 $configuration = "Release"
 $projectDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$windowsRoot = [IO.Path]::GetFullPath((Join-Path $projectDirectory ".."))
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $windowsRoot ".."))
+$buildRoot = Join-Path $repositoryRoot "build\windows"
 $project = Join-Path $projectDirectory "MenoVirtualMouse.vcxproj"
-$output = Join-Path $projectDirectory "package"
+$output = Join-Path $buildRoot "driver-package"
 $certificatePath = Join-Path $output "MenoVirtualMouse.cer"
 $wdkVersion = "10.0.26100.6584"
 $kitVersion = "10.0.26100.0"
 
-if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-    throw "LOCALAPPDATA is unavailable"
-}
 if ([string]::IsNullOrWhiteSpace($PackageCacheDirectory)) {
-    $packagesDirectory = Join-Path $env:LOCALAPPDATA "Meno\build-cache\wdk-nuget"
+    $packagesDirectory = Join-Path $buildRoot "wdk-nuget"
 } else {
     $packagesDirectory = [IO.Path]::GetFullPath($PackageCacheDirectory)
 }
-$driverBuildRoot = Join-Path $env:LOCALAPPDATA "Meno\build-cache\driver\$configuration"
+$driverBuildRoot = Join-Path $buildRoot "driver-cache\$configuration"
 $buildOutput = Join-Path $driverBuildRoot "out"
 $intermediateOutput = Join-Path $driverBuildRoot "obj"
 New-Item -ItemType Directory -Force -Path $packagesDirectory | Out-Null
@@ -149,7 +148,7 @@ function Test-MenoSignature {
     $exitCode = $LASTEXITCODE
     $result | Tee-Object -FilePath $verificationLog -Append | Out-Host
     if ($exitCode -ne 0) {
-        throw "SignTool verification failed: $($Arguments -join ' '). If the failure is an untrusted root certificate, the selected test certificate has not been trusted on this machine: import package\MenoVirtualMouse.cer into the trusted root store once (installing the driver does this) and rebuild."
+        throw "SignTool verification failed: $($Arguments -join ' '). If the failure is an untrusted root certificate, the selected test certificate has not been trusted on this machine: import build\windows\driver-package\MenoVirtualMouse.cer into the trusted root store once (installing the driver does this) and rebuild."
     }
 }
 
@@ -157,24 +156,6 @@ Test-MenoSignature -Arguments @('/pa', '/v', $packageDll)
 Test-MenoSignature -Arguments @('/pa', '/v', $packageCat)
 Test-MenoSignature -Arguments @('/pa', '/v', '/c', $packageCat, $packageDll)
 Test-MenoSignature -Arguments @('/pa', '/v', '/c', $packageCat, $packageInf)
-
-if ($EmbedForClipboard) {
-    $embeddedPackage = Join-Path $projectDirectory "..\MenoClipboard\assets\driver"
-    New-Item -ItemType Directory -Force -Path $embeddedPackage | Out-Null
-    $staleKernelDriver = Join-Path $embeddedPackage "MenoVirtualMouse.sys"
-    if (Test-Path -LiteralPath $staleKernelDriver) {
-        Remove-Item -LiteralPath $staleKernelDriver -Force
-    }
-    foreach ($name in @(
-        "MenoVirtualMouse.dll",
-        "MenoVirtualMouse.inf",
-        "MenoVirtualMouse.cat",
-        "MenoVirtualMouse.cer"
-    )) {
-        Copy-Item -LiteralPath (Join-Path $output $name) -Destination $embeddedPackage -Force
-    }
-    Write-Host "Meno Virtual Mouse package was embedded at $embeddedPackage"
-}
 
 Write-Host "Meno Virtual Mouse package is ready at $output"
 $global:LASTEXITCODE = 0

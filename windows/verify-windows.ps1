@@ -3,20 +3,21 @@ param()
 
 $ErrorActionPreference = "Stop"
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot ".."))
+$buildRoot = Join-Path $repositoryRoot "build\windows"
 $manifest = Join-Path $projectRoot "MenoClipboard\Cargo.toml"
 $agentManifest = Join-Path $projectRoot "WindowsAgent\Cargo.toml"
-if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-    throw "LOCALAPPDATA is unavailable"
-}
 
 & (Join-Path $projectRoot "verify-vb-cable.ps1")
 if ($LASTEXITCODE -ne 0) { throw "VB-CABLE package verification failed" }
 
 $cargo = (Get-Command cargo.exe -ErrorAction Stop).Source
-$cargoTarget = Join-Path $env:LOCALAPPDATA "Meno\build-cache\cargo-target"
+$cargoTarget = Join-Path $buildRoot "cargo-target"
 New-Item -ItemType Directory -Force -Path $cargoTarget | Out-Null
 $previousCargoTarget = $env:CARGO_TARGET_DIR
+$previousDriverAssetDirectory = $env:MENO_DRIVER_ASSET_DIR
 $env:CARGO_TARGET_DIR = $cargoTarget
+$env:MENO_DRIVER_ASSET_DIR = $null
 try {
     & $cargo fmt --manifest-path $manifest --all -- --check
     if ($LASTEXITCODE -ne 0) { throw "Rust formatting check failed" }
@@ -43,6 +44,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Windows Agent locked offline metadata check failed" }
 } finally {
     $env:CARGO_TARGET_DIR = $previousCargoTarget
+    $env:MENO_DRIVER_ASSET_DIR = $previousDriverAssetDirectory
 }
 
 Write-Host "Windows user-mode verification passed."

@@ -28,19 +28,38 @@ fn main() {
     for (_, path) in ICONS {
         println!("cargo:rerun-if-changed={path}");
     }
-    let driver_directory = PathBuf::from("assets/driver");
-    let driver_is_complete = DRIVER_FILES
-        .iter()
-        .all(|name| driver_directory.join(name).is_file());
+    println!("cargo:rerun-if-env-changed=MENO_DRIVER_ASSET_DIR");
+    let driver_directory = env::var_os("MENO_DRIVER_ASSET_DIR").map(PathBuf::from);
+    let driver_is_complete = if let Some(directory) = driver_directory.as_ref() {
+        let missing = DRIVER_FILES
+            .iter()
+            .filter(|name| !directory.join(name).is_file())
+            .copied()
+            .collect::<Vec<_>>();
+        assert!(
+            missing.is_empty(),
+            "MENO_DRIVER_ASSET_DIR is incomplete; missing: {}",
+            missing.join(", ")
+        );
+        true
+    } else {
+        false
+    };
     println!(
         "cargo:rustc-env=MENO_DRIVER_EMBEDDED={}",
         if driver_is_complete { "1" } else { "0" }
     );
     let output_directory = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is unavailable"));
     for name in DRIVER_FILES {
-        let source = driver_directory.join(name);
-        println!("cargo:rerun-if-changed={}", source.display());
-        let bytes = fs::read(&source).unwrap_or_default();
+        let bytes = if let Some(directory) = driver_directory.as_ref() {
+            let source = directory.join(name);
+            println!("cargo:rerun-if-changed={}", source.display());
+            fs::read(&source).unwrap_or_else(|error| {
+                panic!("could not read driver asset {}: {error}", source.display())
+            })
+        } else {
+            Vec::new()
+        };
         fs::write(output_directory.join(name), bytes)
             .expect("could not prepare embedded driver file");
     }
@@ -121,13 +140,7 @@ fn build_id() -> String {
         return version;
     }
     let dirty = Command::new("git")
-        .args([
-            "status",
-            "--porcelain",
-            "--untracked-files=normal",
-            "--",
-            ".",
-        ])
+        .args(["status", "--porcelain", "--untracked-files=normal"])
         .output()
         .is_ok_and(|output| output.status.success() && !output.stdout.is_empty());
     if dirty { format!("{head}-dirty") } else { head }

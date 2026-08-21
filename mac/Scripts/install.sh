@@ -9,19 +9,26 @@
 #   5. install and re-verify; on failure move the failed copy aside and restore
 #   6. clean extension registrations, restart Finder, launch, verify process
 #
-# Backups are kept under build/backups/ and are never removed automatically.
+# Backups are kept under the repository-local build/mac/backups/ directory and
+# are never removed automatically.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MAC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$MAC_ROOT/.." && pwd)"
+BUILD_ROOT="$REPO_ROOT/build/mac"
+
+mkdir -p "$BUILD_ROOT"
+cd "$MAC_ROOT"
 
 INSTALL="/Applications/Meno.app"
-PRODUCT="build/ReleaseDerivedData/Build/Products/Release/Meno.app"
+PRODUCT="$BUILD_ROOT/ReleaseDerivedData/Build/Products/Release/Meno.app"
 EXPECTED_ID="com.sunkanwei.Meno"
 EXPECTED_FINDER_EXT_ID="com.sunkanwei.Meno.FinderExtension"
 EXPECTED_PREVIEW_EXT_ID="com.sunkanwei.Meno.MarkdownPreview"
 EXPECTED_HELPER_ID="com.sunkanwei.Meno.PowerHelper"
 EXPECTED_AUTH="Meno Local Development"
-BACKUP_ROOT="build/backups"
+BACKUP_ROOT="$BUILD_ROOT/backups"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -51,7 +58,7 @@ verify_bundle() {
 }
 
 # 1. Fresh signed Release build, then verify the product.
-"$(dirname "$0")/build.sh" release
+"$SCRIPT_DIR/build.sh" release
 verify_bundle "$PRODUCT" "New build" || fail "New build verification failed; not installing."
 
 # 2. Verify the installed copy before touching it.
@@ -102,7 +109,7 @@ if ! verify_bundle "$INSTALL" "Installed app"; then
 fi
 
 # 6. Clean registrations, reload extensions from the fixed path, restart Finder.
-"$(dirname "$0")/clean-ext.sh" --reload
+"$SCRIPT_DIR/clean-ext.sh" --reload
 
 # 7. Launch and confirm the process is running.
 open "$INSTALL"
