@@ -152,13 +152,11 @@ pub fn set_enabled(enable: bool) -> io::Result<()> {
         }
         let directory = write_files()?;
         apply_registry(&directory)?;
-        crate::logging::info("macOS cursor theme applied");
     } else {
         restore_backup()?;
         if let Ok(directory) = cursor_directory() {
             let _ = fs::remove_dir_all(directory);
         }
-        crate::logging::info("macOS cursor theme removed");
     }
     reload_if_visible();
     Ok(())

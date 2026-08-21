@@ -3,6 +3,7 @@
 mod audio_output;
 mod audio_session;
 mod bounded_queue;
+mod clipboard_flow;
 mod connection;
 mod cursor_hider;
 mod cursor_theme;
@@ -19,6 +20,7 @@ mod file_protocol;
 mod file_transfer;
 mod hid_writer;
 mod image_codec;
+mod image_tasks;
 mod install;
 mod logging;
 mod menu;
@@ -27,19 +29,21 @@ mod mouse_input;
 mod mouse_session;
 mod peer_name;
 mod protocol;
+mod qos_flow;
+mod remote_shutdown;
 mod tray;
 mod virtual_hid;
 
 use std::sync::mpsc::{Sender, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-use arboard::{Clipboard, Error as ClipboardError, ImageData};
+use arboard::Error as ClipboardError;
 use audio_session::AudioStatus;
 use bounded_queue::{BoundedQueue, PushResult};
 use connection::{NetworkCommand, NetworkEvent};
-use protocol::{Frame, MAX_IMAGE_SIZE, MAX_TEXT_SIZE, MessageKind};
+use protocol::{Frame, MessageKind};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
 };
@@ -60,16 +64,11 @@ use windows::core::{Error, Result as WinResult, w};
 
 pub const WM_NETWORK_EVENT: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 pub const WM_FILE_CLIPBOARD_REQUEST: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 3;
-const WM_IMAGE_WORKER_EVENT: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 4;
-const CLIPBOARD_RETRY_COUNT: usize = 5;
-const CLIPBOARD_RETRY_DELAY: Duration = Duration::from_millis(20);
-const UI_EVENT_BATCH: usize = 8;
+pub(crate) const UI_EVENT_BATCH: usize = 8;
 const NETWORK_UI_MAX_ITEMS: usize = 64;
 const NETWORK_UI_MAX_BYTES: usize = 64 * 1024 * 1024;
 const FILE_UI_MAX_ITEMS: usize = 32;
 const FILE_UI_MAX_BYTES: usize = 1024 * 1024;
-const IMAGE_RESULT_MAX_ITEMS: usize = 4;
-const IMAGE_RESULT_MAX_BYTES: usize = image_codec::MAX_RGBA_BYTES + MAX_IMAGE_SIZE;
 const FILE_WORKER_EVENT_CAPACITY: usize = 16;
 
 // The file worker cannot touch the system clipboard directly: publishing the
@@ -85,71 +84,24 @@ pub enum FileUiRequest {
     },
 }
 
-enum ImageTask {
-    Encode {
-        generation: u64,
-        image: ImageData<'static>,
-    },
-    Decode {
-        generation: u64,
-        payload: Vec<u8>,
-    },
-}
-
-enum ImageWorkerEvent {
-    Encoded {
-        generation: u64,
-        result: Result<Vec<u8>, String>,
-    },
-    Decoded {
-        generation: u64,
-        encoded_bytes: usize,
-        result: Result<ImageData<'static>, String>,
-    },
-}
-
-#[derive(Clone)]
-struct ImageTaskSender {
-    shared: Arc<ImageTaskSlot>,
-}
-
-struct ImageTaskSlot {
-    pending: Mutex<Option<ImageTask>>,
-    ready: Condvar,
-}
-
-impl ImageTaskSender {
-    fn submit(&self, task: ImageTask) -> bool {
-        let mut pending = self
-            .shared
-            .pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let replaced = pending.replace(task).is_some();
-        self.shared.ready.notify_one();
-        replaced
-    }
-}
-
 static APP: OnceLock<Mutex<AppState>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
 static NETWORK_UI_EVENTS: OnceLock<Mutex<BoundedQueue<NetworkEvent>>> = OnceLock::new();
 static FILE_UI_REQUESTS: OnceLock<Mutex<BoundedQueue<FileUiRequest>>> = OnceLock::new();
-static IMAGE_WORKER_EVENTS: OnceLock<Mutex<BoundedQueue<ImageWorkerEvent>>> = OnceLock::new();
 
-struct AppState {
-    network: SyncSender<NetworkCommand>,
+pub(crate) struct AppState {
+    pub(crate) network: SyncSender<NetworkCommand>,
     file_events: SyncSender<file_transfer::WorkerEvent>,
-    image_tasks: ImageTaskSender,
+    pub(crate) image_tasks: image_tasks::ImageTaskSender,
     agent: Option<windows_agent::EmbeddedAgent>,
     status: String,
     audio_status: AudioStatus,
     connected: bool,
-    paused: bool,
-    suspended: bool,
+    pub(crate) paused: bool,
+    pub(crate) suspended: bool,
     startup: bool,
-    ignored_sequence: Option<u32>,
-    image_generation: u64,
+    pub(crate) ignored_sequence: Option<u32>,
+    pub(crate) image_generation: u64,
 }
 
 fn main() -> WinResult<()> {
@@ -258,7 +210,7 @@ fn main() -> WinResult<()> {
             sync_channel::<file_transfer::WorkerEvent>(FILE_WORKER_EVENT_CAPACITY);
         let network = connection::spawn(hwnd, file_events.clone());
         file_transfer::spawn(hwnd, network.clone(), file_inbox);
-        let image_tasks = spawn_image_worker(hwnd);
+        let image_tasks = image_tasks::spawn_image_worker(hwnd);
         let _ = APP.set(Mutex::new(AppState {
             network,
             file_events,
@@ -380,37 +332,7 @@ pub(crate) fn post_file_ui_request(hwnd: HWND, request: FileUiRequest) -> bool {
     !wake || post_wakeup(hwnd, WM_FILE_CLIPBOARD_REQUEST, &FILE_UI_REQUESTS)
 }
 
-fn post_image_worker_event(hwnd: HWND, event: ImageWorkerEvent) -> bool {
-    let bytes = match &event {
-        ImageWorkerEvent::Encoded { result, .. } => {
-            result.as_ref().map_or(1, |payload| payload.len())
-        }
-        ImageWorkerEvent::Decoded { result, .. } => {
-            result.as_ref().map_or(1, |image| image.bytes.len())
-        }
-    };
-    let queue = IMAGE_WORKER_EVENTS.get_or_init(|| {
-        Mutex::new(BoundedQueue::new(
-            IMAGE_RESULT_MAX_ITEMS,
-            IMAGE_RESULT_MAX_BYTES,
-        ))
-    });
-    let Ok(mut queue) = queue.lock() else {
-        return false;
-    };
-    let result = queue.push_latest(event, bytes, |_| true);
-    let wake = match result {
-        PushResult::Queued { wake } | PushResult::Replaced { wake } => wake,
-        PushResult::Full => {
-            logging::error("image result queue rejected an oversized result");
-            return false;
-        }
-    };
-    drop(queue);
-    !wake || post_wakeup(hwnd, WM_IMAGE_WORKER_EVENT, &IMAGE_WORKER_EVENTS)
-}
-
-fn post_wakeup<T>(hwnd: HWND, message: u32, queue: &OnceLock<Mutex<BoundedQueue<T>>>) -> bool {
+pub(crate) fn post_wakeup<T>(hwnd: HWND, message: u32, queue: &OnceLock<Mutex<BoundedQueue<T>>>) -> bool {
     if unsafe { PostMessageW(Some(hwnd), message, WPARAM(0), LPARAM(0)) }.is_ok() {
         return true;
     }
@@ -438,6 +360,89 @@ fn drain_network_events(hwnd: HWND) {
     }
 }
 
+fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
+    match event {
+        NetworkEvent::Searching => {
+            let _ = with_state(|state| {
+                state.connected = false;
+                state.audio_status = AudioStatus::Disabled;
+            });
+            update_status(hwnd, "正在查找 Mac".to_string());
+        }
+        NetworkEvent::Connected { name, address } => {
+            let status = format!("已连接 {name}");
+            let accepted = with_state(|state| {
+                if state.paused || state.suspended {
+                    state.connected = false;
+                    return false;
+                }
+                state.connected = true;
+                state.status = status;
+                update_connected_tray(hwnd, state);
+                true
+            })
+            .unwrap_or(false);
+            if accepted {
+                logging::info(&format!("Connected to {name} at {address}"));
+            }
+        }
+        NetworkEvent::AudioStatus(status) => {
+            let _ = with_state(|state| {
+                if state.paused || state.suspended {
+                    state.audio_status = AudioStatus::Disabled;
+                    return;
+                }
+                state.audio_status = status;
+                if state.connected {
+                    update_connected_tray(hwnd, state);
+                }
+            });
+        }
+        NetworkEvent::Error(error) => {
+            logging::error(&format!("Network error: {error}"));
+            let _ = with_state(|state| {
+                state.connected = false;
+                state.audio_status = AudioStatus::Disabled;
+            });
+            update_status(hwnd, "局域网连接错误".to_string());
+        }
+        NetworkEvent::Clipboard(frame) => {
+            if with_state(|state| state.paused || state.suspended).unwrap_or(true) {
+                logging::debug("clipboard <- mac dropped: application is paused");
+                return;
+            }
+            // Newer remote content replaces any file transfer still arriving.
+            notify_file_worker(file_transfer::WorkerEvent::RemoteContent);
+            let Some(generation) = image_tasks::next_image_generation() else {
+                return;
+            };
+            write_remote_clipboard(frame, generation);
+        }
+    }
+}
+
+fn write_remote_clipboard(frame: Frame, generation: u64) {
+    let kind = frame.kind;
+    let bytes = frame.payload.len();
+    match frame.kind {
+        MessageKind::Text => match String::from_utf8(frame.payload) {
+            Ok(text) => {
+                clipboard_flow::apply_remote_clipboard(kind, bytes, |clipboard| {
+                    clipboard.set_text(text.clone())
+                });
+            }
+            Err(_) => {
+                logging::error("Remote clipboard text was not valid UTF-8");
+            }
+        },
+        MessageKind::Png => image_tasks::submit_image_task(image_tasks::ImageTask::Decode {
+            generation,
+            payload: frame.payload,
+        }),
+        _ => (),
+    }
+}
+
 fn drain_file_ui_requests(hwnd: HWND) {
     let Some(queue) = FILE_UI_REQUESTS.get() else {
         return;
@@ -454,22 +459,6 @@ fn drain_file_ui_requests(hwnd: HWND) {
     }
 }
 
-fn drain_image_worker_events(hwnd: HWND) {
-    let Some(queue) = IMAGE_WORKER_EVENTS.get() else {
-        return;
-    };
-    let (events, more) = match queue.lock() {
-        Ok(mut queue) => queue.take_batch(UI_EVENT_BATCH),
-        Err(_) => return,
-    };
-    for event in events {
-        handle_image_worker_event(event);
-    }
-    if more {
-        let _ = post_wakeup(hwnd, WM_IMAGE_WORKER_EVENT, &IMAGE_WORKER_EVENTS);
-    }
-}
-
 fn clear_ui_queues() {
     if let Some(queue) = NETWORK_UI_EVENTS.get()
         && let Ok(mut queue) = queue.lock()
@@ -481,11 +470,7 @@ fn clear_ui_queues() {
     {
         queue.clear();
     }
-    if let Some(queue) = IMAGE_WORKER_EVENTS.get()
-        && let Ok(mut queue) = queue.lock()
-    {
-        queue.clear();
-    }
+    image_tasks::clear_events();
 }
 
 unsafe extern "system" fn window_proc(
@@ -516,9 +501,9 @@ unsafe extern "system" fn window_proc(
             drain_file_ui_requests(hwnd);
             LRESULT(0)
         }
-        WM_IMAGE_WORKER_EVENT => {
+        image_tasks::WM_IMAGE_WORKER_EVENT => {
             let _ = (wparam, lparam);
-            drain_image_worker_events(hwnd);
+            image_tasks::drain_events(hwnd);
             LRESULT(0)
         }
         tray::CALLBACK_MESSAGE
@@ -725,7 +710,7 @@ fn handle_local_clipboard() {
     {
         return;
     }
-    let Some(generation) = next_image_generation() else {
+    let Some(generation) = image_tasks::next_image_generation() else {
         return;
     };
     if unsafe { IsClipboardFormatAvailable(file_clipboard::CF_HDROP) }.is_ok() {
@@ -733,15 +718,15 @@ fn handle_local_clipboard() {
         return;
     }
 
-    for attempt in 0..CLIPBOARD_RETRY_COUNT {
-        match read_local_clipboard() {
-            Ok(Some(LocalClipboard::Frame(frame))) => {
-                send_clipboard(frame);
+    for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
+        match clipboard_flow::read_local_clipboard() {
+            Ok(Some(clipboard_flow::LocalClipboard::Frame(frame))) => {
+                clipboard_flow::send_clipboard(frame);
                 notify_file_worker(file_transfer::WorkerEvent::LocalOther);
                 return;
             }
-            Ok(Some(LocalClipboard::Image(image))) => {
-                submit_image_task(ImageTask::Encode { generation, image });
+            Ok(Some(clipboard_flow::LocalClipboard::Image(image))) => {
+                image_tasks::submit_image_task(image_tasks::ImageTask::Encode { generation, image });
                 notify_file_worker(file_transfer::WorkerEvent::LocalOther);
                 return;
             }
@@ -750,8 +735,8 @@ fn handle_local_clipboard() {
                 return;
             }
             Err(ClipboardError::ContentNotAvailable) => return,
-            Err(ClipboardError::ClipboardOccupied) if attempt + 1 < CLIPBOARD_RETRY_COUNT => {
-                thread::sleep(CLIPBOARD_RETRY_DELAY);
+            Err(ClipboardError::ClipboardOccupied) if attempt + 1 < clipboard_flow::CLIPBOARD_RETRY_COUNT => {
+                thread::sleep(clipboard_flow::CLIPBOARD_RETRY_DELAY);
             }
             Err(ClipboardError::ClipboardOccupied) => {
                 logging::error("Local clipboard read failed: occupied through all retries");
@@ -768,7 +753,7 @@ fn handle_local_clipboard() {
 // File paths are only snapshotted here; enumeration, hashing-free metadata
 // checks and all network flow live in the file worker thread.
 fn handle_local_files() {
-    for attempt in 0..CLIPBOARD_RETRY_COUNT {
+    for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
         match file_clipboard::read_hdrop_paths() {
             Ok(Some(paths)) if !paths.is_empty() => {
                 crate::logging::debug(&format!("clipboard -> mac: files top={}", paths.len()));
@@ -777,9 +762,9 @@ fn handle_local_files() {
             }
             Ok(_) => return,
             Err(file_clipboard::ClipboardFailure::Occupied)
-                if attempt + 1 < CLIPBOARD_RETRY_COUNT =>
+                if attempt + 1 < clipboard_flow::CLIPBOARD_RETRY_COUNT =>
             {
-                thread::sleep(CLIPBOARD_RETRY_DELAY);
+                thread::sleep(clipboard_flow::CLIPBOARD_RETRY_DELAY);
             }
             Err(file_clipboard::ClipboardFailure::Occupied) => {
                 crate::logging::error(
@@ -810,9 +795,9 @@ fn notify_file_worker(event: file_transfer::WorkerEvent) {
 fn handle_file_ui_request(request: FileUiRequest) {
     match request {
         FileUiRequest::Publish { paths, result } => {
-            let _ = next_image_generation();
+            let _ = image_tasks::next_image_generation();
             let mut outcome = Err("clipboard publish did not run".to_string());
-            for attempt in 0..CLIPBOARD_RETRY_COUNT {
+            for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
                 match file_clipboard::write_hdrop(&paths) {
                     Ok(()) => {
                         let sequence = unsafe { GetClipboardSequenceNumber() };
@@ -825,9 +810,9 @@ fn handle_file_ui_request(request: FileUiRequest) {
                         break;
                     }
                     Err(file_clipboard::ClipboardFailure::Occupied)
-                        if attempt + 1 < CLIPBOARD_RETRY_COUNT =>
+                        if attempt + 1 < clipboard_flow::CLIPBOARD_RETRY_COUNT =>
                     {
-                        thread::sleep(CLIPBOARD_RETRY_DELAY);
+                        thread::sleep(clipboard_flow::CLIPBOARD_RETRY_DELAY);
                     }
                     Err(file_clipboard::ClipboardFailure::Occupied) => {
                         outcome = Err("clipboard occupied through all retries".to_string());
@@ -843,16 +828,16 @@ fn handle_file_ui_request(request: FileUiRequest) {
         }
         FileUiRequest::Referenced { result } => {
             let mut outcome = Err("clipboard reference read did not run".to_string());
-            for attempt in 0..CLIPBOARD_RETRY_COUNT {
+            for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
                 match file_clipboard::read_hdrop_paths() {
                     Ok(paths) => {
                         outcome = Ok(paths.unwrap_or_default());
                         break;
                     }
                     Err(file_clipboard::ClipboardFailure::Occupied)
-                        if attempt + 1 < CLIPBOARD_RETRY_COUNT =>
+                        if attempt + 1 < clipboard_flow::CLIPBOARD_RETRY_COUNT =>
                     {
-                        thread::sleep(CLIPBOARD_RETRY_DELAY);
+                        thread::sleep(clipboard_flow::CLIPBOARD_RETRY_DELAY);
                     }
                     Err(file_clipboard::ClipboardFailure::Occupied) => {
                         outcome = Err("clipboard occupied through all retries".to_string());
@@ -866,267 +851,6 @@ fn handle_file_ui_request(request: FileUiRequest) {
             }
             let _ = result.send(outcome);
         }
-    }
-}
-
-enum LocalClipboard {
-    Frame(Frame),
-    Image(ImageData<'static>),
-}
-
-fn read_local_clipboard() -> Result<Option<LocalClipboard>, ClipboardError> {
-    let mut clipboard = Clipboard::new()?;
-    match clipboard.get_image() {
-        Ok(image) => {
-            let expected = match image_codec::checked_rgba_bytes(image.width, image.height) {
-                Ok(expected) => expected,
-                Err(error) => {
-                    logging::info(&format!("Clipboard image skipped: {error}"));
-                    return Ok(None);
-                }
-            };
-            if image.bytes.len() != expected {
-                logging::error("Clipboard image skipped: RGBA length does not match dimensions");
-                return Ok(None);
-            }
-            return Ok(Some(LocalClipboard::Image(image.to_owned_img())));
-        }
-        Err(ClipboardError::ContentNotAvailable) => {}
-        Err(error) => return Err(error),
-    }
-    let text = clipboard.get_text()?;
-    let payload = text.into_bytes();
-    if payload.len() > MAX_TEXT_SIZE {
-        logging::info(&format!(
-            "Clipboard text skipped: {} bytes exceeds the {} byte limit",
-            payload.len(),
-            MAX_TEXT_SIZE
-        ));
-        return Ok(None);
-    }
-    Ok(Some(LocalClipboard::Frame(Frame::new(
-        MessageKind::Text,
-        payload,
-    ))))
-}
-
-fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
-    match event {
-        NetworkEvent::Searching => {
-            let _ = with_state(|state| {
-                state.connected = false;
-                state.audio_status = AudioStatus::Disabled;
-            });
-            update_status(hwnd, "正在查找 Mac".to_string());
-        }
-        NetworkEvent::Connected { name, address } => {
-            let status = format!("已连接 {name}");
-            let accepted = with_state(|state| {
-                if state.paused || state.suspended {
-                    state.connected = false;
-                    return false;
-                }
-                state.connected = true;
-                state.status = status;
-                update_connected_tray(hwnd, state);
-                true
-            })
-            .unwrap_or(false);
-            if accepted {
-                logging::info(&format!("Connected to {name} at {address}"));
-            }
-        }
-        NetworkEvent::AudioStatus(status) => {
-            let _ = with_state(|state| {
-                if state.paused || state.suspended {
-                    state.audio_status = AudioStatus::Disabled;
-                    return;
-                }
-                state.audio_status = status;
-                if state.connected {
-                    update_connected_tray(hwnd, state);
-                }
-            });
-        }
-        NetworkEvent::Error(error) => {
-            logging::error(&format!("Network error: {error}"));
-            let _ = with_state(|state| {
-                state.connected = false;
-                state.audio_status = AudioStatus::Disabled;
-            });
-            update_status(hwnd, "局域网连接错误".to_string());
-        }
-        NetworkEvent::Clipboard(frame) => {
-            if with_state(|state| state.paused || state.suspended).unwrap_or(true) {
-                logging::debug("clipboard <- mac dropped: application is paused");
-                return;
-            }
-            // Newer remote content replaces any file transfer still arriving.
-            notify_file_worker(file_transfer::WorkerEvent::RemoteContent);
-            let Some(generation) = next_image_generation() else {
-                return;
-            };
-            write_remote_clipboard(frame, generation);
-        }
-    }
-}
-
-fn write_remote_clipboard(frame: Frame, generation: u64) {
-    let kind = frame.kind;
-    let bytes = frame.payload.len();
-    match frame.kind {
-        MessageKind::Text => match String::from_utf8(frame.payload) {
-            Ok(text) => {
-                apply_remote_clipboard(kind, bytes, |clipboard| clipboard.set_text(text.clone()))
-            }
-            Err(_) => {
-                logging::error("Remote clipboard text was not valid UTF-8");
-            }
-        },
-        MessageKind::Png => submit_image_task(ImageTask::Decode {
-            generation,
-            payload: frame.payload,
-        }),
-        _ => (),
-    }
-}
-
-fn apply_remote_clipboard(
-    kind: MessageKind,
-    bytes: usize,
-    mut apply: impl FnMut(&mut Clipboard) -> Result<(), ClipboardError>,
-) {
-    for attempt in 0..CLIPBOARD_RETRY_COUNT {
-        let result = Clipboard::new().and_then(|mut clipboard| apply(&mut clipboard));
-        match result {
-            Ok(()) => {
-                let sequence = unsafe { GetClipboardSequenceNumber() };
-                let _ = with_state(|state| state.ignored_sequence = Some(sequence));
-                logging::debug(&format!("clipboard <- mac: kind={kind:?} bytes={bytes}"));
-                return;
-            }
-            Err(ClipboardError::ClipboardOccupied) if attempt + 1 < CLIPBOARD_RETRY_COUNT => {
-                thread::sleep(CLIPBOARD_RETRY_DELAY);
-            }
-            Err(ClipboardError::ClipboardOccupied) => {
-                logging::error("Remote clipboard apply failed: occupied through all retries");
-                return;
-            }
-            Err(error) => {
-                logging::error(&format!("Remote clipboard apply failed: {error}"));
-                return;
-            }
-        }
-    }
-}
-
-fn spawn_image_worker(hwnd: HWND) -> ImageTaskSender {
-    let shared = Arc::new(ImageTaskSlot {
-        pending: Mutex::new(None),
-        ready: Condvar::new(),
-    });
-    let worker = Arc::clone(&shared);
-    let hwnd_value = hwnd.0 as usize;
-    thread::spawn(move || {
-        loop {
-            let task = {
-                let mut pending = worker
-                    .pending
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                while pending.is_none() {
-                    pending = worker
-                        .ready
-                        .wait(pending)
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                }
-                pending.take().unwrap()
-            };
-            let event = match task {
-                ImageTask::Encode { generation, image } => ImageWorkerEvent::Encoded {
-                    generation,
-                    result: image_codec::encode_png(image),
-                },
-                ImageTask::Decode {
-                    generation,
-                    payload,
-                } => {
-                    let encoded_bytes = payload.len();
-                    ImageWorkerEvent::Decoded {
-                        generation,
-                        encoded_bytes,
-                        result: image_codec::decode_png(&payload),
-                    }
-                }
-            };
-            if !post_image_worker_event(HWND(hwnd_value as *mut _), event) {
-                return;
-            }
-        }
-    });
-    ImageTaskSender { shared }
-}
-
-fn submit_image_task(task: ImageTask) {
-    match with_state(|state| state.image_tasks.submit(task)) {
-        Some(true) => logging::debug("Clipboard image task replaced by newer clipboard state"),
-        Some(false) => {}
-        None => logging::error("Clipboard image skipped: application state is unavailable"),
-    }
-}
-
-fn handle_image_worker_event(event: ImageWorkerEvent) {
-    match event {
-        ImageWorkerEvent::Encoded { generation, result } => {
-            if !image_generation_is_current(generation) {
-                logging::debug("Clipboard image encode result dropped: superseded");
-                return;
-            }
-            match result {
-                Ok(payload) => send_clipboard(Frame::new(MessageKind::Png, payload)),
-                Err(error) => logging::error(&format!("Clipboard image encode failed: {error}")),
-            }
-        }
-        ImageWorkerEvent::Decoded {
-            generation,
-            encoded_bytes,
-            result,
-        } => {
-            if !image_generation_is_current(generation)
-                || with_state(|state| state.paused || state.suspended).unwrap_or(true)
-            {
-                logging::debug("Remote clipboard PNG result dropped: superseded or paused");
-                return;
-            }
-            match result {
-                Ok(image) => apply_remote_clipboard(MessageKind::Png, encoded_bytes, |clipboard| {
-                    clipboard.set_image(image.to_owned_img())
-                }),
-                Err(error) => {
-                    logging::error(&format!("Remote clipboard PNG decode failed: {error}"))
-                }
-            }
-        }
-    }
-}
-
-fn next_image_generation() -> Option<u64> {
-    with_state(|state| {
-        state.image_generation = state.image_generation.wrapping_add(1);
-        state.image_generation
-    })
-}
-
-fn image_generation_is_current(generation: u64) -> bool {
-    with_state(|state| state.image_generation == generation).unwrap_or(false)
-}
-
-fn send_clipboard(frame: Frame) {
-    let kind = frame.kind;
-    let bytes = frame.payload.len();
-    let sent = with_state(|state| state.network.try_send(NetworkCommand::Clipboard(frame)));
-    if matches!(sent, Some(Ok(()))) {
-        logging::debug(&format!("clipboard -> mac: kind={kind:?} bytes={bytes}"));
     }
 }
 
@@ -1151,6 +875,6 @@ fn display_status(state: &AppState) -> String {
     }
 }
 
-fn with_state<T>(action: impl FnOnce(&mut AppState) -> T) -> Option<T> {
+pub(crate) fn with_state<T>(action: impl FnOnce(&mut AppState) -> T) -> Option<T> {
     APP.get()?.lock().ok().map(|mut state| action(&mut state))
 }

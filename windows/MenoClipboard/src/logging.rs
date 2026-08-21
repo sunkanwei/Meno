@@ -5,19 +5,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE,
-    REG_SAM_FLAGS, RegCloseKey, RegCreateKeyExW, RegQueryValueExW, RegSetValueExW,
-};
 use windows::Win32::System::SystemInformation::GetLocalTime;
-use windows::core::PCWSTR;
 
 // Two bounded generations (active + .old) keep an always-on tray app bounded
 // on disk even when it runs for weeks without a restart.
 const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
 const REPEAT_RELOG_AFTER: Duration = Duration::from_secs(60);
-const VERBOSE_KEY: &str = r"Software\Meno";
-const VERBOSE_VALUE: &str = "VerboseLogging";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Level {
@@ -62,7 +55,6 @@ pub fn initialize(path: &Path) {
     if let Some(directory) = path.parent() {
         let _ = fs::create_dir_all(directory);
     }
-    VERBOSE.store(read_verbose_setting(), Ordering::Relaxed);
     let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
@@ -91,7 +83,6 @@ pub fn verbose() -> bool {
 
 pub fn set_verbose(enabled: bool) {
     VERBOSE.store(enabled, Ordering::Relaxed);
-    write_verbose_setting(enabled);
     info(if enabled {
         "verbose logging enabled"
     } else {
@@ -278,62 +269,3 @@ fn install_panic_hook() {
     }));
 }
 
-fn read_verbose_setting() -> bool {
-    let Some(key) = open_settings_key(KEY_QUERY_VALUE) else {
-        return false;
-    };
-    let name = wide(VERBOSE_VALUE);
-    let mut value = 0_u32;
-    let mut length = std::mem::size_of::<u32>() as u32;
-    let error = unsafe {
-        RegQueryValueExW(
-            key,
-            PCWSTR(name.as_ptr()),
-            None,
-            None,
-            Some((&raw mut value).cast()),
-            Some(&mut length),
-        )
-    };
-    let _ = unsafe { RegCloseKey(key) };
-    error.is_ok() && value != 0
-}
-
-fn write_verbose_setting(enabled: bool) {
-    let Some(key) = open_settings_key(KEY_SET_VALUE) else {
-        return;
-    };
-    let name = wide(VERBOSE_VALUE);
-    let value = u32::from(enabled);
-    let bytes = unsafe {
-        std::slice::from_raw_parts((&raw const value).cast::<u8>(), std::mem::size_of::<u32>())
-    };
-    let _ = unsafe { RegSetValueExW(key, PCWSTR(name.as_ptr()), None, REG_DWORD, Some(bytes)) };
-    let _ = unsafe { RegCloseKey(key) };
-}
-
-fn open_settings_key(access: REG_SAM_FLAGS) -> Option<HKEY> {
-    let subkey = wide(VERBOSE_KEY);
-    let mut key = HKEY::default();
-    let error = unsafe {
-        RegCreateKeyExW(
-            HKEY_CURRENT_USER,
-            PCWSTR(subkey.as_ptr()),
-            None,
-            PCWSTR::null(),
-            REG_OPTION_NON_VOLATILE,
-            access,
-            None,
-            &mut key,
-            None,
-        )
-    };
-    if error.is_err() {
-        return None;
-    }
-    Some(key)
-}
-
-fn wide(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain(std::iter::once(0)).collect()
-}

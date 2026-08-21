@@ -318,18 +318,6 @@ impl CapturedFrame {
             .any(|value| *value != 0)
     }
 
-    pub fn to_png(&self) -> Result<Vec<u8>, image::ImageError> {
-        let mut output = Vec::new();
-        let pixels = self.to_rgba();
-        PngEncoder::new(&mut output).write_image(
-            &pixels,
-            self.width,
-            self.height,
-            ExtendedColorType::Rgba8,
-        )?;
-        Ok(output)
-    }
-
     pub fn to_rgba(&self) -> Vec<u8> {
         let source = unsafe { std::slice::from_raw_parts(self.data.as_ptr(), self.byte_len()) };
         let mut pixels = source.to_vec();

@@ -569,7 +569,6 @@ fn run_connection(
                             ) {
                                 Ok(true) => {
                                     clipboard_health.last_activity = Instant::now();
-                                    crate::logging::info("Windows online notification sent");
                                 }
                                 Ok(false) => {}
                                 Err(_) => break 'connected ConnectionExit::Reconnect,

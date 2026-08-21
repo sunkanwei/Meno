@@ -1022,12 +1022,7 @@ impl Worker {
         if fs::rename(&path, &tombstone).is_err() {
             return false;
         }
-        if self.delete_tombstone(&tombstone_name) {
-            crate::logging::info("file cache cleanup: removed 1 directory");
-            true
-        } else {
-            false
-        }
+        self.delete_tombstone(&tombstone_name)
     }
 
     fn scan_cache(

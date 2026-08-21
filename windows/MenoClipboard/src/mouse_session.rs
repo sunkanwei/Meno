@@ -1,12 +1,7 @@
 use std::collections::VecDeque;
-use std::ffi::OsString;
 use std::io;
 use std::net::{Shutdown, TcpStream};
-use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::AsRawSocket;
-use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -14,17 +9,9 @@ use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::NetworkManagement::QoS::{
-    QOS_NON_ADAPTIVE_FLOW, QOS_VERSION, QOSAddSocketToFlow, QOSCloseHandle, QOSCreateHandle,
-    QOSRemoveSocketFromFlow, QOSTrafficTypeControl,
-};
-use windows::Win32::Networking::WinSock::{
-    AF_INET, FIONREAD, IN_ADDR, IN_ADDR_0, SOCKADDR, SOCKADDR_IN, SOCKET, ioctlsocket,
-};
-use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+use windows::Win32::Networking::WinSock::{FIONREAD, SOCKET, ioctlsocket};
 use windows::Win32::System::Threading::{
-    CREATE_NO_WINDOW, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
 };
 
 use crate::connection::{ChannelHealth, WorkerEvent};
@@ -42,6 +29,8 @@ use crate::protocol::{
     directional_mouse_enter, keyboard_state_message, mouse_button, mouse_enter, mouse_hello,
     mouse_leave_payload, mouse_unavailable_hello, mouse_wheel, parse_hello,
 };
+use crate::qos_flow::QosFlow;
+use crate::remote_shutdown::{handle_remote_shutdown, start_remote_shutdown};
 
 // Small confirmations that cannot be written promptly mean the session is
 // already unhealthy; retrying stale control frames would be worse.
@@ -1073,61 +1062,6 @@ fn handle_enter(
     true
 }
 
-fn handle_remote_shutdown(
-    ready: bool,
-    negotiated: bool,
-    payload: &[u8],
-    start: impl FnOnce(),
-) -> bool {
-    if !ready || !negotiated || !payload.is_empty() {
-        return false;
-    }
-    start();
-    true
-}
-
-fn start_remote_shutdown() {
-    start_remote_shutdown_with(system_directory, |command| command.spawn().map(drop));
-}
-
-fn start_remote_shutdown_with(
-    resolve_system_directory: impl FnOnce() -> io::Result<PathBuf>,
-    spawn: impl FnOnce(&mut Command) -> io::Result<()>,
-) {
-    let result = resolve_system_directory().and_then(|directory| {
-        let mut command = shutdown_command(&directory);
-        spawn(&mut command)
-    });
-    match result {
-        Ok(()) => crate::logging::info("remote shutdown command started"),
-        Err(error) => {
-            crate::logging::error(&format!("remote shutdown launch failed: {error}"));
-        }
-    }
-}
-
-fn shutdown_command(system_directory: &Path) -> Command {
-    let mut command = Command::new(system_directory.join("shutdown.exe"));
-    command.args(["/p", "/f", "/d", "p:0:0"]);
-    command.creation_flags(CREATE_NO_WINDOW.0);
-    command
-}
-
-fn system_directory() -> io::Result<PathBuf> {
-    let mut buffer = [0_u16; 32_768];
-    let length = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
-    if length == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if length >= buffer.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Windows system directory is too long",
-        ));
-    }
-    Ok(PathBuf::from(OsString::from_wide(&buffer[..length])))
-}
-
 // Submits the collapsed final position of a movement group; an edge trigger
 // completes the return immediately and the group's remainder never replays.
 fn flush_group(
@@ -1537,68 +1471,6 @@ fn readable_bytes(stream: &TcpStream) -> std::io::Result<u32> {
     }
 }
 
-struct QosFlow {
-    handle: HANDLE,
-    flow_id: u32,
-}
-
-impl QosFlow {
-    fn establish(stream: &TcpStream) -> Option<Self> {
-        let peer = match stream.peer_addr() {
-            Ok(peer) => peer,
-            Err(_) => return None,
-        };
-        let std::net::SocketAddr::V4(peer) = peer else {
-            return None;
-        };
-        let mut handle = HANDLE::default();
-        let mut version = QOS_VERSION {
-            MajorVersion: 1,
-            MinorVersion: 0,
-        };
-        if unsafe { QOSCreateHandle(&raw mut version, &raw mut handle) } == false {
-            crate::logging::info("qWAVE unavailable; mouse socket keeps default traffic class");
-            return None;
-        }
-        let address = SOCKADDR_IN {
-            sin_family: AF_INET,
-            sin_port: peer.port().to_be(),
-            sin_addr: IN_ADDR {
-                S_un: IN_ADDR_0 {
-                    S_addr: u32::from_ne_bytes(peer.ip().octets()),
-                },
-            },
-            sin_zero: [0; 8],
-        };
-        let mut flow_id = 0_u32;
-        let added = unsafe {
-            QOSAddSocketToFlow(
-                handle,
-                SOCKET(stream.as_raw_socket() as usize),
-                Some((&raw const address).cast::<SOCKADDR>()),
-                QOSTrafficTypeControl,
-                Some(QOS_NON_ADAPTIVE_FLOW),
-                &raw mut flow_id,
-            )
-        };
-        if added == false {
-            crate::logging::info("qWAVE flow rejected; mouse socket keeps default traffic class");
-            let _ = unsafe { QOSCloseHandle(handle) };
-            return None;
-        }
-        Some(Self { handle, flow_id })
-    }
-}
-
-impl Drop for QosFlow {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = QOSRemoveSocketFromFlow(self.handle, None, self.flow_id, None);
-            let _ = QOSCloseHandle(self.handle);
-        }
-    }
-}
-
 struct MouseMetrics {
     window_start: Instant,
     rounds: u64,
@@ -1783,77 +1655,7 @@ impl MouseMetrics {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
     use super::*;
-
-    #[test]
-    fn remote_shutdown_requires_ready_negotiated_empty_request() {
-        for (ready, negotiated, payload) in [
-            (false, true, &[][..]),
-            (true, false, &[][..]),
-            (true, true, &[1][..]),
-        ] {
-            let calls = Cell::new(0);
-            assert!(!handle_remote_shutdown(ready, negotiated, payload, || {
-                calls.set(calls.get() + 1)
-            }));
-            assert_eq!(calls.get(), 0);
-        }
-
-        let calls = Cell::new(0);
-        assert!(handle_remote_shutdown(true, true, &[], || {
-            calls.set(calls.get() + 1);
-        }));
-        assert_eq!(calls.get(), 1);
-    }
-
-    #[test]
-    fn remote_shutdown_command_uses_system_executable_and_fixed_arguments() {
-        let command = shutdown_command(Path::new(r"C:\Windows\System32"));
-        assert_eq!(
-            command.get_program(),
-            Path::new(r"C:\Windows\System32\shutdown.exe")
-        );
-        assert_eq!(
-            command.get_args().collect::<Vec<_>>(),
-            ["/p", "/f", "/d", "p:0:0"].map(std::ffi::OsStr::new)
-        );
-    }
-
-    #[test]
-    fn remote_shutdown_launch_failure_is_consumed_without_retry() {
-        let calls = Cell::new(0);
-        start_remote_shutdown_with(
-            || Ok(PathBuf::from(r"C:\Windows\System32")),
-            |_| {
-                calls.set(calls.get() + 1);
-                Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "test failure",
-                ))
-            },
-        );
-        assert_eq!(calls.get(), 1);
-    }
-
-    #[test]
-    fn remote_shutdown_directory_failure_skips_process_launch() {
-        let calls = Cell::new(0);
-        start_remote_shutdown_with(
-            || Err(io::Error::new(io::ErrorKind::NotFound, "test failure")),
-            |_| {
-                calls.set(calls.get() + 1);
-                Ok(())
-            },
-        );
-        assert_eq!(calls.get(), 0);
-    }
-
-    #[test]
-    fn system_shutdown_executable_exists() {
-        assert!(system_directory().unwrap().join("shutdown.exe").is_file());
-    }
 
     #[test]
     fn delivered_driver_unavailable_keeps_the_session_open() {
