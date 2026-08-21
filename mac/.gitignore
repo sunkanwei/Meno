@@ -1,9 +1,6 @@
 # Local external reference projects
 /参考/
 
-# Finder metadata
-.DS_Store
-
 # Xcode user state and temporary project state
 xcuserdata/
 *.xcuserstate
@@ -18,14 +15,5 @@ SourcePackages/
 .swiftpm/xcode/package.xcworkspace/xcuserdata/
 /Vendor/FluxMarkdownRenderer/node_modules/
 
-# Local secrets and signing material
-.env
-.env.*
-!.env.example
-*.private.xcconfig
-*.local.xcconfig
-*.p12
-*.mobileprovision
+# Additional Mac signing material
 *.cer
-*.key
-*.pem
