@@ -134,7 +134,9 @@ fn handle_image_worker_event(event: ImageWorkerEvent) {
                 return;
             }
             match result {
-                Ok(payload) => clipboard_flow::send_clipboard(Frame::new(MessageKind::Png, payload)),
+                Ok(payload) => {
+                    clipboard_flow::send_clipboard(Frame::new(MessageKind::Png, payload))
+                }
                 Err(error) => logging::error(&format!("Clipboard image encode failed: {error}")),
             }
         }

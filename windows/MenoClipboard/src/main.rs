@@ -332,7 +332,11 @@ pub(crate) fn post_file_ui_request(hwnd: HWND, request: FileUiRequest) -> bool {
     !wake || post_wakeup(hwnd, WM_FILE_CLIPBOARD_REQUEST, &FILE_UI_REQUESTS)
 }
 
-pub(crate) fn post_wakeup<T>(hwnd: HWND, message: u32, queue: &OnceLock<Mutex<BoundedQueue<T>>>) -> bool {
+pub(crate) fn post_wakeup<T>(
+    hwnd: HWND,
+    message: u32,
+    queue: &OnceLock<Mutex<BoundedQueue<T>>>,
+) -> bool {
     if unsafe { PostMessageW(Some(hwnd), message, WPARAM(0), LPARAM(0)) }.is_ok() {
         return true;
     }
@@ -726,7 +730,10 @@ fn handle_local_clipboard() {
                 return;
             }
             Ok(Some(clipboard_flow::LocalClipboard::Image(image))) => {
-                image_tasks::submit_image_task(image_tasks::ImageTask::Encode { generation, image });
+                image_tasks::submit_image_task(image_tasks::ImageTask::Encode {
+                    generation,
+                    image,
+                });
                 notify_file_worker(file_transfer::WorkerEvent::LocalOther);
                 return;
             }
@@ -735,7 +742,9 @@ fn handle_local_clipboard() {
                 return;
             }
             Err(ClipboardError::ContentNotAvailable) => return,
-            Err(ClipboardError::ClipboardOccupied) if attempt + 1 < clipboard_flow::CLIPBOARD_RETRY_COUNT => {
+            Err(ClipboardError::ClipboardOccupied)
+                if attempt + 1 < clipboard_flow::CLIPBOARD_RETRY_COUNT =>
+            {
                 thread::sleep(clipboard_flow::CLIPBOARD_RETRY_DELAY);
             }
             Err(ClipboardError::ClipboardOccupied) => {
