@@ -13,13 +13,13 @@ func requireDisplayHandoff(
     return handoff
 }
 
-func makePortalDisplayHandoffFixtureGeometry(
+func makeNativeDisplayHandoffFixtureGeometry(
     file: StaticString = #filePath,
     line: UInt = #line
 ) throws -> HorizontalDisplayHandoffGeometry {
     let displays = [
         makeDisplayHandoffTestDisplay(
-            "left", x: -2_048, y: -1_152, width: 2_048, height: 1_152,
+            "left", x: -2_048, y: -185, width: 2_048, height: 1_152,
             physicalHeightMM: 335.664
         ),
         makeDisplayHandoffTestDisplay(
@@ -27,7 +27,7 @@ func makePortalDisplayHandoffFixtureGeometry(
             physicalHeightMM: 222.5, isMain: true
         ),
         makeDisplayHandoffTestDisplay(
-            "right", x: 1_496, y: 967, width: 2_048, height: 1_152,
+            "right", x: 1_496, y: -185, width: 2_048, height: 1_152,
             physicalHeightMM: 335.664
         )
     ]

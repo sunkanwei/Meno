@@ -218,21 +218,18 @@ actor FullSwitchController {
       try await stateStore.clearDesktopIconLayoutState()
       return
     }
-    guard initial.topology == .windows else {
-      throw DisplayControlError.preflight("当前不是可恢复的 Windows 两屏终态")
-    }
     guard try await stateStore.softDisconnectState() != nil else {
       throw DisplayControlError.state("没有 Philips 软断开恢复快照")
     }
-    guard let windowsTopology = SoftKVMWindowsTopology.resolve(initial.displays) else {
-      throw DisplayControlError.preflight("当前 Windows 两屏拓扑不完整")
+    guard let windowsPair = SoftKVMWindowsDisplayPair.resolve(initial.displays) else {
+      throw DisplayControlError.preflight("当前不是可恢复的 Windows 两屏状态")
     }
-    try await displayController.requireProtectedViewSonic(windowsTopology.viewSonic)
+    try await displayController.requireProtectedViewSonic(windowsPair.viewSonic)
 
     var transaction: SwitchTransactionState
     if try await stateStore.desktopIconLayoutState() == nil {
       transaction = try await beginTransactionProtectingDesktopIcons(
-        display: windowsTopology.viewSonic,
+        display: windowsPair.viewSonic,
         operationID: operationID,
         target: .mac
       )
@@ -285,7 +282,8 @@ actor FullSwitchController {
 
   private func recoverLocked(operationID: UUID) async throws {
     try validate(operationID)
-    switch await displayController.snapshot().topology {
+    let report = await displayController.snapshot()
+    switch report.topology {
     case .mac:
       try await ddcController.setInput(PhilipsDDCController.hdmi2Input)
       var final = try await waitForMacBaseline(operationID: operationID)
@@ -300,7 +298,12 @@ actor FullSwitchController {
     case .windows:
       try await toMacLocked(operationID: operationID)
     case .unknown:
-      throw DisplayControlError.state("当前拓扑未知，不能猜测恢复操作")
+      guard try await stateStore.softDisconnectState() != nil,
+        SoftKVMWindowsDisplayPair.resolve(report.displays) != nil
+      else {
+        throw DisplayControlError.state("当前拓扑未知，不能猜测恢复操作")
+      }
+      try await toMacLocked(operationID: operationID)
     }
   }
 

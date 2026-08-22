@@ -303,7 +303,7 @@ extension CrossScreenMouseController {
             )
             guard warpError == .success else {
                 runtimeLock.withCriticalSection {
-                    state.displayHandoff.observe(location: event.location)
+                    state.displayHandoff.resetTracking(at: event.location)
                 }
                 let targetPoint = "\(handoff.targetPoint.x),\(handoff.targetPoint.y)"
                 let failureDescription = "target=\(targetPoint) error=\(warpError.rawValue)"

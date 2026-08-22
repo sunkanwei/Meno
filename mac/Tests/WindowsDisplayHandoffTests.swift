@@ -98,14 +98,14 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
         ))
     }
 
-    func testPortalRoutingAcceptsRemainingUShapedMacPair() throws {
+    func testRoutingBaselineOverridesDisconnectedTwoScreenCoordinates() throws {
         let displays = [
             makeDisplayHandoffTestDisplay(
                 "internal", x: 0, width: 100, height: 100,
                 physicalHeightMM: 222.5, isMain: true
             ),
             makeDisplayHandoffTestDisplay(
-                "viewsonic", x: 100, y: -100, width: 120, height: 100,
+                "viewsonic", x: -120, width: 120, height: 100,
                 physicalHeightMM: 335.664
             ),
         ]
@@ -119,14 +119,14 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
             sharedDisplayID: "philips",
             topologyPlan: leftSharedPlan,
             displays: displays,
-            allowsPortalRouting: true
+            routingOrderIDs: ["internal", "viewsonic"]
         ))
 
         XCTAssertEqual(geometry.macEdge, .left)
         XCTAssertEqual(geometry.windowsEntryEdge, .right)
     }
 
-    func testPortalRoutingAcceptsCompleteUShapedMacTopology() throws {
+    func testCompleteTopologyNeverFallsBackToSavedRoutingOrder() {
         let displays = [
             makeDisplayHandoffTestDisplay(
                 "philips", x: -160, y: -100, width: 160, height: 100,
@@ -142,18 +142,15 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
             ),
         ]
 
-        let geometry = try XCTUnwrap(resolveGeometry(
+        XCTAssertNil(resolveGeometry(
             sharedDisplayID: "philips",
             topologyPlan: leftSharedPlan,
             displays: displays,
-            allowsPortalRouting: true
+            routingOrderIDs: ["philips", "internal", "viewsonic"]
         ))
-
-        XCTAssertEqual(geometry.macDisplay.id, "internal")
-        XCTAssertEqual(geometry.macEdge, .left)
     }
 
-    func testPortalRoutingRejectsSeparatedUShapedMacPair() {
+    func testRoutingBaselineRejectsNonAdjacentIdentities() {
         let displays = [
             makeDisplayHandoffTestDisplay(
                 "internal", x: 0, width: 100, height: 100,
@@ -169,7 +166,7 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
             sharedDisplayID: "philips",
             topologyPlan: leftSharedPlan,
             displays: displays,
-            allowsPortalRouting: true
+            routingOrderIDs: ["internal", "philips", "viewsonic"]
         ))
     }
 
@@ -263,13 +260,13 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
         sharedDisplayID: String?,
         topologyPlan: SoftKVMTopologyPlan?,
         displays: [CrossScreenDisplay],
-        allowsPortalRouting: Bool = false
+        routingOrderIDs: [String]? = nil
     ) -> WindowsDisplayHandoffGeometry? {
         WindowsDisplayHandoffGeometry.resolve(
             sharedDisplayID: sharedDisplayID,
             topologyPlan: topologyPlan,
             displays: displays,
-            allowsPortalRouting: allowsPortalRouting
+            routingOrderIDs: routingOrderIDs
         )
     }
 

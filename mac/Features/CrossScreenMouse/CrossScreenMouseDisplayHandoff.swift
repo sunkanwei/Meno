@@ -2,10 +2,12 @@
 import Foundation
 
 @MainActor
-final class LocalDisplayPortalTopology {
+final class LocalDisplayRoutingTopology {
+    // Keep the existing key so installations upgraded from the portal-based
+    // implementation retain their already verified native routing baseline.
     private static let baselinePreferenceKey = "LocalDisplayPortalBaseline"
     private let defaults: UserDefaults
-    private var activeBaseline: LocalDisplayPortalBaseline?
+    private var activeBaseline: LocalDisplayRoutingBaseline?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -15,129 +17,55 @@ final class LocalDisplayPortalTopology {
         activeBaseline?.activeRoutingOrderIDs(for: displays)
     }
 
-    @discardableResult
-    func reconcile(enabled: Bool, displays: [CrossScreenDisplay]) -> Bool {
-        guard enabled else { return restore(displays: displays) }
-        let wasInactive = activeBaseline == nil
-        let baseline: LocalDisplayPortalBaseline
-        let loadedSavedBaseline: Bool
-        if let activeBaseline {
-            baseline = activeBaseline
-            loadedSavedBaseline = false
-        } else if let nativeBaseline = LocalDisplayPortalBaseline.resolveNative(
-            displays: displays
-        ) {
-            baseline = nativeBaseline
-            loadedSavedBaseline = false
-            save(baseline: nativeBaseline)
-        } else {
-            guard let savedBaseline = loadSavedBaseline() else {
-                CrossScreenMouseController.logger.error(
-                    "Local display portal refused because no verified bottom-aligned three-display baseline is available"
-                )
-                return false
-            }
-            baseline = savedBaseline
-            loadedSavedBaseline = true
+    func reset() {
+        activeBaseline = nil
+    }
+
+    func reconcile(enabled: Bool, displays: [CrossScreenDisplay]) {
+        guard enabled else {
+            activeBaseline = nil
+            return
         }
-        guard let origins = baseline.technicalPlacements(for: displays) else {
-            if activeBaseline != nil {
-                _ = restore(displays: displays)
-            }
-            CrossScreenMouseController.logger.error(
-                "Local display portal refused because active displays do not match the verified baseline"
-            )
-            return false
-        }
-        if wasInactive,
-           loadedSavedBaseline,
-           Self.matches(origins: origins, displays: displays) {
-            guard let nativeOrigins = baseline.verifiedOriginalPlacements(
-                for: displays
+        if displays.count == 3 {
+            guard let nativeBaseline = LocalDisplayRoutingBaseline.resolveNative(
+                displays: displays
             ) else {
+                activeBaseline = nil
                 CrossScreenMouseController.logger.error(
-                    "Local display portal refused because the saved native layout is invalid"
+                    "Local display routing refused because the complete layout is not the verified native arrangement"
                 )
-                return false
+                return
             }
-            let nativeOption: CGConfigureOption = displays.count
-                == baseline.routingOrderIDs.count ? .permanently : .forSession
-            guard Self.apply(origins: nativeOrigins, option: nativeOption) else {
-                CrossScreenMouseController.logger.error(
-                    "Local display portal could not restore the native base layout"
-                )
-                return false
-            }
-            guard Self.apply(origins: origins, option: .forAppOnly) else {
-                CrossScreenMouseController.logger.error(
-                    "Local display portal could not reapply the temporary technical layout"
-                )
-                return true
-            }
-            activeBaseline = baseline
-            return true
+            let changed = activeBaseline != nativeBaseline
+            if changed { save(baseline: nativeBaseline) }
+            activeBaseline = nativeBaseline
+            return
         }
-        if Self.matches(origins: origins, displays: displays) {
-            if wasInactive { activeBaseline = baseline }
-            return false
+        if let activeBaseline,
+           activeBaseline.activeRoutingOrderIDs(for: displays) != nil {
+            return
         }
-        guard Self.apply(origins: origins, option: .forAppOnly) else {
+        let baseline: LocalDisplayRoutingBaseline?
+        if let savedBaseline = loadSavedBaseline(),
+           savedBaseline.activeRoutingOrderIDs(for: displays) != nil {
+            baseline = savedBaseline
+        } else {
+            baseline = nil
+        }
+        guard let baseline else {
+            activeBaseline = nil
             CrossScreenMouseController.logger.error(
-                "Local display portal could not apply the technical layout"
+                "Local display routing refused because no verified native three-display baseline is available"
             )
-            return false
+            return
         }
         activeBaseline = baseline
-        return true
     }
 
-    @discardableResult
-    func restore(displays: [CrossScreenDisplay] = CrossScreenDisplay.currentDisplays()) -> Bool {
-        guard let activeBaseline else {
-            return false
-        }
-        let permanentOrigins = activeBaseline.permanentOriginalPlacements(for: displays)
-        let verifiedOrigins = permanentOrigins
-            ?? activeBaseline.verifiedOriginalPlacements(for: displays)
-        guard let origins = verifiedOrigins
-                ?? activeBaseline.originalPlacements(for: displays) else {
-            return false
-        }
-        let option: CGConfigureOption
-        if permanentOrigins != nil {
-            option = .permanently
-        } else if verifiedOrigins != nil {
-            option = .forSession
-        } else {
-            option = .forAppOnly
-        }
-        guard origins.isEmpty || Self.apply(origins: origins, option: option) else {
-            CrossScreenMouseController.logger.error(
-                "Local display portal could not restore the native layout"
-            )
-            return false
-        }
-        self.activeBaseline = nil
-        return true
-    }
-
-    private static func matches(
-        origins: [LocalDisplayPortalPlacement],
-        displays: [CrossScreenDisplay]
-    ) -> Bool {
-        origins.allSatisfy { origin in
-            guard let display = displays.first(where: { $0.id == origin.displayID }) else {
-                return false
-            }
-            return abs(display.frame.minX - CGFloat(origin.x)) < 0.5
-                && abs(display.frame.minY - CGFloat(origin.y)) < 0.5
-        }
-    }
-
-    private func loadSavedBaseline() -> LocalDisplayPortalBaseline? {
+    private func loadSavedBaseline() -> LocalDisplayRoutingBaseline? {
         guard let data = defaults.data(forKey: Self.baselinePreferenceKey),
               let baseline = try? JSONDecoder().decode(
-                  LocalDisplayPortalBaseline.self,
+                  LocalDisplayRoutingBaseline.self,
                   from: data
               ),
               baseline.isValid else {
@@ -146,32 +74,9 @@ final class LocalDisplayPortalTopology {
         return baseline
     }
 
-    private func save(baseline: LocalDisplayPortalBaseline) {
+    private func save(baseline: LocalDisplayRoutingBaseline) {
         guard let data = try? JSONEncoder().encode(baseline) else { return }
         defaults.set(data, forKey: Self.baselinePreferenceKey)
-    }
-
-    private static func apply(
-        origins: [LocalDisplayPortalPlacement],
-        option: CGConfigureOption
-    ) -> Bool {
-        var configuration: CGDisplayConfigRef?
-        guard CGBeginDisplayConfiguration(&configuration) == .success,
-              let configuration else {
-            return false
-        }
-        for origin in origins {
-            guard CGConfigureDisplayOrigin(
-                configuration,
-                origin.runtimeID,
-                origin.x,
-                origin.y
-            ) == .success else {
-                CGCancelDisplayConfiguration(configuration)
-                return false
-            }
-        }
-        return CGCompleteDisplayConfiguration(configuration, option) == .success
     }
 }
 
@@ -184,14 +89,22 @@ private struct CrossScreenGeometrySnapshot {
 extension CrossScreenMouseController {
     @MainActor
     func refreshDisplaysAndGeometry(forceWindowsRouteReset: Bool = true) {
-        let portalEnabled = runtimeLock.withCriticalSection {
-            state.enabled && state.displayHandoff.configuration.enabled
+        let displays = CrossScreenDisplay.currentDisplays()
+        let featureState = runtimeLock.withCriticalSection {
+            (
+                enabled: state.enabled,
+                localHandoffEnabled: state.enabled
+                    && state.displayHandoff.configuration.enabled
+            )
         }
-        _ = localDisplayPortalTopology.reconcile(
-            enabled: portalEnabled,
-            displays: CrossScreenDisplay.currentDisplays()
+        localDisplayRoutingTopology.reconcile(
+            enabled: featureState.enabled,
+            displays: displays
         )
-        let snapshot = resolvedDisplayGeometries()
+        let snapshot = resolvedDisplayGeometries(
+            displays: displays,
+            localHandoffEnabled: featureState.localHandoffEnabled
+        )
         let windowsGeometry = snapshot.windows
         let displayHandoffGeometry = snapshot.local
         let sharedDisplayIsVisible = snapshot.sharedDisplayIsVisible
@@ -237,9 +150,11 @@ extension CrossScreenMouseController {
     }
 
     @MainActor
-    private func resolvedDisplayGeometries() -> CrossScreenGeometrySnapshot {
-        let displays = CrossScreenDisplay.currentDisplays()
-        let portalRoutingOrderIDs = localDisplayPortalTopology.routingOrderIDs(
+    private func resolvedDisplayGeometries(
+        displays: [CrossScreenDisplay],
+        localHandoffEnabled: Bool
+    ) -> CrossScreenGeometrySnapshot {
+        let routingOrderIDs = localDisplayRoutingTopology.routingOrderIDs(
             for: displays
         )
         let topologyPlan = runtimeLock.withCriticalSection {
@@ -250,14 +165,14 @@ extension CrossScreenMouseController {
                 sharedDisplayID: sharedDisplayID,
                 topologyPlan: topologyPlan,
                 displays: displays,
-                allowsPortalRouting: portalRoutingOrderIDs != nil
+                routingOrderIDs: routingOrderIDs
             ),
-            local: portalRoutingOrderIDs.flatMap {
+            local: localHandoffEnabled ? routingOrderIDs.flatMap {
                 HorizontalDisplayHandoffGeometry.resolve(
                     displays: displays,
                     routingOrderIDs: $0
                 )
-            },
+            } : nil,
             sharedDisplayIsVisible: sharedDisplayID.map { sharedID in
                 displays.contains(where: { $0.id == sharedID })
             } ?? false

@@ -37,7 +37,7 @@ extension CrossScreenMouseController {
                 forceStopMicrophone: true
             )
             cancelInputTapRestart()
-            _ = localDisplayPortalTopology.restore()
+            localDisplayRoutingTopology.reset()
             stopTapIfUnneededAndLocal()
             publishStatus()
         }
@@ -88,9 +88,9 @@ extension CrossScreenMouseController {
             sharedDisplayID: sharedDisplayID,
             topologyPlan: topologyPlan,
             displays: activeDisplays,
-            allowsPortalRouting: localDisplayPortalTopology.routingOrderIDs(
+            routingOrderIDs: localDisplayRoutingTopology.routingOrderIDs(
                 for: activeDisplays
-            ) != nil
+            )
         )
         guard let currentGeometry,
               runtimeLock.withCriticalSection({ state.windowsGeometry == currentGeometry }) else {

@@ -21,7 +21,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
     private let onStatusChanged: StatusHandler
     private let onSoftKVMToggle: SoftKVMToggleHandler
     private let onMicrophoneActivationChanged: MicrophoneActivationHandler
-    let localDisplayPortalTopology: LocalDisplayPortalTopology
+    let localDisplayRoutingTopology: LocalDisplayRoutingTopology
     var state = CrossScreenMouseState()
     private var lastPublishedStatus: CrossScreenMouseStatus?
     let sharedDisplayID: String?
@@ -66,7 +66,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         onMicrophoneActivationChanged: @escaping MicrophoneActivationHandler
     ) {
         self.sharedDisplayID = sharedDisplayID
-        localDisplayPortalTopology = LocalDisplayPortalTopology()
+        localDisplayRoutingTopology = LocalDisplayRoutingTopology()
         self.onStatusChanged = onStatusChanged
         self.onSoftKVMToggle = onSoftKVMToggle
         self.onMicrophoneActivationChanged = onMicrophoneActivationChanged

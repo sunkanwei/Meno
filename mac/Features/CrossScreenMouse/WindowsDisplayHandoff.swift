@@ -93,11 +93,14 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
         sharedDisplayID: String?,
         topologyPlan: SoftKVMTopologyPlan?,
         displays: [CrossScreenDisplay],
-        allowsPortalRouting: Bool
+        routingOrderIDs: [String]?
     ) -> WindowsDisplayHandoffGeometry? {
         guard let sharedDisplayID, let topologyPlan else { return nil }
         let shared = displays.first(where: { $0.id == sharedDisplayID })
         let localDisplays = displays.filter { $0.id != sharedDisplayID }
+        // The saved order is authoritative only after the shared display has
+        // disappeared. A complete live topology must validate from live frames.
+        let disconnectedRoutingOrderIDs = shared == nil ? routingOrderIDs : nil
         guard Set(displays.map(\.id)).count == displays.count,
               localDisplays.count == 2,
               let main = localDisplays.only(where: \.isMain),
@@ -107,7 +110,7 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
               side(
                   of: other,
                   relativeTo: main,
-                  allowsPortalRouting: allowsPortalRouting
+                  routingOrderIDs: disconnectedRoutingOrderIDs
               ) == topologyPlan.localDisplaySide else {
             return nil
         }
@@ -117,7 +120,7 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
                   side(
                       of: shared,
                       relativeTo: main,
-                      allowsPortalRouting: allowsPortalRouting
+                      routingOrderIDs: nil
                   ) == topologyPlan.sharedDisplaySide else {
                 return nil
             }
@@ -134,23 +137,17 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
     private static func side(
         of display: CrossScreenDisplay,
         relativeTo main: CrossScreenDisplay,
-        allowsPortalRouting: Bool
+        routingOrderIDs: [String]?
     ) -> HorizontalDisplaySide? {
+        if let routingOrderIDs {
+            guard Set(routingOrderIDs).count == routingOrderIDs.count,
+                  let displayIndex = routingOrderIDs.firstIndex(of: display.id),
+                  let mainIndex = routingOrderIDs.firstIndex(of: main.id),
+                  abs(displayIndex - mainIndex) == 1 else { return nil }
+            return displayIndex < mainIndex ? .left : .right
+        }
         if display.isImmediatelyLeft(of: main) { return .left }
         if main.isImmediatelyLeft(of: display) { return .right }
-        guard allowsPortalRouting else { return nil }
-        let tolerance: CGFloat = 2
-        let touchesAtVerticalCorner =
-            abs(display.frame.maxY - main.frame.minY) <= tolerance
-            || abs(main.frame.maxY - display.frame.minY) <= tolerance
-        if abs(display.frame.maxX - main.frame.minX) <= tolerance,
-           touchesAtVerticalCorner {
-            return .left
-        }
-        if abs(main.frame.maxX - display.frame.minX) <= tolerance,
-           touchesAtVerticalCorner {
-            return .right
-        }
         return nil
     }
 }

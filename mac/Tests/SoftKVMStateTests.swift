@@ -114,75 +114,101 @@ final class SoftKVMStateTests: XCTestCase {
         XCTAssertEqual(rightLocal.localDisplaySide, .right)
     }
 
-    func testAcceptsExactThreeDisplayCornerTopology() throws {
+    func testRejectsExactThreeDisplayCornerTopology() {
         let displays = [
             display(.philips, id: 3, x: -160, y: -100, width: 160),
             display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
             display(.viewSonic, id: 2, x: 100, y: 100, width: 120),
         ]
 
-        let baseline = try XCTUnwrap(SoftKVMMacBaseline.resolve(displays))
-
-        XCTAssertEqual(baseline.topologyPlan.sharedDisplaySide, .left)
-        XCTAssertEqual(baseline.topologyPlan.localDisplaySide, .right)
+        XCTAssertNil(SoftKVMMacBaseline.resolve(displays))
     }
 
-    func testAcceptsRemainingCornerPairAfterSharedDisplayDisconnects() throws {
+    func testIdentifiesButRejectsRemainingCornerPairAfterSharedDisplayDisconnects() throws {
         let displays = [
             display(.philips, id: 3, isActive: false, x: -160, y: -100, width: 160),
             display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
             display(.viewSonic, id: 2, x: 100, y: 100, width: 120),
         ]
 
-        let topology = try XCTUnwrap(SoftKVMWindowsTopology.resolve(displays))
-
-        XCTAssertEqual(topology.localDisplaySide, .right)
+        let pair = try XCTUnwrap(SoftKVMWindowsDisplayPair.resolve(displays))
+        XCTAssertEqual(pair.localDisplay.role, .viewSonic)
+        XCTAssertNil(SoftKVMWindowsTopology.resolve(displays))
     }
 
-    func testAcceptsUShapedMacBaseline() throws {
-        let baseline = try XCTUnwrap(SoftKVMMacBaseline.resolve([
+    func testRejectsUShapedMacBaselineWithoutVerticalOverlap() {
+        XCTAssertNil(SoftKVMMacBaseline.resolve([
             display(.philips, id: 3, x: -160, y: -100, width: 160),
             display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
             display(.viewSonic, id: 2, x: 100, y: -100, width: 120),
         ]))
-
-        XCTAssertEqual(baseline.topologyPlan.sharedDisplaySide, .left)
-        XCTAssertEqual(baseline.topologyPlan.localDisplaySide, .right)
     }
 
-    func testAcceptsRemainingUShapedPairAfterSharedDisplayDisconnects() throws {
-        let topology = try XCTUnwrap(SoftKVMWindowsTopology.resolve([
+    func testRejectsRemainingUShapedPairWithoutVerticalOverlap() {
+        XCTAssertNil(SoftKVMWindowsTopology.resolve([
             display(.philips, id: 3, isActive: false, x: -160, y: -100, width: 160),
             display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
             display(.viewSonic, id: 2, x: 100, y: -100, width: 120),
         ]))
-
-        XCTAssertEqual(topology.localDisplaySide, .right)
     }
 
-    func testTopologyPlanDefinesBothRoutesAndRemainingDisplayOrigin() {
+    func testTopologyPlanDefinesBothRoutes() {
         let leftShared = SoftKVMTopologyPlan(sharedDisplaySide: .left)
         let rightShared = SoftKVMTopologyPlan(sharedDisplaySide: .right)
 
         XCTAssertEqual(leftShared.localDisplaySide, .right)
         XCTAssertEqual(leftShared.macEntryEdge, .left)
         XCTAssertEqual(leftShared.windowsEntryEdge, .right)
-        XCTAssertEqual(
-            leftShared.originXForLocalDisplay(
-                mainOriginX: 0,
-                mainWidth: 100,
-                localWidth: 120
-            ),
-            100
+        XCTAssertEqual(rightShared.localDisplaySide, .left)
+        XCTAssertEqual(rightShared.macEntryEdge, .right)
+        XCTAssertEqual(rightShared.windowsEntryEdge, .left)
+    }
+
+    func testMacBaselineCapturesCompleteRemainingDisplayPlacement() throws {
+        let baseline = try XCTUnwrap(SoftKVMMacBaseline.resolve([
+            display(.philips, id: 3, x: -160, y: -20, width: 160, height: 120),
+            display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
+            display(.viewSonic, id: 2, x: 100, y: -20, width: 120, height: 120),
+        ]))
+        let movedMain = display(.builtIn, id: 1, isMain: true, x: 30, y: 10, width: 100)
+        let restoredLocal = display(
+            .viewSonic,
+            id: 2,
+            x: 130,
+            y: -10,
+            width: 120,
+            height: 120
         )
+
         XCTAssertEqual(
-            rightShared.originXForLocalDisplay(
-                mainOriginX: 0,
-                mainWidth: 100,
-                localWidth: 120
-            ),
-            -120
+            baseline.remainingMacDisplayPlacement,
+            SoftKVMRemainingDisplayPlacement(
+                mainDisplay: baseline.mainDisplay,
+                localDisplay: baseline.localDisplay
+            )
         )
+        XCTAssertTrue(baseline.remainingMacDisplayPlacement.matches(
+            mainDisplay: movedMain,
+            localDisplay: restoredLocal,
+            topologyPlan: baseline.topologyPlan
+        ))
+        XCTAssertFalse(baseline.remainingMacDisplayPlacement.matches(
+            mainDisplay: movedMain,
+            localDisplay: display(
+                .viewSonic,
+                id: 2,
+                x: 130,
+                y: -100,
+                width: 120,
+                height: 120
+            ),
+            topologyPlan: baseline.topologyPlan
+        ))
+        XCTAssertNil(baseline.remainingMacDisplayPlacement.targetOrigin(
+            mainDisplay: movedMain,
+            localDisplay: restoredLocal,
+            topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: .right)
+        ))
     }
 
     func testLegacySoftDisconnectSideDecodesIntoTopologyPlan() throws {
@@ -203,14 +229,29 @@ final class SoftKVMStateTests: XCTestCase {
         )
 
         XCTAssertEqual(decoded.topologyPlan, SoftKVMTopologyPlan(sharedDisplaySide: .left))
+        XCTAssertNil(decoded.remainingMacDisplayPlacement)
     }
 
-    func testSoftDisconnectSnapshotWritesOnlyTopologyPlan() throws {
+    func testSoftDisconnectSnapshotWritesTopologyAndRemainingDisplayPlacement() throws {
+        let main = display(.builtIn, id: 1, isMain: true, x: 0, width: 100)
+        let local = display(
+            .viewSonic,
+            id: 2,
+            x: 100,
+            y: -20,
+            width: 120,
+            height: 120
+        )
+        let placement = SoftKVMRemainingDisplayPlacement(
+            mainDisplay: main,
+            localDisplay: local
+        )
         let state = SoftDisconnectState(
             schemaVersion: 1,
             createdAt: "2026-08-08T00:00:00Z",
-            philips: display(.philips, id: 3, x: 100, width: 160),
-            topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: .right)
+            philips: display(.philips, id: 3, x: -160, width: 160),
+            topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: .left),
+            remainingMacDisplayPlacement: placement
         )
         let data = try JSONEncoder().encode(state)
         let object = try XCTUnwrap(
@@ -219,8 +260,10 @@ final class SoftKVMStateTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SoftDisconnectState.self, from: data)
 
         XCTAssertNotNil(object["topologyPlan"])
+        XCTAssertNotNil(object["remainingMacDisplayPlacement"])
         XCTAssertNil(object["philipsSide"])
         XCTAssertEqual(decoded.topologyPlan, state.topologyPlan)
+        XCTAssertEqual(decoded.remainingMacDisplayPlacement, placement)
     }
 
     func testLegacySnapshotUsesSavedSharedCoordinatesNotCurrentLocalSide() throws {
@@ -254,6 +297,11 @@ final class SoftKVMStateTests: XCTestCase {
             display(.viewSonic, id: 2, x: -120, y: 120, width: 120),
             display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
             display(.philips, id: 3, x: 100, width: 160)
+        ]))
+        XCTAssertNil(SoftKVMMacBaseline.resolve([
+            display(.philips, id: 3, x: -160, y: -20, width: 160, height: 120),
+            display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
+            display(.viewSonic, id: 2, x: 100, y: -10, width: 120, height: 120)
         ]))
     }
 

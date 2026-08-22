@@ -1,6 +1,6 @@
 import Foundation
 
-enum DisplayRole: String, Codable, Sendable {
+enum DisplayRole: String, Codable, Equatable, Sendable {
   case builtIn = "built-in"
   case viewSonic = "viewsonic"
   case philips = "philips"
@@ -102,12 +102,14 @@ struct SoftDisconnectState: Codable, Sendable {
   let createdAt: String
   let philips: DisplayRecord
   let topologyPlan: SoftKVMTopologyPlan?
+  let remainingMacDisplayPlacement: SoftKVMRemainingDisplayPlacement?
 
   private enum CodingKeys: String, CodingKey {
     case schemaVersion
     case createdAt
     case philips
     case topologyPlan
+    case remainingMacDisplayPlacement
     case philipsSide
   }
 
@@ -115,12 +117,14 @@ struct SoftDisconnectState: Codable, Sendable {
     schemaVersion: Int,
     createdAt: String,
     philips: DisplayRecord,
-    topologyPlan: SoftKVMTopologyPlan? = nil
+    topologyPlan: SoftKVMTopologyPlan? = nil,
+    remainingMacDisplayPlacement: SoftKVMRemainingDisplayPlacement? = nil
   ) {
     self.schemaVersion = schemaVersion
     self.createdAt = createdAt
     self.philips = philips
     self.topologyPlan = topologyPlan
+    self.remainingMacDisplayPlacement = remainingMacDisplayPlacement
   }
 
   init(from decoder: Decoder) throws {
@@ -134,6 +138,10 @@ struct SoftDisconnectState: Codable, Sendable {
     ) ?? container.decodeIfPresent(HorizontalDisplaySide.self, forKey: .philipsSide).map {
       SoftKVMTopologyPlan(sharedDisplaySide: $0)
     }
+    remainingMacDisplayPlacement = try container.decodeIfPresent(
+      SoftKVMRemainingDisplayPlacement.self,
+      forKey: .remainingMacDisplayPlacement
+    )
   }
 
   func encode(to encoder: Encoder) throws {
@@ -142,6 +150,10 @@ struct SoftDisconnectState: Codable, Sendable {
     try container.encode(createdAt, forKey: .createdAt)
     try container.encode(philips, forKey: .philips)
     try container.encodeIfPresent(topologyPlan, forKey: .topologyPlan)
+    try container.encodeIfPresent(
+      remainingMacDisplayPlacement,
+      forKey: .remainingMacDisplayPlacement
+    )
   }
 
   func withTopologyPlan(_ topologyPlan: SoftKVMTopologyPlan) -> SoftDisconnectState {
@@ -149,7 +161,8 @@ struct SoftDisconnectState: Codable, Sendable {
       schemaVersion: schemaVersion,
       createdAt: createdAt,
       philips: philips,
-      topologyPlan: topologyPlan
+      topologyPlan: topologyPlan,
+      remainingMacDisplayPlacement: remainingMacDisplayPlacement
     )
   }
 }

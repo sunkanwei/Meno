@@ -121,7 +121,7 @@ extension CrossScreenMouseController {
             state.softKVMShortcutCapture.reset()
         }
         stopInputTaps()
-        localDisplayPortalTopology.restore()
+        localDisplayRoutingTopology.reset()
     }
 
     @MainActor

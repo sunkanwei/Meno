@@ -2,11 +2,10 @@ import CoreGraphics
 import XCTest
 
 final class HorizontalDisplayHandoffTests: XCTestCase {
-    func testAutomaticAndPortalHandoffInputPolicy() {
+    func testAutomaticAndLocalHandoffInputPolicy() {
         XCTAssertTrue(allowsAutomaticDisplayHandoff(type: .mouseMoved, localButtons: 0))
         XCTAssertFalse(allowsAutomaticDisplayHandoff(type: .mouseMoved, localButtons: 1))
         XCTAssertFalse(allowsAutomaticDisplayHandoff(type: .leftMouseDragged, localButtons: 1))
-
         XCTAssertTrue(allowsLocalDisplayHandoff(type: .mouseMoved, localButtons: 0))
         XCTAssertTrue(allowsLocalDisplayHandoff(type: .leftMouseDragged, localButtons: 1))
         XCTAssertFalse(allowsLocalDisplayHandoff(type: .leftMouseDragged, localButtons: 3))
@@ -15,24 +14,27 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         XCTAssertTrue(handlesLocalDisplayBoundary(type: .otherMouseDragged, localButtons: 4))
     }
 
-    func testBuildsPortalAcrossCornerTouchingTechnicalLayout() throws {
-        let geometry = try makePortalDisplayHandoffFixtureGeometry()
+    func testBuildsNativeAdjacentDisplayGeometryInVerifiedRoutingOrder() throws {
+        let geometry = try makeNativeDisplayHandoffFixtureGeometry()
 
         XCTAssertEqual(geometry.displays.map(\.id), ["left", "internal", "right"])
-        XCTAssertEqual(geometry.seams.map(\.seamX), [0, 1_496])
+        XCTAssertEqual(
+            geometry.seams.map { "\($0.leftDisplay.id)->\($0.rightDisplay.id)" },
+            ["left->internal", "internal->right"]
+        )
         XCTAssertNil(HorizontalDisplayHandoffGeometry.resolve(
             displays: geometry.displays,
             routingOrderIDs: ["right", "internal", "left"]
         ))
     }
 
-    func testBuildsRemainingPortalAfterSharedDisplayDisconnects() throws {
+    func testBuildsRemainingNativeSeamAfterSharedDisplayDisconnects() throws {
         let internalDisplay = makeDisplayHandoffTestDisplay(
             "internal", x: 0, width: 1_496, height: 967,
             physicalHeightMM: 223.3, isMain: true
         )
         let rightDisplay = makeDisplayHandoffTestDisplay(
-            "right", x: 1_496, y: 967, width: 2_048, height: 1_152,
+            "right", x: 1_496, y: -185, width: 2_048, height: 1_152,
             physicalHeightMM: 335.7
         )
         let geometry = try XCTUnwrap(HorizontalDisplayHandoffGeometry.resolve(
@@ -41,42 +43,38 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         ))
 
         XCTAssertEqual(geometry.displays.map(\.id), ["internal", "right"])
-        XCTAssertEqual(geometry.seams.map(\.seamX), [1_496])
+        XCTAssertEqual(geometry.seams.map(\.rightDisplay.id), ["right"])
     }
 
-    func testRejectsNonPortalLayoutsAndInvalidIdentitySets() {
+    func testRejectsCornerOnlyGapAndInvalidDisplayIdentity() {
         let main = makeDisplayHandoffTestDisplay(
             "main", x: 0, width: 100, height: 100,
             physicalHeightMM: 200, isMain: true
         )
         let validRight = makeDisplayHandoffTestDisplay(
-            "right", x: 100, y: 100, width: 100, height: 100,
+            "right", x: 100, width: 100, height: 100,
             physicalHeightMM: 200
         )
-
         XCTAssertNotNil(HorizontalDisplayHandoffGeometry.resolve(
             displays: [main, validRight],
             routingOrderIDs: ["main", "right"]
         ))
+
         for invalidRight in [
             makeDisplayHandoffTestDisplay(
-                "right", x: 100, width: 100, height: 100,
-                physicalHeightMM: 200
-            ),
-            makeDisplayHandoffTestDisplay(
-                "right", x: 103, y: 100, width: 100, height: 100,
-                physicalHeightMM: 200
-            ),
-            makeDisplayHandoffTestDisplay(
-                "right", x: 100, y: 97, width: 100, height: 100,
-                physicalHeightMM: 200
-            ),
-            makeDisplayHandoffTestDisplay(
                 "right", x: 100, y: 100, width: 100, height: 100,
+                physicalHeightMM: 200
+            ),
+            makeDisplayHandoffTestDisplay(
+                "right", x: 103, width: 100, height: 100,
+                physicalHeightMM: 200
+            ),
+            makeDisplayHandoffTestDisplay(
+                "right", x: 100, width: 100, height: 100,
                 physicalHeightMM: 200, rotationDegrees: 90
             ),
             makeDisplayHandoffTestDisplay(
-                "right", x: 100, y: 100, width: 100, height: 100,
+                "right", x: 100, width: 100, height: 100,
                 physicalHeightMM: 200, isMirrored: true
             ),
         ] {
@@ -91,7 +89,7 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         ))
         XCTAssertNil(HorizontalDisplayHandoffGeometry.resolve(
             displays: [main, makeDisplayHandoffTestDisplay(
-                "main", x: 100, y: 100, width: 100, height: 100,
+                "main", x: 100, width: 100, height: 100,
                 physicalHeightMM: 200
             )],
             routingOrderIDs: ["main", "right"]
@@ -99,14 +97,14 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
     }
 
     func testBottomAlignmentPreservesPhysicalHeightAndRoundTrips() throws {
-        let geometry = try makePortalDisplayHandoffFixtureGeometry()
+        let geometry = try makeNativeDisplayHandoffFixtureGeometry()
         let seam = geometry.seams[0]
         let source = seam.rightDisplay
         let sourceHeightMM = try XCTUnwrap(source.physicalHeightMM)
         let sourceY = source.frame.maxY - 100 / sourceHeightMM * source.frame.height
 
         let left = try XCTUnwrap(geometry.handoff(
-            at: CGPoint(x: seam.seamX, y: sourceY),
+            sourceY: sourceY,
             seam: seam,
             direction: .left,
             alignment: .bottom
@@ -121,7 +119,7 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         )
 
         let right = try XCTUnwrap(geometry.handoff(
-            at: CGPoint(x: seam.seamX, y: left.targetPoint.y),
+            sourceY: left.targetPoint.y,
             seam: seam,
             direction: .right,
             alignment: .bottom
@@ -130,15 +128,15 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         XCTAssertEqual(right.targetPoint.y, sourceY, accuracy: 1)
     }
 
-    func testTopAlignmentUsesEachDisplayOwnGlobalOrigin() throws {
-        let geometry = try makePortalDisplayHandoffFixtureGeometry()
+    func testTopAlignmentUsesEachDisplayGlobalOrigin() throws {
+        let geometry = try makeNativeDisplayHandoffFixtureGeometry()
         let seam = geometry.seams[0]
         let sourceHeightMM = try XCTUnwrap(seam.rightDisplay.physicalHeightMM)
         let sourceY = seam.rightDisplay.frame.minY
             + 100 / sourceHeightMM * seam.rightDisplay.frame.height
 
         let handoff = try XCTUnwrap(geometry.handoff(
-            at: CGPoint(x: seam.seamX, y: sourceY),
+            sourceY: sourceY,
             seam: seam,
             direction: .left,
             alignment: .top
@@ -151,26 +149,23 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         )
     }
 
-    func testEqualPhysicalHeightKeepsPortalDisplaysLevel() throws {
+    func testEqualPhysicalHeightKeepsDisplaysLevel() throws {
         let left = makeDisplayHandoffTestDisplay(
             "left", x: 0, width: 100, height: 100, physicalHeightMM: 200,
             isMain: true
         )
         let right = makeDisplayHandoffTestDisplay(
-            "right", x: 100, y: 100, width: 120, height: 120,
-            physicalHeightMM: 200
+            "right", x: 100, width: 120, height: 120, physicalHeightMM: 200
         )
         let geometry = try XCTUnwrap(HorizontalDisplayHandoffGeometry.resolve(
             displays: [left, right],
             routingOrderIDs: ["left", "right"]
         ))
-        let seam = geometry.seams[0]
-
         for alignment in DisplayHandoffAlignment.allCases {
             let sourceY: CGFloat = alignment == .top ? 25 : 75
             let handoff = try XCTUnwrap(geometry.handoff(
-                at: CGPoint(x: seam.seamX, y: sourceY),
-                seam: seam,
+                sourceY: sourceY,
+                seam: geometry.seams[0],
                 direction: .right,
                 alignment: alignment
             ))
@@ -185,7 +180,7 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
     }
 
     func testPhysicalAreaOutsideShorterDestinationBecomesWall() throws {
-        let geometry = try makePortalDisplayHandoffFixtureGeometry()
+        let geometry = try makeNativeDisplayHandoffFixtureGeometry()
         let seam = geometry.seams[0]
         let sourceHeightMM = try XCTUnwrap(seam.leftDisplay.physicalHeightMM)
         let destinationHeightMM = try XCTUnwrap(seam.rightDisplay.physicalHeightMM)
@@ -193,20 +188,20 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
             - (destinationHeightMM + 10) / sourceHeightMM * seam.leftDisplay.frame.height
 
         XCTAssertNil(geometry.handoff(
-            at: CGPoint(x: seam.seamX, y: sourceY),
+            sourceY: sourceY,
             seam: seam,
             direction: .right,
             alignment: .bottom
         ))
     }
 
-    func testMissingPhysicalHeightDisablesOnlyThatSeamMapping() throws {
+    func testMissingPhysicalHeightDisablesOnlyMapping() throws {
         let left = makeDisplayHandoffTestDisplay(
             "left", x: 0, width: 100, height: 100,
             physicalHeightMM: nil, isMain: true
         )
         let right = makeDisplayHandoffTestDisplay(
-            "right", x: 100, y: 100, width: 100, height: 100,
+            "right", x: 100, width: 100, height: 100,
             physicalHeightMM: 200
         )
         let geometry = try XCTUnwrap(HorizontalDisplayHandoffGeometry.resolve(
@@ -215,7 +210,7 @@ final class HorizontalDisplayHandoffTests: XCTestCase {
         ))
 
         XCTAssertNil(geometry.handoff(
-            at: CGPoint(x: 100, y: 50),
+            sourceY: 50,
             seam: geometry.seams[0],
             direction: .right,
             alignment: .bottom

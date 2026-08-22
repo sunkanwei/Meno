@@ -17,16 +17,6 @@ struct SoftKVMTopologyPlan: Codable, Equatable, Sendable {
     sharedDisplaySide.opposite
   }
 
-  func originXForLocalDisplay(
-    mainOriginX: Int,
-    mainWidth: Int,
-    localWidth: Int
-  ) -> Int {
-    localDisplaySide == .left
-      ? mainOriginX - localWidth
-      : mainOriginX + mainWidth
-  }
-
   static func resolveLegacySnapshot(
     sharedDisplay: DisplayRecord,
     currentMainDisplay: DisplayRecord
@@ -41,6 +31,74 @@ struct SoftKVMTopologyPlan: Codable, Equatable, Sendable {
       return SoftKVMTopologyPlan(sharedDisplaySide: .right)
     }
     throw DisplayControlError.state("旧快照无法确定 Philips 位于 Mac 主屏的哪一侧")
+  }
+}
+
+/// The exact relationship between the two displays that remain on macOS.
+/// It is captured only from the complete three-display baseline.
+struct SoftKVMRemainingDisplayPlacement: Codable, Equatable, Sendable {
+  let mainDisplayRole: DisplayRole
+  let localDisplayRole: DisplayRole
+  let localOffsetX: Int
+  let localOffsetY: Int
+
+  init(mainDisplay: DisplayRecord, localDisplay: DisplayRecord) {
+    mainDisplayRole = mainDisplay.role
+    localDisplayRole = localDisplay.role
+    localOffsetX = localDisplay.originX - mainDisplay.originX
+    localOffsetY = localDisplay.originY - mainDisplay.originY
+  }
+
+  func targetOrigin(
+    mainDisplay: DisplayRecord,
+    localDisplay: DisplayRecord,
+    topologyPlan: SoftKVMTopologyPlan
+  ) -> (x: Int, y: Int)? {
+    guard mainDisplay.role == mainDisplayRole,
+      localDisplay.role == localDisplayRole,
+      (mainDisplayRole == .builtIn && localDisplayRole == .viewSonic)
+        || (mainDisplayRole == .viewSonic && localDisplayRole == .builtIn),
+      mainDisplay.width > 2,
+      mainDisplay.height > 2,
+      localDisplay.width > 2,
+      localDisplay.height > 2
+    else {
+      return nil
+    }
+    let expectedOffsetX = topologyPlan.localDisplaySide == .left
+      ? -localDisplay.width
+      : mainDisplay.width
+    guard ((expectedOffsetX - 2)...(expectedOffsetX + 2)).contains(localOffsetX) else {
+      return nil
+    }
+    let (targetX, xOverflow) = mainDisplay.originX.addingReportingOverflow(localOffsetX)
+    let (targetY, yOverflow) = mainDisplay.originY.addingReportingOverflow(localOffsetY)
+    guard !xOverflow,
+      !yOverflow,
+      Int32(exactly: targetX) != nil,
+      Int32(exactly: targetY) != nil
+    else {
+      return nil
+    }
+    let targetBottom = targetY + localDisplay.height
+    let mainBottom = mainDisplay.originY + mainDisplay.height
+    guard abs(targetBottom - mainBottom) <= 2 else { return nil }
+    return (x: targetX, y: targetY)
+  }
+
+  func matches(
+    mainDisplay: DisplayRecord,
+    localDisplay: DisplayRecord,
+    topologyPlan: SoftKVMTopologyPlan
+  ) -> Bool {
+    guard let target = targetOrigin(
+      mainDisplay: mainDisplay,
+      localDisplay: localDisplay,
+      topologyPlan: topologyPlan
+    ) else {
+      return false
+    }
+    return localDisplay.originX == target.x && localDisplay.originY == target.y
   }
 }
 
@@ -64,6 +122,7 @@ struct SoftKVMMacBaseline: Sendable {
   let mainDisplay: DisplayRecord
   let localDisplay: DisplayRecord
   let topologyPlan: SoftKVMTopologyPlan
+  let remainingMacDisplayPlacement: SoftKVMRemainingDisplayPlacement
 
   static func resolve(_ displays: [DisplayRecord]) -> SoftKVMMacBaseline? {
     guard let identities = SoftKVMDisplayIdentities.resolve(displays),
@@ -87,7 +146,11 @@ struct SoftKVMMacBaseline: Sendable {
         of: identities.philips,
         relativeTo: mainDisplay
       ),
-      localSide == sharedSide.opposite
+      localSide == sharedSide.opposite,
+      HorizontalDisplayLayout.bottomsAreAligned(
+        [identities.builtIn, identities.viewSonic, identities.philips],
+        with: mainDisplay
+      )
     else {
       return nil
     }
@@ -96,19 +159,23 @@ struct SoftKVMMacBaseline: Sendable {
       philips: identities.philips,
       mainDisplay: mainDisplay,
       localDisplay: localDisplay,
-      topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: sharedSide)
+      topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: sharedSide),
+      remainingMacDisplayPlacement: SoftKVMRemainingDisplayPlacement(
+        mainDisplay: mainDisplay,
+        localDisplay: localDisplay
+      )
     )
   }
 }
 
-struct SoftKVMWindowsTopology: Sendable {
+/// The two Mac-owned displays in Windows mode, identified independently from
+/// their temporary geometry so a broken layout can still be repaired safely.
+struct SoftKVMWindowsDisplayPair: Sendable {
   let viewSonic: DisplayRecord
-  let philips: DisplayRecord
   let mainDisplay: DisplayRecord
   let localDisplay: DisplayRecord
-  let localDisplaySide: HorizontalDisplaySide
 
-  static func resolve(_ displays: [DisplayRecord]) -> SoftKVMWindowsTopology? {
+  static func resolve(_ displays: [DisplayRecord]) -> SoftKVMWindowsDisplayPair? {
     guard let identities = SoftKVMDisplayIdentities.resolve(displays),
       identities.builtIn.isActive,
       identities.viewSonic.isActive,
@@ -123,17 +190,33 @@ struct SoftKVMWindowsTopology: Sendable {
     let localDisplay = mainDisplay.role == .builtIn
       ? identities.viewSonic
       : identities.builtIn
+    return SoftKVMWindowsDisplayPair(
+      viewSonic: identities.viewSonic,
+      mainDisplay: mainDisplay,
+      localDisplay: localDisplay
+    )
+  }
+}
+
+/// A repaired Windows-mode layout with a real horizontal seam.
+struct SoftKVMWindowsTopology: Sendable {
+  let viewSonic: DisplayRecord
+  let mainDisplay: DisplayRecord
+  let localDisplay: DisplayRecord
+  let localDisplaySide: HorizontalDisplaySide
+
+  static func resolve(_ displays: [DisplayRecord]) -> SoftKVMWindowsTopology? {
+    guard let pair = SoftKVMWindowsDisplayPair.resolve(displays) else { return nil }
     guard let localDisplaySide = HorizontalDisplayLayout.side(
-      of: localDisplay,
-      relativeTo: mainDisplay
+      of: pair.localDisplay,
+      relativeTo: pair.mainDisplay
     ) else {
       return nil
     }
     return SoftKVMWindowsTopology(
-      viewSonic: identities.viewSonic,
-      philips: identities.philips,
-      mainDisplay: mainDisplay,
-      localDisplay: localDisplay,
+      viewSonic: pair.viewSonic,
+      mainDisplay: pair.mainDisplay,
+      localDisplay: pair.localDisplay,
       localDisplaySide: localDisplaySide
     )
   }
@@ -175,16 +258,18 @@ private extension Collection {
 }
 
 private enum HorizontalDisplayLayout {
+  private static let tolerance = 2
+
   static func side(
     of display: DisplayRecord,
     relativeTo mainDisplay: DisplayRecord
   ) -> HorizontalDisplaySide? {
     if isImmediatelyLeft(display, of: mainDisplay) {
-      guard verticallyOverlapsOrTouches(display, mainDisplay) else { return nil }
+      guard verticallyOverlaps(display, mainDisplay) else { return nil }
       return HorizontalDisplaySide.left
     }
     if isImmediatelyLeft(mainDisplay, of: display) {
-      guard verticallyOverlapsOrTouches(display, mainDisplay) else { return nil }
+      guard verticallyOverlaps(display, mainDisplay) else { return nil }
       return HorizontalDisplaySide.right
     }
     return nil
@@ -194,10 +279,20 @@ private enum HorizontalDisplayLayout {
     _ display: DisplayRecord,
     of mainDisplay: DisplayRecord
   ) -> Bool {
-    abs(display.originX + display.width - mainDisplay.originX) <= 2
+    abs(display.originX + display.width - mainDisplay.originX) <= tolerance
   }
 
-  private static func verticallyOverlapsOrTouches(
+  static func bottomsAreAligned(
+    _ displays: [DisplayRecord],
+    with reference: DisplayRecord
+  ) -> Bool {
+    let referenceBottom = reference.originY + reference.height
+    return displays.allSatisfy {
+      abs($0.originY + $0.height - referenceBottom) <= tolerance
+    }
+  }
+
+  private static func verticallyOverlaps(
     _ first: DisplayRecord,
     _ second: DisplayRecord
   ) -> Bool {
@@ -206,7 +301,5 @@ private enum HorizontalDisplayLayout {
       second.originY + second.height
     ) - max(first.originY, second.originY)
     return overlap > 1
-      || abs(first.originY + first.height - second.originY) <= 2
-      || abs(second.originY + second.height - first.originY) <= 2
   }
 }

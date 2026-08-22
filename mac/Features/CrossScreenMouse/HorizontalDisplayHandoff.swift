@@ -9,10 +9,8 @@ struct HorizontalDisplayHandoff: Equatable, Sendable {
     let sourceDisplayID: String
     let destinationDisplayID: String
     let direction: HorizontalDisplayHandoffDirection
-    let crossingPoint: CGPoint
     let targetPoint: CGPoint
     let alignment: DisplayHandoffAlignment
-    let physicalOffsetMM: CGFloat
 
     func apply(to event: CGEvent) {
         event.location = targetPoint
@@ -32,9 +30,7 @@ struct HorizontalDisplayHandoffWall: Equatable, Sendable {
     let sourceDisplayID: String
     let destinationDisplayID: String
     let direction: HorizontalDisplayHandoffDirection
-    let crossingPoint: CGPoint
     let retainedPoint: CGPoint
-    let beginsContact: Bool
 
     func apply(to event: CGEvent) {
         event.location = retainedPoint
@@ -77,7 +73,6 @@ func handlesLocalDisplayBoundary(
 struct HorizontalDisplaySeam: Equatable, Sendable {
     let leftDisplay: CrossScreenDisplay
     let rightDisplay: CrossScreenDisplay
-    let seamX: CGFloat
 
     func source(
         for direction: HorizontalDisplayHandoffDirection
@@ -90,22 +85,11 @@ struct HorizontalDisplaySeam: Equatable, Sendable {
     ) -> CrossScreenDisplay {
         direction == .left ? leftDisplay : rightDisplay
     }
-
-    var nativeCornerPoint: CGPoint {
-        let leftBottomToRightTop = abs(leftDisplay.frame.maxY - rightDisplay.frame.minY)
-        let rightBottomToLeftTop = abs(rightDisplay.frame.maxY - leftDisplay.frame.minY)
-        let y = leftBottomToRightTop <= rightBottomToLeftTop
-            ? (leftDisplay.frame.maxY + rightDisplay.frame.minY) / 2
-            : (rightDisplay.frame.maxY + leftDisplay.frame.minY) / 2
-        return CGPoint(x: seamX, y: y)
-    }
 }
 
-/// A fresh, validated corner-portal snapshot of every active macOS display.
+/// A fresh, validated native horizontal snapshot of every active macOS display.
 struct HorizontalDisplayHandoffGeometry: Equatable, Sendable {
     private static let destinationInsetPoints: CGFloat = 12
-    private static let adjacencyTolerancePoints: CGFloat = 2
-    private static let maximumPortalOverlapPoints: CGFloat = 1
 
     let displays: [CrossScreenDisplay]
     let seams: [HorizontalDisplaySeam]
@@ -129,22 +113,12 @@ struct HorizontalDisplayHandoffGeometry: Equatable, Sendable {
 
         var seams: [HorizontalDisplaySeam] = []
         for (left, right) in zip(ordered, ordered.dropFirst()) {
-            let verticalOverlap = min(left.frame.maxY, right.frame.maxY)
-                - max(left.frame.minY, right.frame.minY)
-            let touchesAtCorner = abs(left.frame.maxY - right.frame.minY)
-                    <= Self.adjacencyTolerancePoints
-                || abs(right.frame.maxY - left.frame.minY)
-                    <= Self.adjacencyTolerancePoints
-            guard abs(left.frame.maxX - right.frame.minX)
-                    <= Self.adjacencyTolerancePoints,
-                  verticalOverlap <= Self.maximumPortalOverlapPoints,
-                  touchesAtCorner else {
+            guard left.isImmediatelyLeft(of: right) else {
                 return nil
             }
             seams.append(HorizontalDisplaySeam(
                 leftDisplay: left,
-                rightDisplay: right,
-                seamX: right.frame.minX
+                rightDisplay: right
             ))
         }
         return HorizontalDisplayHandoffGeometry(
@@ -154,7 +128,7 @@ struct HorizontalDisplayHandoffGeometry: Equatable, Sendable {
     }
 
     func handoff(
-        at crossingPoint: CGPoint,
+        sourceY: CGFloat,
         seam: HorizontalDisplaySeam,
         direction: HorizontalDisplayHandoffDirection,
         alignment: DisplayHandoffAlignment
@@ -162,7 +136,7 @@ struct HorizontalDisplayHandoffGeometry: Equatable, Sendable {
         let source = seam.source(for: direction)
         let destination = seam.destination(for: direction)
         guard case let .mapped(mapping) = PhysicalVerticalMapper.map(
-            sourceY: crossingPoint.y,
+            sourceY: sourceY,
             source: PhysicalDisplayGeometry(
                 frame: source.frame,
                 heightMM: source.physicalHeightMM
@@ -192,10 +166,8 @@ struct HorizontalDisplayHandoffGeometry: Equatable, Sendable {
             sourceDisplayID: source.id,
             destinationDisplayID: destination.id,
             direction: direction,
-            crossingPoint: crossingPoint,
             targetPoint: CGPoint(x: targetX, y: mapping.targetY),
-            alignment: alignment,
-            physicalOffsetMM: mapping.physicalOffsetMM
+            alignment: alignment
         )
     }
 
@@ -204,19 +176,17 @@ struct HorizontalDisplayHandoffGeometry: Equatable, Sendable {
             point.x >= display.frame.minX && point.x < display.frame.maxX
                 && point.y >= display.frame.minY && point.y < display.frame.maxY
         }
-        // The right display owns a seam coordinate when the validated frames
-        // overlap within the small adjacency tolerance.
+        // The routing order resolves the small frame overlap allowed by the
+        // shared adjacency tolerance in favor of the right-hand display.
         return matches.last?.id
     }
 }
 
 /// Tracks one authoritative cursor trajectory across adjacent macOS displays.
 struct HorizontalDisplayHandoffState: Sendable {
-    private static let portalEdgeActivationInsetPoints: CGFloat = 2
-    private static let portalCornerActivationInsetPoints: CGFloat = 10
-    private static let portalCornerZonePoints: CGFloat = 32
-    private static let portalWallInsetPoints: CGFloat = 2
-    private static let maximumStalePortalEvents = 4
+    private static let edgeActivationInsetPoints: CGFloat = 2
+    private static let wallInsetPoints: CGFloat = 2
+    private static let maximumStaleHandoffEvents = 4
 
     private struct Observation: Sendable {
         let displayID: String
@@ -225,12 +195,14 @@ struct HorizontalDisplayHandoffState: Sendable {
 
     private struct Crossing: Sendable {
         let seam: HorizontalDisplaySeam
-        let point: CGPoint
+        let sourceY: CGFloat
         let direction: HorizontalDisplayHandoffDirection
     }
 
-    private struct PendingPortalHandoff: Sendable {
+    private struct PendingHandoff: Sendable {
+        let sourceDisplayID: String
         let destinationDisplayID: String
+        let direction: HorizontalDisplayHandoffDirection
         let targetPoint: CGPoint
         var remainingStaleEvents: Int
     }
@@ -238,8 +210,7 @@ struct HorizontalDisplayHandoffState: Sendable {
     private(set) var geometry: HorizontalDisplayHandoffGeometry?
     private(set) var configuration: DisplayHandoffConfiguration
     private var previousObservation: Observation?
-    private var pendingPortalHandoff: PendingPortalHandoff?
-    private var activePortalWall: HorizontalDisplayHandoffWall?
+    private var pendingHandoff: PendingHandoff?
 
     init(
         geometry: HorizontalDisplayHandoffGeometry? = nil,
@@ -275,13 +246,13 @@ struct HorizontalDisplayHandoffState: Sendable {
     ) -> HorizontalDisplayHandoffDecision {
         guard configuration.enabled, let geometry else {
             previousObservation = nil
-            pendingPortalHandoff = nil
-            activePortalWall = nil
+            pendingHandoff = nil
             return .none
         }
-        if let stabilization = portalStabilization(
+        if let stabilization = handoffStabilization(
             geometry: geometry,
-            location: location
+            location: location,
+            movementDeltaX: movementDeltaX
         ) {
             return stabilization
         }
@@ -295,39 +266,38 @@ struct HorizontalDisplayHandoffState: Sendable {
             to: location,
             movementDeltaX: movementDeltaX
         ) else {
-            activePortalWall = nil
             observe(location: location)
             return .none
         }
         let handoff = geometry.handoff(
-            at: crossing.point,
+            sourceY: crossing.sourceY,
             seam: crossing.seam,
             direction: crossing.direction,
             alignment: configuration.alignment
         )
         guard let handoff, allowsHandoff else {
-            return portalWall(
+            return boundaryWall(
                 crossing: crossing,
                 location: location
             )
         }
-        activePortalWall = nil
         self.previousObservation = Observation(
             displayID: handoff.destinationDisplayID,
             point: handoff.targetPoint
         )
-        pendingPortalHandoff = PendingPortalHandoff(
+        pendingHandoff = PendingHandoff(
+            sourceDisplayID: handoff.sourceDisplayID,
             destinationDisplayID: handoff.destinationDisplayID,
+            direction: handoff.direction,
             targetPoint: handoff.targetPoint,
-            remainingStaleEvents: Self.maximumStalePortalEvents
+            remainingStaleEvents: Self.maximumStaleHandoffEvents
         )
         return .handoff(handoff)
     }
 
     mutating func resetTracking(at location: CGPoint?) {
         previousObservation = nil
-        pendingPortalHandoff = nil
-        activePortalWall = nil
+        pendingHandoff = nil
         if let location {
             observe(location: location)
         }
@@ -349,61 +319,73 @@ struct HorizontalDisplayHandoffState: Sendable {
         to location: CGPoint,
         movementDeltaX: CGFloat
     ) -> Crossing? {
+        guard let currentDisplayID = geometry.displayID(at: location) else {
+            return nil
+        }
         let observedDeltaX = location.x - previous.point.x
-        let directionalDeltaX = movementDeltaX == 0 ? observedDeltaX : movementDeltaX
+        let directionalDeltaX = currentDisplayID == previous.displayID
+            ? (movementDeltaX == 0 ? observedDeltaX : movementDeltaX)
+            : observedDeltaX
         guard directionalDeltaX != 0 else { return nil }
         let direction: HorizontalDisplayHandoffDirection = directionalDeltaX < 0
             ? .left
             : .right
-        guard let sourceDisplayID = geometry.displayID(at: location),
-              sourceDisplayID == previous.displayID,
-              let seam = geometry.seams.first(where: {
-                  $0.source(for: direction).id == sourceDisplayID
-              }) else {
+        guard let seam = geometry.seams.first(where: {
+            $0.source(for: direction).id == previous.displayID
+        }) else {
             return nil
         }
         let source = seam.source(for: direction)
-        let isNearNativeCorner = abs(location.y - seam.nativeCornerPoint.y)
-            <= Self.portalCornerZonePoints
-        let activationInset = isNearNativeCorner
-            ? Self.portalCornerActivationInsetPoints
-            : Self.portalEdgeActivationInsetPoints
-        let reachedPortal: Bool
+        let reachedBoundary: Bool
         switch direction {
         case .left:
-            reachedPortal = location.x
-                <= source.frame.minX + activationInset
+            reachedBoundary = location.x
+                <= source.frame.minX + Self.edgeActivationInsetPoints
         case .right:
-            reachedPortal = location.x
-                >= source.frame.maxX - activationInset
+            reachedBoundary = location.x
+                >= source.frame.maxX - Self.edgeActivationInsetPoints
         }
-        guard reachedPortal else { return nil }
+        guard reachedBoundary else { return nil }
         return Crossing(
             seam: seam,
-            point: CGPoint(x: seam.seamX, y: location.y),
+            sourceY: location.y,
             direction: direction
         )
     }
 
-    private mutating func portalStabilization(
+    private mutating func handoffStabilization(
         geometry: HorizontalDisplayHandoffGeometry,
-        location: CGPoint
+        location: CGPoint,
+        movementDeltaX: CGFloat
     ) -> HorizontalDisplayHandoffDecision? {
-        guard var pending = pendingPortalHandoff else {
+        guard var pending = pendingHandoff else {
             return nil
         }
-        if geometry.displayID(at: location) == pending.destinationDisplayID {
-            pendingPortalHandoff = nil
+        let currentDisplayID = geometry.displayID(at: location)
+        if currentDisplayID == pending.destinationDisplayID {
+            pendingHandoff = nil
             observe(location: location)
             return HorizontalDisplayHandoffDecision.none
         }
+        let reversesDirection = pending.direction == .right
+            ? movementDeltaX < 0
+            : movementDeltaX > 0
+        if currentDisplayID == pending.sourceDisplayID,
+           reversesDirection {
+            pendingHandoff = nil
+            previousObservation = Observation(
+                displayID: pending.destinationDisplayID,
+                point: pending.targetPoint
+            )
+            return nil
+        }
         guard pending.remainingStaleEvents > 0 else {
-            pendingPortalHandoff = nil
+            pendingHandoff = nil
             observe(location: location)
             return HorizontalDisplayHandoffDecision.none
         }
         pending.remainingStaleEvents -= 1
-        pendingPortalHandoff = pending
+        pendingHandoff = pending
         previousObservation = Observation(
             displayID: pending.destinationDisplayID,
             point: pending.targetPoint
@@ -411,30 +393,24 @@ struct HorizontalDisplayHandoffState: Sendable {
         return .stabilize(pending.targetPoint)
     }
 
-    private mutating func portalWall(
+    private mutating func boundaryWall(
         crossing: Crossing,
         location: CGPoint
     ) -> HorizontalDisplayHandoffDecision {
         let source = crossing.seam.source(for: crossing.direction)
         let destination = crossing.seam.destination(for: crossing.direction)
-        let sameWall = activePortalWall?.sourceDisplayID == source.id
-            && activePortalWall?.destinationDisplayID == destination.id
-            && activePortalWall?.direction == crossing.direction
         let retainedX = crossing.direction == .left
-            ? source.frame.minX + Self.portalWallInsetPoints
-            : source.frame.maxX - Self.portalWallInsetPoints
+            ? source.frame.minX + Self.wallInsetPoints
+            : source.frame.maxX - Self.wallInsetPoints
         let wall = HorizontalDisplayHandoffWall(
             sourceDisplayID: source.id,
             destinationDisplayID: destination.id,
             direction: crossing.direction,
-            crossingPoint: crossing.point,
             retainedPoint: CGPoint(
                 x: retainedX,
                 y: min(max(location.y, source.frame.minY), source.frame.maxY - 1)
-            ),
-            beginsContact: !sameWall
+            )
         )
-        activePortalWall = wall
         observe(location: wall.retainedPoint)
         return .wall(wall)
     }

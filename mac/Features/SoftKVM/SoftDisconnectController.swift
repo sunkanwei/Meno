@@ -35,7 +35,8 @@ actor SoftDisconnectController {
       schemaVersion: 1,
       createdAt: ISO8601DateFormatter().string(from: Date()),
       philips: baseline.philips,
-      topologyPlan: baseline.topologyPlan
+      topologyPlan: baseline.topologyPlan,
+      remainingMacDisplayPlacement: baseline.remainingMacDisplayPlacement
     )
     try await stateStore.save(softDisconnectState: state)
     do {
@@ -48,6 +49,7 @@ actor SoftDisconnectController {
         expectedActiveCount: 2,
         targetID: baseline.philips.runtimeID,
         targetShouldBeActive: false,
+        requireResolvedTopology: false,
         operationID: operationID
       )
       try await restoreRemainingMacDisplayPlacement(
@@ -89,13 +91,11 @@ actor SoftDisconnectController {
     defer { endOperation(operationID) }
     guard let savedState = try await stateStore.softDisconnectState() else { return }
     let report = await displayController.snapshot()
-    guard report.topology == .windows,
-      let windowsTopology = SoftKVMWindowsTopology.resolve(report.displays)
-    else {
+    guard let windowsPair = SoftKVMWindowsDisplayPair.resolve(report.displays) else {
       return
     }
     let topologyPlan = try savedState.resolvedTopologyPlan(
-      currentMainDisplay: windowsTopology.mainDisplay
+      currentMainDisplay: windowsPair.mainDisplay
     )
     let state = savedState.topologyPlan == nil
       ? savedState.withTopologyPlan(topologyPlan)
@@ -145,11 +145,11 @@ actor SoftDisconnectController {
       try await stateStore.clearSoftDisconnectState()
       return
     }
-    guard let windowsTopology = SoftKVMWindowsTopology.resolve(report.displays) else {
-      throw DisplayControlError.verification("恢复前的 Windows 两屏拓扑不完整")
+    guard let windowsPair = SoftKVMWindowsDisplayPair.resolve(report.displays) else {
+      throw DisplayControlError.verification("恢复前无法唯一识别两块 Mac 显示器")
     }
     let expectedPlan = try state.resolvedTopologyPlan(
-      currentMainDisplay: windowsTopology.mainDisplay
+      currentMainDisplay: windowsPair.mainDisplay
     )
 
     do {
@@ -178,6 +178,7 @@ actor SoftDisconnectController {
             expectedActiveCount: 2,
             targetID: candidate.runtimeID,
             targetShouldBeActive: false,
+            requireResolvedTopology: false,
             operationID: operationID
           )
           try await restoreRemainingMacDisplayPlacement(
@@ -199,6 +200,7 @@ actor SoftDisconnectController {
     expectedActiveCount: Int,
     targetID: UInt32,
     targetShouldBeActive: Bool,
+    requireResolvedTopology: Bool = true,
     operationID: UUID
   ) async throws -> ProbeReport {
     let clock = ContinuousClock()
@@ -223,7 +225,7 @@ actor SoftDisconnectController {
       let expectedTopology: DisplayTopologyState = targetShouldBeActive ? .mac : .windows
       if target.isActive == targetShouldBeActive,
         activeCount == expectedActiveCount,
-        latest.topology == expectedTopology
+        (!requireResolvedTopology || latest.topology == expectedTopology)
       {
         consecutiveMatches += 1
         if consecutiveMatches >= 3 {
@@ -246,32 +248,60 @@ actor SoftDisconnectController {
     operationID: UUID
   ) async throws {
     try validate(operationID)
-    guard let windowsTopology = SoftKVMWindowsTopology.resolve(report.displays) else {
+    guard let windowsPair = SoftKVMWindowsDisplayPair.resolve(report.displays) else {
       throw DisplayControlError.verification("Windows 状态下无法唯一识别两块 Mac 显示器")
     }
-    try await displayController.requireProtectedViewSonic(windowsTopology.viewSonic)
+    try await displayController.requireProtectedViewSonic(windowsPair.viewSonic)
     let topologyPlan = try state.resolvedTopologyPlan(
-      currentMainDisplay: windowsTopology.mainDisplay
+      currentMainDisplay: windowsPair.mainDisplay
     )
-    let targetOriginX = topologyPlan.originXForLocalDisplay(
-      mainOriginX: windowsTopology.mainDisplay.originX,
-      mainWidth: windowsTopology.mainDisplay.width,
-      localWidth: windowsTopology.localDisplay.width
-    )
-    guard windowsTopology.localDisplay.originX != targetOriginX else { return }
+    guard let placement = state.remainingMacDisplayPlacement else {
+      guard let topology = SoftKVMWindowsTopology.resolve(report.displays),
+        topology.localDisplaySide == topologyPlan.localDisplaySide
+      else {
+        return
+      }
+      _ = try await waitForRemainingMacDisplayPlacement(
+        topologyPlan: topologyPlan,
+        placement: nil,
+        operationID: operationID
+      )
+      return
+    }
+    guard let targetOrigin = placement.targetOrigin(
+      mainDisplay: windowsPair.mainDisplay,
+      localDisplay: windowsPair.localDisplay,
+      topologyPlan: topologyPlan
+    ) else {
+      throw DisplayControlError.verification("切换后两块 Mac 显示器的主从身份与基线不一致")
+    }
+    if placement.matches(
+      mainDisplay: windowsPair.mainDisplay,
+      localDisplay: windowsPair.localDisplay,
+      topologyPlan: topologyPlan
+    ) {
+      _ = try await waitForRemainingMacDisplayPlacement(
+        topologyPlan: topologyPlan,
+        placement: placement,
+        operationID: operationID
+      )
+      return
+    }
     try await displayController.setDisplayOrigin(
-      runtimeID: windowsTopology.localDisplay.runtimeID,
-      x: targetOriginX,
-      y: windowsTopology.localDisplay.originY
+      runtimeID: windowsPair.localDisplay.runtimeID,
+      x: targetOrigin.x,
+      y: targetOrigin.y
     )
     _ = try await waitForRemainingMacDisplayPlacement(
       topologyPlan: topologyPlan,
+      placement: placement,
       operationID: operationID
     )
   }
 
   private func waitForRemainingMacDisplayPlacement(
     topologyPlan: SoftKVMTopologyPlan,
+    placement: SoftKVMRemainingDisplayPlacement?,
     operationID: UUID
   ) async throws -> ProbeReport {
     let clock = ContinuousClock()
@@ -283,7 +313,14 @@ actor SoftDisconnectController {
       latest = await displayController.snapshot()
       if latest.topology == .windows,
         let topology = SoftKVMWindowsTopology.resolve(latest.displays),
-        topology.localDisplaySide == topologyPlan.localDisplaySide
+        topology.localDisplaySide == topologyPlan.localDisplaySide,
+        placement.map({
+          $0.matches(
+            mainDisplay: topology.mainDisplay,
+            localDisplay: topology.localDisplay,
+            topologyPlan: topologyPlan
+          )
+        }) ?? true
       {
         consecutiveMatches += 1
         if consecutiveMatches >= 3 { return latest }
@@ -293,7 +330,7 @@ actor SoftDisconnectController {
       try await Task.sleep(for: .milliseconds(150))
     }
     throw DisplayControlError.verification(
-      "5 秒内没有恢复内屏与 ViewSonic 的物理左右顺序"
+      "5 秒内没有恢复内屏与 ViewSonic 的完整相对位置"
     )
   }
 
