@@ -100,7 +100,6 @@
 		57366BEEDBA05A1002E98C94 /* FinderDesktopItemURLResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A252164FA13AC476AB5E3A49 /* FinderDesktopItemURLResolverTests.swift */; };
 		57A321473EDCA19E0BE5D6BE /* MenoFinderExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6CE288B6AA197459AE0DE6D8 /* MenoFinderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5801A7ECD2BC18592EE33BF4 /* DisplaySwitchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC7EE742498622CD3025BD5 /* DisplaySwitchCoordinator.swift */; };
-		58F0B84250097230D39BBC12 /* ClipboardSharingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA2CA3330EA1D93D5B0D766 /* ClipboardSharingController.swift */; };
 		590C082E681613A771C6E3A8 /* DesktopIconLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5B497896056C2DED21D522 /* DesktopIconLayout.swift */; };
 		5B309F6AB83E23D6203B3731 /* RendererBundleSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B722AAAB5453CA7BAFF3BA /* RendererBundleSchemeHandler.swift */; };
 		5C07F9A56E7A687A9477FD9E /* NSLockCriticalSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52F535939B8AEDBE7B1A6C2E /* NSLockCriticalSection.swift */; };
@@ -123,6 +122,7 @@
 		6AA8682C3CB54FCEA1DE3B8F /* M1DDCBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CADB28E0756D7B4AFEDE81ED /* M1DDCBridge.m */; };
 		6D5B285EB18A81BC52173350 /* PasteboardCopyPoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EB18D94088D3E2205F5727 /* PasteboardCopyPoller.swift */; };
 		6E28792016BF1EE03935FAA3 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C90B0702B51004F914639D /* PreviewViewController.swift */; };
+		70F97E5F77BA34B40B439D77 /* WindowsCompanionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B8D9DAA27878D0370F2CBC7 /* WindowsCompanionController.swift */; };
 		7322F8C7A0901ECF54239A62 /* FileClipboardProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEB9B0FE65BC66813646D6D /* FileClipboardProtocol.swift */; };
 		73664650D83753313277B427 /* MarkdownPreviewWindowState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A2AD7A5567283B090CEA11 /* MarkdownPreviewWindowState.swift */; };
 		74CA33B14FBCAA73EC31686A /* MenuBarGlassController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010F6A504E440F9275FD1DEC /* MenuBarGlassController.swift */; };
@@ -405,6 +405,7 @@
 		59A43E127B5DB5BF43CDB6D4 /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
 		5AC7EE742498622CD3025BD5 /* DisplaySwitchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplaySwitchCoordinator.swift; sourceTree = "<group>"; };
 		5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardProtocol.swift; sourceTree = "<group>"; };
+		5B8D9DAA27878D0370F2CBC7 /* WindowsCompanionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsCompanionController.swift; sourceTree = "<group>"; };
 		62EFF1E8B6D74FE75FAAD077 /* PasteboardCopyPollerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardCopyPollerTests.swift; sourceTree = "<group>"; };
 		632E516FF09F4F8318447DBE /* DesktopIconLayoutController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopIconLayoutController.swift; sourceTree = "<group>"; };
 		64BCC4A55D525AD933CB7CC7 /* HIDScrollEventResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDScrollEventResolver.swift; sourceTree = "<group>"; };
@@ -507,7 +508,6 @@
 		D397708558D6EBEE29FF32E1 /* CrossScreenEntryGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenEntryGate.swift; sourceTree = "<group>"; };
 		D4CFDAFE02FAD22478C4F934 /* ClipboardDiscoveryServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDiscoveryServer.swift; sourceTree = "<group>"; };
 		D92FD9D4CC20BEACEF208A98 /* LocalFileSchemeHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileSchemeHandlerTests.swift; sourceTree = "<group>"; };
-		DBA2CA3330EA1D93D5B0D766 /* ClipboardSharingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardSharingController.swift; sourceTree = "<group>"; };
 		DBE01BF253F350C7B16745A0 /* M1DDCBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = M1DDCBridge.h; sourceTree = "<group>"; };
 		E03838267B9540DE60AC81DB /* TerminalApplicationDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalApplicationDetectorTests.swift; sourceTree = "<group>"; };
 		E20C2128A7E73B42071B8253 /* SoftKVMTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMTopology.swift; sourceTree = "<group>"; };
@@ -770,13 +770,13 @@
 				2E04C8F5DAEA050DB6BF8E87 /* ClipboardImageCodec.swift */,
 				FF28057939BE864086F5468B /* ClipboardMonitor.swift */,
 				5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */,
-				DBA2CA3330EA1D93D5B0D766 /* ClipboardSharingController.swift */,
 				30894B264D1AC99CFCC7449C /* CompanionFrameTransport.swift */,
 				AD01036AF3BBCCFC8A502ABD /* ConnectionReadinessGate.swift */,
 				579AB3D6911ABD3A29EB0E32 /* FileClipboardCache.swift */,
 				C1FBEE5EF212E51AE83B1D8E /* FileClipboardManifest.swift */,
 				CAEB9B0FE65BC66813646D6D /* FileClipboardProtocol.swift */,
 				3862C65B5FA2A9365828E4A9 /* FileClipboardTransfer.swift */,
+				5B8D9DAA27878D0370F2CBC7 /* WindowsCompanionController.swift */,
 			);
 			path = ClipboardSharing;
 			sourceTree = "<group>";
@@ -1465,7 +1465,6 @@
 				F9A115965CB20563CBA62C39 /* ClipboardImageCodec.swift in Sources */,
 				8C533F04FEB09B59E1D697FD /* ClipboardMonitor.swift in Sources */,
 				7EE1D87283D4F6810A111A5B /* ClipboardProtocol.swift in Sources */,
-				58F0B84250097230D39BBC12 /* ClipboardSharingController.swift in Sources */,
 				2A9BD20F5911FFC7A9B803EF /* ClosedLidBehaviorController.swift in Sources */,
 				EF9E47B0CAE9AFAF486C9A76 /* ClosedLidBehaviorPolicy.swift in Sources */,
 				801C2FC884DB106D6F6B1BDB /* ClosedLidBehaviorSettingsView.swift in Sources */,
@@ -1574,6 +1573,7 @@
 				7E4C87BAE100DA0D68358720 /* WindowsAgentMCPClient.swift in Sources */,
 				995A441C07BE77B27AEEFA49 /* WindowsAgentModels.swift in Sources */,
 				0CA09BA66421E177946C447B /* WindowsAgentSettingsView.swift in Sources */,
+				70F97E5F77BA34B40B439D77 /* WindowsCompanionController.swift in Sources */,
 				0241C488D7182DA8B93212FA /* WindowsDisplayHandoff.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
