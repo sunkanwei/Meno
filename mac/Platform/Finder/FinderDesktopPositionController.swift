@@ -24,15 +24,20 @@ final class FinderDesktopPositionController {
     }
 
     private func perform(_ request: FinderCreateDocumentRequest) throws {
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            == FinderProcess.bundleIdentifier,
-              currentFinderDirectories().contains(where: {
-                  FinderExtensionCommandBridge.fileLocationsMatch(
-                      request.directoryURL,
-                      $0
-                  )
-              }) else {
-            throw requestError("Finder 当前目录已经变化，请重新打开右键菜单。")
+        // Desktop clicks do not reliably make Finder frontmost, so the
+        // frontmost/insertion-location guard cannot apply to the desktop;
+        // it is an unambiguous target.
+        if !isDesktopDirectory(request.directoryURL) {
+            guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                == FinderProcess.bundleIdentifier,
+                  currentFinderDirectories().contains(where: {
+                      FinderExtensionCommandBridge.fileLocationsMatch(
+                          request.directoryURL,
+                          $0
+                      )
+                  }) else {
+                throw requestError("Finder 当前目录已经变化，请重新打开右键菜单。")
+            }
         }
 
         let directory = request.directoryURL.resolvingSymlinksInPath().standardizedFileURL
@@ -59,6 +64,14 @@ final class FinderDesktopPositionController {
                 showFailure(message: error.localizedDescription)
             }
         }
+    }
+
+    private func isDesktopDirectory(_ url: URL) -> Bool {
+        guard let desktopURL = FileManager.default.urls(
+            for: .desktopDirectory,
+            in: .userDomainMask
+        ).first else { return false }
+        return FinderExtensionCommandBridge.fileLocationsMatch(url, desktopURL)
     }
 
     private func currentFinderDirectories() -> [URL] {
