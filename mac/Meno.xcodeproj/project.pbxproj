@@ -48,6 +48,7 @@
 		221DDB83B4329B54AC32277F /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C43669790021081BA6A4B4FC /* CoreAudio.framework */; };
 		2428B3E8C8024E5E6BF38022 /* PowerHelperLidMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2596AEACED8EE0D93905F1 /* PowerHelperLidMonitor.swift */; };
 		24885A7B55389B295C72FF9D /* HorizontalDisplayHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A8A3243B38E56B5830068E /* HorizontalDisplayHandoff.swift */; };
+		24FAD99C414608BC925D5A9B /* AppModel+LocalFeatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D84322F2A5EC1D05CFC8ED /* AppModel+LocalFeatures.swift */; };
 		2653F4E8AB95C8E530261CC0 /* MarkdownImageDataCollectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692D8CF4009A2DE1D4AE77A9 /* MarkdownImageDataCollectorTests.swift */; };
 		2688E3438BE68E8BC2E74163 /* MouseControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 988893F22832A4BA05EF086F /* MouseControlProtocol.swift */; };
 		27D716ECE8370831C9E5E9DC /* KeyboardShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06210692D68042E041F50C04 /* KeyboardShortcutTests.swift */; };
@@ -139,6 +140,7 @@
 		7EAAAE780D6A42353D3F2C29 /* PowerHelperInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C88618A2A059F791817E31 /* PowerHelperInstaller.swift */; };
 		7EE1D87283D4F6810A111A5B /* ClipboardProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */; };
 		801C2FC884DB106D6F6B1BDB /* ClosedLidBehaviorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F07F214958E227682923A67 /* ClosedLidBehaviorSettingsView.swift */; };
+		80311B3E388EDAADE0987857 /* AppModel+WindowsCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6440B93E80C26619826B22 /* AppModel+WindowsCompanion.swift */; };
 		8147DE69CE5FC0DB874356E5 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AB8DABE29FAA772C8790F1A8 /* ApplicationServices.framework */; };
 		818CAA3561EB9531364D021E /* FileClipboardManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1FBEE5EF212E51AE83B1D8E /* FileClipboardManifest.swift */; };
 		82632B32DE0AECB54A122C75 /* SourceFileLineLimitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EBEB99B892D150914CBCEA /* SourceFileLineLimitTests.swift */; };
@@ -337,6 +339,7 @@
 		06210692D68042E041F50C04 /* KeyboardShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTests.swift; sourceTree = "<group>"; };
 		0666C3EDE2B51885969E671E /* WindowsAgentHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentHealthTests.swift; sourceTree = "<group>"; };
 		09B2CE92CEF279B3F1518423 /* clipboard-copy-cut.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "clipboard-copy-cut.png"; sourceTree = "<group>"; };
+		0C6440B93E80C26619826B22 /* AppModel+WindowsCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+WindowsCompanion.swift"; sourceTree = "<group>"; };
 		0DF471045EE1A098E2A90383 /* IdleSleepAssertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleSleepAssertion.swift; sourceTree = "<group>"; };
 		0F03DB50C09870F2B41807F3 /* WindowsAgentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentController.swift; sourceTree = "<group>"; };
 		14F4CAFA33A289B511FFD70A /* CrossScreenDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenDisplay.swift; sourceTree = "<group>"; };
@@ -386,6 +389,7 @@
 		3F34FDD9409F3F7180DC78B6 /* MacCursorOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCursorOwnership.swift; sourceTree = "<group>"; };
 		417F3AABB3A03B4BEB9126F6 /* CrossScreenEntryGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenEntryGateTests.swift; sourceTree = "<group>"; };
 		425065794A7489CDF047B546 /* ClosedLidShutdownConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidShutdownConfiguration.swift; sourceTree = "<group>"; };
+		42D84322F2A5EC1D05CFC8ED /* AppModel+LocalFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+LocalFeatures.swift"; sourceTree = "<group>"; };
 		42EB18D94088D3E2205F5727 /* PasteboardCopyPoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardCopyPoller.swift; sourceTree = "<group>"; };
 		444AF90D46D8D2E14EEF62BB /* ScrollingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingSettingsView.swift; sourceTree = "<group>"; };
 		4556B8FFE98247BA2F35DBB7 /* PowerHelperDaemon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerHelperDaemon.swift; sourceTree = "<group>"; };
@@ -867,7 +871,9 @@
 			children = (
 				A66CBB393D17C8889C0F7AEF /* AppDelegate.swift */,
 				E4098D4406E6CCB4ACA34279 /* AppModel.swift */,
+				42D84322F2A5EC1D05CFC8ED /* AppModel+LocalFeatures.swift */,
 				9D1856DDDED2EBA9AC05E1C2 /* AppModel+WakeOnLAN.swift */,
+				0C6440B93E80C26619826B22 /* AppModel+WindowsCompanion.swift */,
 				9ED5CDF835488D553B5E57E6 /* AppNotifications.swift */,
 				754D300A3144292E34987090 /* AppPreferenceKey.swift */,
 				7680575E4EDC870A97F0CB30 /* Assets.xcassets */,
@@ -1455,7 +1461,9 @@
 				32965348CD9779A33F79A1D0 /* AccessibilityPermission.swift in Sources */,
 				885286B67F0262B6263774A3 /* ActivityMonitorShortcutController.swift in Sources */,
 				0D2C1B8D537D6BAA31506C53 /* AppDelegate.swift in Sources */,
+				24FAD99C414608BC925D5A9B /* AppModel+LocalFeatures.swift in Sources */,
 				8A3CF4C932181D3B9F447A77 /* AppModel+WakeOnLAN.swift in Sources */,
+				80311B3E388EDAADE0987857 /* AppModel+WindowsCompanion.swift in Sources */,
 				28260414A2EDCC6FBDA50C38 /* AppModel.swift in Sources */,
 				470B8B73D529EE5545F9002E /* AppNotifications.swift in Sources */,
 				82C7D99650EC1B7DEE334445 /* AppPreferenceKey.swift in Sources */,
