@@ -194,6 +194,8 @@ targets:
       - path: Features/ClipboardSharing/FileClipboardManifest.swift
       - path: Features/ClipboardSharing/FileClipboardCache.swift
       - path: Features/ClipboardSharing/FileClipboardTransfer.swift
+      - path: Features/ClipboardSharing/FileClipboardTransfer+Outgoing.swift
+      - path: Features/ClipboardSharing/FileClipboardTransfer+Incoming.swift
       - path: Features/MicrophoneSharing/MicrophoneActivationKey.swift
       - path: Features/MicrophoneSharing/MicrophonePCM.swift
       - path: Features/CrossScreenMouse/CrossScreenDisplay.swift

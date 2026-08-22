@@ -21,6 +21,7 @@
 		0CA09BA66421E177946C447B /* WindowsAgentSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3324B436F06702BB9B3D6EF4 /* WindowsAgentSettingsView.swift */; };
 		0D2C1B8D537D6BAA31506C53 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66CBB393D17C8889C0F7AEF /* AppDelegate.swift */; };
 		0F13B6432F0FCDCA70B0FAE2 /* HIDScrollEventResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BCC4A55D525AD933CB7CC7 /* HIDScrollEventResolver.swift */; };
+		106C9723F791CFB403761BC4 /* FileClipboardTransfer+Incoming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C40105ECC64D1DDBCC344D /* FileClipboardTransfer+Incoming.swift */; };
 		109DF715B66313910E7F0D12 /* ScrollingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 444AF90D46D8D2E14EEF62BB /* ScrollingSettingsView.swift */; };
 		10A13421ADAC4766358E7E07 /* ScrollingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A125352A3703C0F51C9814FB /* ScrollingController.swift */; };
 		10AC8AB4C7113BCB3142D19C /* ClipboardDiscoveryServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CFDAFE02FAD22478C4F934 /* ClipboardDiscoveryServer.swift */; };
@@ -139,6 +140,7 @@
 		7E4C87BAE100DA0D68358720 /* WindowsAgentMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B52A8C7A038F1F85BE8E9E1F /* WindowsAgentMCPClient.swift */; };
 		7EAAAE780D6A42353D3F2C29 /* PowerHelperInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C88618A2A059F791817E31 /* PowerHelperInstaller.swift */; };
 		7EE1D87283D4F6810A111A5B /* ClipboardProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */; };
+		7F356E6E1A40A0C05C660473 /* FileClipboardTransfer+Outgoing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0746515FC3D61712449C627 /* FileClipboardTransfer+Outgoing.swift */; };
 		801C2FC884DB106D6F6B1BDB /* ClosedLidBehaviorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F07F214958E227682923A67 /* ClosedLidBehaviorSettingsView.swift */; };
 		80311B3E388EDAADE0987857 /* AppModel+WindowsCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6440B93E80C26619826B22 /* AppModel+WindowsCompanion.swift */; };
 		8147DE69CE5FC0DB874356E5 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AB8DABE29FAA772C8790F1A8 /* ApplicationServices.framework */; };
@@ -198,9 +200,11 @@
 		BB2AABE83868825F460E2BF5 /* SoftKVMTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20C2128A7E73B42071B8253 /* SoftKVMTopology.swift */; };
 		BD98E0A276435827C4CA4DBF /* ClosedLidShutdownValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB4D1AE1E958A78EAAF610C /* ClosedLidShutdownValidation.swift */; };
 		BDCE4DF4DD791A2E25CDB3F4 /* CrossScreenMouseTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 178DC6E0D1AFD329D59D7A76 /* CrossScreenMouseTypes.swift */; };
+		BDE8972A475A18B033FD34E6 /* FileClipboardTransfer+Outgoing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0746515FC3D61712449C627 /* FileClipboardTransfer+Outgoing.swift */; };
 		BF5CC5E2056AF182297C7FB6 /* LocalDisplayPortalBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6A6D1A8FAE0AA819B6649E /* LocalDisplayPortalBaseline.swift */; };
 		BFC1BB963B69F3A27F640B74 /* FinderSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B06F3FA7272454C69F9A615 /* FinderSync.swift */; };
 		BFEDF34E9131454EECB14232 /* MicrophoneActivationKeyRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF18CF91B8869126BB5DA293 /* MicrophoneActivationKeyRecorder.swift */; };
+		C1662600AF4E76AB6A6E0726 /* FileClipboardTransfer+Incoming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C40105ECC64D1DDBCC344D /* FileClipboardTransfer+Incoming.swift */; };
 		C3EDFC886F1D0F4402B8F570 /* MacCursorOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA4FC0CE72DB1B18CD311D4E /* MacCursorOwnershipTests.swift */; };
 		C409938C010400292339A729 /* MicrophonePCM.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA74E420E2C1F21234E593DC /* MicrophonePCM.swift */; };
 		C479ACD0CAAE5B279A873233 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7BE09DCED7375C43555B4DD6 /* IOKit.framework */; };
@@ -453,6 +457,7 @@
 		903B8FDDB9C4B12F87607954 /* HorizontalDisplayHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalDisplayHandoffTests.swift; sourceTree = "<group>"; };
 		935620184993F134218796C3 /* MouseTransportQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseTransportQueueTests.swift; sourceTree = "<group>"; };
 		94F20D13F735CE627ABCAF1C /* MarkdownPreviewWindowStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewWindowStateTests.swift; sourceTree = "<group>"; };
+		96C40105ECC64D1DDBCC344D /* FileClipboardTransfer+Incoming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileClipboardTransfer+Incoming.swift"; sourceTree = "<group>"; };
 		988893F22832A4BA05EF086F /* MouseControlProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseControlProtocol.swift; sourceTree = "<group>"; };
 		98C7C901FC9C289C3BBF2B04 /* DisplayProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayProbe.swift; sourceTree = "<group>"; };
 		98C88618A2A059F791817E31 /* PowerHelperInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerHelperInstaller.swift; sourceTree = "<group>"; };
@@ -474,6 +479,7 @@
 		AD585D18B4394EFBA7096113 /* ClosedLidBehaviorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidBehaviorController.swift; sourceTree = "<group>"; };
 		AE2596AEACED8EE0D93905F1 /* PowerHelperLidMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerHelperLidMonitor.swift; sourceTree = "<group>"; };
 		AF2C9162155B12CD38F0AE02 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		B0746515FC3D61712449C627 /* FileClipboardTransfer+Outgoing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileClipboardTransfer+Outgoing.swift"; sourceTree = "<group>"; };
 		B1B19A55F8D74FC0D01E5EB1 /* SoftKVMHotKeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMHotKeyController.swift; sourceTree = "<group>"; };
 		B253495EFEC9B3199E72E5B0 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		B2910D30C2D5CD4C66085B66 /* WindowModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowModels.swift; sourceTree = "<group>"; };
@@ -780,6 +786,8 @@
 				C1FBEE5EF212E51AE83B1D8E /* FileClipboardManifest.swift */,
 				CAEB9B0FE65BC66813646D6D /* FileClipboardProtocol.swift */,
 				3862C65B5FA2A9365828E4A9 /* FileClipboardTransfer.swift */,
+				96C40105ECC64D1DDBCC344D /* FileClipboardTransfer+Incoming.swift */,
+				B0746515FC3D61712449C627 /* FileClipboardTransfer+Outgoing.swift */,
 				5B8D9DAA27878D0370F2CBC7 /* WindowsCompanionController.swift */,
 			);
 			path = ClipboardSharing;
@@ -1341,6 +1349,8 @@
 				C9E9A92229FA67773358A273 /* FileClipboardManifest.swift in Sources */,
 				1FD920EA99FE105BAE8BF4F6 /* FileClipboardProtocol.swift in Sources */,
 				93D5BD75C6158515895CA094 /* FileClipboardProtocolTests.swift in Sources */,
+				106C9723F791CFB403761BC4 /* FileClipboardTransfer+Incoming.swift in Sources */,
+				BDE8972A475A18B033FD34E6 /* FileClipboardTransfer+Outgoing.swift in Sources */,
 				E2D2FEAC8958CE3A9EDC6770 /* FileClipboardTransfer.swift in Sources */,
 				C6052E35CAED2F53F4E69AF5 /* FileClipboardTransferTests.swift in Sources */,
 				67F72DAEFBF7D648600F8653 /* FileURLUtilities.swift in Sources */,
@@ -1509,6 +1519,8 @@
 				DD7F301C1D6EB3051F911C42 /* FileClipboardCache.swift in Sources */,
 				818CAA3561EB9531364D021E /* FileClipboardManifest.swift in Sources */,
 				7322F8C7A0901ECF54239A62 /* FileClipboardProtocol.swift in Sources */,
+				C1662600AF4E76AB6A6E0726 /* FileClipboardTransfer+Incoming.swift in Sources */,
+				7F356E6E1A40A0C05C660473 /* FileClipboardTransfer+Outgoing.swift in Sources */,
 				4356BB8D9FFDF96AF7662D4E /* FileClipboardTransfer.swift in Sources */,
 				ECCD24FB5AC33DE1FD759583 /* FileURLUtilities.swift in Sources */,
 				C7D8C3EA111B3EB3DA52FF51 /* FinderAutomationPermission.swift in Sources */,
