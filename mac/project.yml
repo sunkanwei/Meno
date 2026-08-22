@@ -226,6 +226,7 @@ targets:
       - path: Platform/Power/ClosedLidShutdownValidation.swift
       - path: Helpers/MenoPowerHelper/PowerModeConfiguration.swift
       - path: Platform/EventTap/NSLockCriticalSection.swift
+      - path: Platform/EventTap/EventTapOneShot.swift
       - path: Platform/Finder/FileURLUtilities.swift
       - path: Platform/Finder/FinderDesktopCoordinateSpace.swift
       - path: Platform/Finder/FinderDesktopItemURLResolver.swift
