@@ -48,6 +48,33 @@ struct WindowProbeReport: Sendable {
   let windows: [WindowProbeRecord]
 }
 
+struct OnScreenWindowRecord: Sendable {
+  let ownerProcessID: Int32
+  let frame: CGRect
+}
+
+struct OnScreenWindowSnapshot: Sendable {
+  let windows: [OnScreenWindowRecord]
+  let unverifiedProcessIDs: Set<Int32>
+}
+
+func uninspectableApplicationBlocksDisplaySwitch(
+  processID: Int32,
+  onScreenWindowSnapshot: OnScreenWindowSnapshot?,
+  protectedDisplayFrame: CGRect?
+) -> Bool {
+  guard let onScreenWindowSnapshot, let protectedDisplayFrame,
+    !onScreenWindowSnapshot.unverifiedProcessIDs.contains(processID)
+  else {
+    return true
+  }
+  return onScreenWindowSnapshot.windows.contains {
+    guard $0.ownerProcessID == processID else { return false }
+    let intersection = $0.frame.intersection(protectedDisplayFrame)
+    return !intersection.isNull && intersection.width > 0 && intersection.height > 0
+  }
+}
+
 func isIgnoredSystemWindowForDisplaySwitch(bundleIdentifier: String?) -> Bool {
   bundleIdentifier == "com.apple.notificationcenterui"
 }

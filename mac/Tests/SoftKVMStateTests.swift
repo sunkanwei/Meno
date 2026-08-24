@@ -4,6 +4,95 @@ import Foundation
 import XCTest
 
 final class SoftKVMStateTests: XCTestCase {
+    func testUninspectableApplicationWithoutVisibleWindowsDoesNotBlockSwitch() {
+        XCTAssertFalse(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 42,
+                onScreenWindowSnapshot: onScreenWindowSnapshot(),
+                protectedDisplayFrame: CGRect(x: 0, y: 0, width: 100, height: 100)
+            )
+        )
+    }
+
+    func testUninspectableApplicationOnAnotherDisplayDoesNotBlockSwitch() {
+        XCTAssertFalse(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 42,
+                onScreenWindowSnapshot: onScreenWindowSnapshot(windows: [
+                    OnScreenWindowRecord(
+                        ownerProcessID: 99,
+                        frame: CGRect(x: 10, y: 10, width: 20, height: 20)
+                    ),
+                    OnScreenWindowRecord(
+                        ownerProcessID: 42,
+                        frame: CGRect(x: 200, y: 0, width: 100, height: 100)
+                    )
+                ]),
+                protectedDisplayFrame: CGRect(x: 0, y: 0, width: 100, height: 100)
+            )
+        )
+    }
+
+    func testUninspectableApplicationIntersectingProtectedDisplayBlocksSwitch() {
+        XCTAssertTrue(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 42,
+                onScreenWindowSnapshot: onScreenWindowSnapshot(windows: [
+                    OnScreenWindowRecord(
+                        ownerProcessID: 42,
+                        frame: CGRect(x: 90, y: 10, width: 20, height: 20)
+                    )
+                ]),
+                protectedDisplayFrame: CGRect(x: 0, y: 0, width: 100, height: 100)
+            )
+        )
+    }
+
+    func testUninspectableApplicationBlocksWhenFallbackEvidenceIsUnavailable() {
+        XCTAssertTrue(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 42,
+                onScreenWindowSnapshot: nil,
+                protectedDisplayFrame: CGRect(x: 0, y: 0, width: 100, height: 100)
+            )
+        )
+        XCTAssertTrue(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 42,
+                onScreenWindowSnapshot: onScreenWindowSnapshot(),
+                protectedDisplayFrame: nil
+            )
+        )
+    }
+
+    func testUninspectableApplicationBlocksOnlyForItsOwnUnverifiedWindowEvidence() {
+        let snapshot = onScreenWindowSnapshot(unverifiedProcessIDs: [42])
+        XCTAssertTrue(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 42,
+                onScreenWindowSnapshot: snapshot,
+                protectedDisplayFrame: CGRect(x: 0, y: 0, width: 100, height: 100)
+            )
+        )
+        XCTAssertFalse(
+            uninspectableApplicationBlocksDisplaySwitch(
+                processID: 99,
+                onScreenWindowSnapshot: snapshot,
+                protectedDisplayFrame: CGRect(x: 0, y: 0, width: 100, height: 100)
+            )
+        )
+    }
+
+    private func onScreenWindowSnapshot(
+        windows: [OnScreenWindowRecord] = [],
+        unverifiedProcessIDs: Set<Int32> = []
+    ) -> OnScreenWindowSnapshot {
+        OnScreenWindowSnapshot(
+            windows: windows,
+            unverifiedProcessIDs: unverifiedProcessIDs
+        )
+    }
+
     func testOnlyNotificationCenterWindowsAreIgnoredDuringDisplaySwitch() {
         XCTAssertTrue(isIgnoredSystemWindowForDisplaySwitch(
             bundleIdentifier: "com.apple.notificationcenterui"

@@ -3,7 +3,10 @@ import Foundation
 @MainActor
 extension SoftKVMCoordinator {
     func beginDisable() {
-        perform(status: .switchingToMac) { [weak self] operationID in
+        perform(
+            status: .switchingToMac,
+            onFailure: onSwitchFailure
+        ) { [weak self] operationID in
             guard let self else { return }
             try await returnToMacIfNeeded(operationID: operationID)
             try requireCurrentOperation(operationID)
@@ -59,9 +62,15 @@ extension SoftKVMCoordinator {
     func switchToWindows() {
         guard let expectedReadiness = readiness else {
             setStatus(stableMacStatus())
+            onSwitchFailure(
+                SoftKVMCoordinatorError.staleWindowsConnection.localizedDescription
+            )
             return
         }
-        perform(status: .switchingToWindows) { [weak self] operationID in
+        perform(
+            status: .switchingToWindows,
+            onFailure: onSwitchFailure
+        ) { [weak self] operationID in
             guard let self else { return }
             try requireCurrentOperation(operationID)
             try requireInputPermissions()
@@ -77,33 +86,19 @@ extension SoftKVMCoordinator {
                 throw SoftKVMCoordinatorError.staleWindowsConnection
             }
             guard crossScreenMouse.prepareRoute() else {
-                throw SoftKVMCoordinatorError.routeUnavailable
+                throw SoftKVMCoordinatorError.routeUnavailable(routeUnavailableReason)
             }
 
             try await displaySwitch.toWindows()
             try requireCurrentOperation(operationID)
             guard stateMachine.routeMayBeEnabled else {
-                await updateStatusAfterFailure(
-                    "系统会话当前不允许接管输入。",
-                    operationID: operationID
-                )
-                return
+                throw SoftKVMCoordinatorError.sessionUnavailable
             }
             guard readiness == expectedReadiness else {
-                setStatus(
-                    .windowsWaiting(
-                        reason: SoftKVMCoordinatorError.staleWindowsConnection.localizedDescription
-                    ),
-                    operationID: operationID
-                )
-                return
+                throw SoftKVMCoordinatorError.staleWindowsConnection
             }
             guard applyRouteEnabled(true) else {
-                setStatus(
-                    .windowsWaiting(reason: routeUnavailableReason),
-                    operationID: operationID
-                )
-                return
+                throw SoftKVMCoordinatorError.routeUnavailable(routeUnavailableReason)
             }
             setStatus(
                 .windowsReady(remoteName: expectedReadiness.remoteName),
@@ -113,7 +108,10 @@ extension SoftKVMCoordinator {
     }
 
     func switchToMac() {
-        perform(status: .switchingToMac) { [weak self] operationID in
+        perform(
+            status: .switchingToMac,
+            onFailure: onSwitchFailure
+        ) { [weak self] operationID in
             guard let self else { return }
             try await returnToMacIfNeeded(operationID: operationID)
             try requireCurrentOperation(operationID)
@@ -122,7 +120,10 @@ extension SoftKVMCoordinator {
     }
 
     func recoverToMac() {
-        perform(status: .switchingToMac) { [weak self] operationID in
+        perform(
+            status: .switchingToMac,
+            onFailure: onSwitchFailure
+        ) { [weak self] operationID in
             guard let self else { return }
             crossScreenMouse.prepareForSystemTransition()
             guard await SoftKVMInputQuiescence.wait(for: shortcut) else {
@@ -300,7 +301,7 @@ extension SoftKVMCoordinator {
 
     private var routeUnavailableReason: String {
         crossScreenMouse.routeReadinessFailure
-            ?? SoftKVMCoordinatorError.routeUnavailable.localizedDescription
+            ?? "macOS 无法安全建立跨屏输入监听，跨屏路由保持关闭。"
     }
 
     private func perform(
@@ -318,6 +319,7 @@ extension SoftKVMCoordinator {
         applyRouteEnabled(false)
         operationTask = Task { [weak self] in
             guard let self else { return }
+            var failureMessage: String?
             do {
                 try await operation(operationID)
                 try requireCurrentOperation(operationID)
@@ -346,11 +348,14 @@ extension SoftKVMCoordinator {
                     error.localizedDescription,
                     operationID: operationID
                 )
-                onFailure?(error.localizedDescription)
+                failureMessage = error.localizedDescription
             }
             guard updateState({ $0.finishOperation(id: operationID) }) else { return }
             operationTask = nil
             onFinish?()
+            if let failureMessage {
+                onFailure?(failureMessage)
+            }
         }
     }
 

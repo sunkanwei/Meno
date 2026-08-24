@@ -104,7 +104,8 @@ enum SoftKVMCoordinatorError: LocalizedError {
     case permission(String)
     case inputStillHeld
     case staleWindowsConnection
-    case routeUnavailable
+    case sessionUnavailable
+    case routeUnavailable(String)
     case remoteShutdownUnavailable
     case remoteShutdownSendFailed
     case remoteShutdownReturnToMacFailed(String)
@@ -117,8 +118,10 @@ enum SoftKVMCoordinatorError: LocalizedError {
             "快捷键、修饰键或鼠标按钮仍被按住，未开始切换显示器。"
         case .staleWindowsConnection:
             "Windows 输入连接在显示切换期间发生变化，跨屏路由保持关闭。"
-        case .routeUnavailable:
-            "macOS 无法安全建立跨屏输入监听，跨屏路由保持关闭。"
+        case .sessionUnavailable:
+            "显示器已经切到 Windows，但 macOS 用户会话当前不允许接管输入，跨屏路由保持关闭。"
+        case let .routeUnavailable(reason):
+            reason
         case .remoteShutdownUnavailable:
             "Windows 关机能力当前未连接。"
         case .remoteShutdownSendFailed:

@@ -33,6 +33,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var microphoneSharingStatus: MicrophoneSharingStatus = .off
     @Published private(set) var crossScreenMouseStatus: CrossScreenMouseStatus = .off
     @Published private(set) var softKVMStatus: SoftKVMStatus = .disabled
+    @Published private(set) var softKVMSwitchFailure: String?
     @Published var finderShortcutsEnabled: Bool
     @Published var goToParentEnabled: Bool
     @Published var openSelectionEnabled: Bool
@@ -158,6 +159,9 @@ final class AppModel: ObservableObject {
         },
         onEnabledStateChanged: { [weak self] enabled in
             self?.applySoftKVMEnabledState(enabled)
+        },
+        onSwitchFailure: { [weak self] message in
+            self?.softKVMSwitchFailure = message
         }
     )
 
@@ -170,6 +174,10 @@ final class AppModel: ObservableObject {
     private func setWindowsMouseReadiness(_ readiness: WindowsMouseReadiness?) {
         guard softKVMStarted else { return }
         softKVM.updateReadiness(readiness)
+    }
+
+    func clearSoftKVMSwitchFailure() {
+        softKVMSwitchFailure = nil
     }
 
     private func applyMouseServiceEnabled(_ enabled: Bool) { windowsCompanion.setMouseServiceEnabled(enabled) }

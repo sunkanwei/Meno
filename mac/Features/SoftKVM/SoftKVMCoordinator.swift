@@ -7,6 +7,7 @@ final class SoftKVMCoordinator {
     typealias StatusHandler = (SoftKVMStatus) -> Void
     typealias MouseServiceHandler = (Bool) -> Void
     typealias EnabledStateHandler = (Bool) -> Void
+    typealias FailureHandler = (String) -> Void
 
     private enum Event {
         case start(enabled: Bool, shortcut: SoftKVMShortcut)
@@ -30,6 +31,7 @@ final class SoftKVMCoordinator {
     let setMouseServiceEnabled: MouseServiceHandler
     private let onStatusChanged: StatusHandler
     let onEnabledStateChanged: EnabledStateHandler
+    let onSwitchFailure: FailureHandler
     private let eventQueue = RunToCompletionEventQueue<Event>()
     var stateMachine = SoftKVMStateMachine()
     var readiness: WindowsMouseReadiness?
@@ -51,13 +53,15 @@ final class SoftKVMCoordinator {
         crossScreenMouse: CrossScreenMouseController,
         setMouseServiceEnabled: @escaping MouseServiceHandler,
         onStatusChanged: @escaping StatusHandler,
-        onEnabledStateChanged: @escaping EnabledStateHandler
+        onEnabledStateChanged: @escaping EnabledStateHandler,
+        onSwitchFailure: @escaping FailureHandler
     ) {
         self.displaySwitch = displaySwitch
         self.crossScreenMouse = crossScreenMouse
         self.setMouseServiceEnabled = setMouseServiceEnabled
         self.onStatusChanged = onStatusChanged
         self.onEnabledStateChanged = onEnabledStateChanged
+        self.onSwitchFailure = onSwitchFailure
         observeSystemState()
     }
 

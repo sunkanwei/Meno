@@ -33,7 +33,7 @@
 - 统一使用 `mac/Scripts/build.sh`、`mac/Scripts/build.sh test`、`mac/Scripts/build.sh release` 和 `mac/Scripts/install.sh`。只有 `project.yml` 变化时才手动运行 `xcodegen`。
 - 会改变应用实际行为、扩展、资源、权限或打包内容的实现，在测试和 Release 构建后默认更新固定安装版并重启；纯文档、纯测试和未完成实验不安装。
 - 安装前核对新旧 Bundle ID 与签名。旧版先移动到 `build/mac/backups/` 再覆盖；失败产物移开后恢复旧版，不用删除作为恢复手段。
-- 任何生成应用或扩展的流程结束前，都必须清除指向 `build/` 等临时位置的扩展登记，只保留 `/Applications/Meno.app` 内正式扩展；重新启动 Finder，并确认实际扩展进程和“新建文档”右键菜单来自正式安装版。
+- 任何生成应用或扩展的流程结束前，都必须清除指向 `build/` 等临时位置的扩展登记，只保留 `/Applications/Meno.app` 内正式扩展，并重新启动 Finder。普通全量测试和与 Finder 无关的安装验收只核对扩展登记与实际进程，不打开 Finder 或弹出右键菜单；只有本次修改涉及 Finder 扩展或右键菜单行为时，才确认“新建文档”菜单来自正式安装版。
 - 软 KVM 横向拓扑只以断开 Philips 前的完整三屏基线为真源；Philips 断开后的两屏坐标不得反推缺失屏幕位置。本机屏幕物理高度换算与 Mac/Windows 路由是独立机制，不得顺带改变。
 - `mac/Vendor/FluxMarkdownRenderer/` 是 Markdown Quick Look 的固定渲染组件。普通任务不得全面读取或修改；`dist/` 作为不透明资源使用。只有用户明确要求渲染问题或证据定位到具体功能时，才读取最小相关源码；不得顺带升级依赖、同步上游、重构或清理。验收时必须确认实际生效的是 Meno 扩展，而不是本机其他 Markdown 预览扩展。
 - Meno 自有界面优先使用系统 SF Symbols；不得混入其他应用图标。采用新符号前确认系统版本和小尺寸可读性。

@@ -57,13 +57,13 @@ final class WindowProbe {
     displays: [DisplayRecord]
   ) throws -> WindowProbeReport {
     var records: [WindowProbeRecord] = []
-    var failedApplications: [String] = []
+    var uninspectableApplications: [ApplicationSnapshot] = []
     for application in applications {
       try Task.checkCancellation()
       let element = AXUIElementCreateApplication(application.processID)
       guard let windows = copyWindows(from: element) else {
         if application.reportsReadFailure {
-          failedApplications.append(application.name)
+          uninspectableApplications.append(application)
         }
         continue
       }
@@ -77,6 +77,22 @@ final class WindowProbe {
             displays: displays
           )
         )
+      }
+    }
+    let failedApplications: [String]
+    if uninspectableApplications.isEmpty {
+      failedApplications = []
+    } else {
+      let onScreenWindowSnapshot = currentOnScreenWindows()
+      let protectedDisplayFrame = displays.first(where: {
+        $0.role == .philips && $0.isActive
+      }).map(displayFrame)
+      failedApplications = uninspectableApplications.compactMap { application in
+        uninspectableApplicationBlocksDisplaySwitch(
+          processID: application.processID,
+          onScreenWindowSnapshot: onScreenWindowSnapshot,
+          protectedDisplayFrame: protectedDisplayFrame
+        ) ? application.name : nil
       }
     }
     records.sort {
@@ -245,6 +261,50 @@ final class WindowProbe {
       return nil
     }
     return value as? [AXUIElement]
+  }
+
+  nonisolated private static func currentOnScreenWindows() -> OnScreenWindowSnapshot? {
+    guard let entries = CGWindowListCopyWindowInfo(
+      [.optionOnScreenOnly, .excludeDesktopElements],
+      kCGNullWindowID
+    ) as? [[String: Any]] else {
+      return nil
+    }
+    var records: [OnScreenWindowRecord] = []
+    var unverifiedProcessIDs: Set<Int32> = []
+    for entry in entries {
+      guard let ownerProcessID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value else {
+        return nil
+      }
+      guard let alpha = (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue else {
+        unverifiedProcessIDs.insert(ownerProcessID)
+        continue
+      }
+      guard alpha > 0 else {
+        continue
+      }
+      guard let bounds = entry[kCGWindowBounds as String] as? [String: NSNumber] else {
+        unverifiedProcessIDs.insert(ownerProcessID)
+        continue
+      }
+      var frame = CGRect.zero
+      guard CGRectMakeWithDictionaryRepresentation(bounds as CFDictionary, &frame),
+        frame.origin.x.isFinite,
+        frame.origin.y.isFinite,
+        frame.width.isFinite,
+        frame.height.isFinite,
+        frame.width > 0,
+        frame.height > 0
+      else {
+        unverifiedProcessIDs.insert(ownerProcessID)
+        continue
+      }
+      records.append(OnScreenWindowRecord(ownerProcessID: ownerProcessID, frame: frame))
+    }
+    return OnScreenWindowSnapshot(
+      windows: records,
+      unverifiedProcessIDs: unverifiedProcessIDs
+    )
   }
 
   nonisolated private static func stringAttribute(

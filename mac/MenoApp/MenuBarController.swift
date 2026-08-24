@@ -107,6 +107,7 @@ final class MenuBarController: NSObject {
     private let model: AppModel
     private let showSettings: () -> Void
     private var crossScreenStatusCancellable: AnyCancellable?
+    private var softKVMFailureCancellable: AnyCancellable?
 
     init(model: AppModel, showSettings: @escaping () -> Void) {
         self.model = model
@@ -137,6 +138,14 @@ final class MenuBarController: NSObject {
                     button?.setAccessibilityLabel(indicator.accessibilityLabel)
                 }
         }
+
+        softKVMFailureCancellable = model.$softKVMSwitchFailure
+            .compactMap { $0 }
+            .sink { [weak self] message in
+                guard let self else { return }
+                self.presentError(title: "无法切换画面与键鼠", message: message)
+                self.model.clearSoftKVMSwitchFailure()
+            }
 
         launchAtLogin.configureDefaultIfNeeded()
     }

@@ -122,10 +122,11 @@ pgrep -x Meno >/dev/null 2>&1 || fail "Meno did not start after installation."
 cat <<EOF
 
 Installation complete.
-Manual acceptance checks:
-  1. In a Finder folder, right-click empty space -> "新建文档" should list
-     "文本文档" and "Markdown 文档".
-  2. The Meno menu bar icon works and features respond.
+Feature-specific manual acceptance checks (not part of build or tests):
+  1. Only when Finder context-menu behavior changed, right-click empty space
+     in a Finder folder and verify "新建文档" lists "文本文档" and
+     "Markdown 文档".
+  2. Only when menu bar behavior changed, verify the affected feature responds.
   3. If the system asks to re-confirm accessibility/input monitoring
      permission, confirm it.
 Backup kept at: ${BACKUP_DIR:-<none>} (delete it yourself when satisfied).
