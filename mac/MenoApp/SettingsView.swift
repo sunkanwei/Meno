@@ -17,6 +17,8 @@ struct SettingsView: View {
                         .tag(SettingsDestination.scrolling)
                     Label("菜单栏", systemImage: "menubar.rectangle")
                         .tag(SettingsDestination.menuBarGlass)
+                    Label("快捷运行", systemImage: "play.square.stack")
+                        .tag(SettingsDestination.quickRun)
                     Label("屏幕衔接", systemImage: "rectangle.2.swap")
                         .tag(SettingsDestination.displayHandoff)
                     Label("合盖行为", systemImage: "laptopcomputer")
@@ -44,6 +46,8 @@ struct SettingsView: View {
                 ScrollingSettingsView(model: model)
             case .menuBarGlass:
                 MenuBarGlassSettingsView(model: model)
+            case .quickRun:
+                QuickRunSettingsView(controller: model.quickRun)
             case .closedLidBehavior:
                 ClosedLidBehaviorSettingsView(model: model)
             case .windowsAgent:
@@ -78,6 +82,7 @@ private enum SettingsDestination: Hashable {
     case permissionsAndNotifications
     case scrolling
     case menuBarGlass
+    case quickRun
     case closedLidBehavior
     case windowsAgent
     case kvm

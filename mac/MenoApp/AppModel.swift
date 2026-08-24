@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     let notifications = AppNotifications()
     let finderFeedback = FinderFeedbackPresenter()
     let windowsAgent = WindowsAgentController()
+    let quickRun = QuickRunController()
 
     @Published private(set) var finderShortcutsStatus: FinderShortcutsStatus = .off
     @Published private(set) var accessibilityGranted = false
@@ -301,6 +302,7 @@ final class AppModel: ObservableObject {
     }
     func stopForApplicationExit() {
         cancelSoftKVMShortcutTest()
+        quickRun.stopForApplicationExit()
         finderFeedback.stop()
         finderAutomationPermissionGeneration &+= 1
         finderAutomationPermissionTask?.cancel()

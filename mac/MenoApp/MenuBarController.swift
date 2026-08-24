@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import QuartzCore
+import SwiftUI
 
 private enum CrossScreenMenuBarIndicator {
     case neutral
@@ -100,6 +101,30 @@ private final class CrossScreenStatusOverlayView: NSView {
     }
 }
 
+private struct QuickRunSuccessView: View {
+    let scriptName: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(scriptName)
+                    .font(.headline)
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(width: 320, alignment: .leading)
+    }
+}
+
 @MainActor
 final class MenuBarController: NSObject {
     private let statusItem: NSStatusItem
@@ -108,6 +133,8 @@ final class MenuBarController: NSObject {
     private let showSettings: () -> Void
     private var crossScreenStatusCancellable: AnyCancellable?
     private var softKVMFailureCancellable: AnyCancellable?
+    private var quickRunPopover: NSPopover?
+    private var quickRunPopoverDismissWorkItem: DispatchWorkItem?
 
     init(model: AppModel, showSettings: @escaping () -> Void) {
         self.model = model
@@ -187,6 +214,14 @@ final class MenuBarController: NSObject {
         )
         windowsAgentItem.toolTip = model.windowsAgent.phase.detail
         menu.addItem(windowsAgentItem)
+
+        let quickRunItem = menuItem(
+            title: "快捷运行",
+            symbolName: "play.circle",
+            action: nil
+        )
+        quickRunItem.submenu = makeQuickRunMenu()
+        menu.addItem(quickRunItem)
         menu.addItem(.separator())
 
         let closedLidModeItem = menuItem(
@@ -247,6 +282,55 @@ final class MenuBarController: NSObject {
             keyEquivalent: "q"
         )
         menu.addItem(quitItem)
+        return menu
+    }
+
+    private func makeQuickRunMenu() -> NSMenu {
+        model.quickRun.refresh()
+        let menu = NSMenu(title: "快捷运行")
+
+        if let issue = model.quickRun.directoryIssue {
+            let item = NSMenuItem(title: issue, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else if model.quickRun.scripts.isEmpty {
+            let item = NSMenuItem(title: "没有可运行的脚本", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else {
+            for script in model.quickRun.scripts {
+                let running = model.quickRun.isRunning(script)
+                let item = NSMenuItem(
+                    title: running ? "\(script.displayName)（正在运行）" : script.displayName,
+                    action: #selector(runQuickScript(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = script.id
+                item.isEnabled = !running
+                item.image = NSImage(
+                    systemSymbolName: running ? "clock" : "play.fill",
+                    accessibilityDescription: item.title
+                )
+                item.image?.isTemplate = true
+                menu.addItem(item)
+            }
+        }
+
+        menu.addItem(.separator())
+        let openDirectoryItem = NSMenuItem(
+            title: "打开脚本目录",
+            action: #selector(openQuickRunDirectory),
+            keyEquivalent: ""
+        )
+        openDirectoryItem.target = self
+        openDirectoryItem.image = NSImage(
+            systemSymbolName: "folder",
+            accessibilityDescription: "打开脚本目录"
+        )
+        openDirectoryItem.image?.isTemplate = true
+        openDirectoryItem.isEnabled = model.quickRun.directoryIssue == nil
+        menu.addItem(openDirectoryItem)
         return menu
     }
 
@@ -316,6 +400,62 @@ final class MenuBarController: NSObject {
 
     @objc private func openSettings() {
         showSettings()
+    }
+
+    @objc private func runQuickScript(_ sender: NSMenuItem) {
+        guard let scriptID = sender.representedObject as? String,
+              let script = model.quickRun.scripts.first(where: { $0.id == scriptID }) else {
+            presentError(title: "无法运行脚本", message: "脚本已经移动或不再可用。")
+            return
+        }
+        let started = model.quickRun.run(script) { [weak self] result in
+            guard let self else { return }
+            if result.succeeded {
+                self.presentQuickRunSuccess(result)
+            } else {
+                self.presentError(
+                    title: "无法运行“\(result.script.displayName)”",
+                    message: String(result.detail.prefix(8_000))
+                )
+            }
+        }
+        if !started {
+            presentError(title: "无法运行脚本", message: "脚本已经在运行或不再可用。")
+        }
+    }
+
+    @objc private func openQuickRunDirectory() {
+        if !NSWorkspace.shared.open(model.quickRun.directoryURL) {
+            presentError(title: "无法打开脚本目录", message: "目录已经移动或不再可用。")
+        }
+    }
+
+    private func presentQuickRunSuccess(_ result: QuickScriptRunResult) {
+        guard let button = statusItem.button else { return }
+        quickRunPopoverDismissWorkItem?.cancel()
+        quickRunPopover?.close()
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = NSHostingController(
+            rootView: QuickRunSuccessView(
+                scriptName: result.script.displayName,
+                message: result.summary
+            )
+        )
+        quickRunPopover = popover
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+
+        let workItem = DispatchWorkItem { [weak self, weak popover] in
+            popover?.close()
+            if self?.quickRunPopover === popover {
+                self?.quickRunPopover = nil
+                self?.quickRunPopoverDismissWorkItem = nil
+            }
+        }
+        quickRunPopoverDismissWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: workItem)
     }
 
     @objc private func toggleSoftKVM() {

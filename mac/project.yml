@@ -53,6 +53,7 @@ targets:
       - path: Features/SoftKVM
       - path: Features/WakeOnLAN
       - path: Features/WindowsAgent
+      - path: Features/QuickRun
       - path: Platform/Accessibility
       - path: Platform/EventTap
       - path: Platform/Finder
@@ -222,6 +223,10 @@ targets:
       - path: Features/WakeOnLAN/WakeOnLAN.swift
       - path: Features/WindowsAgent/CodexMCPConfig.swift
       - path: Features/WindowsAgent/WindowsAgentModels.swift
+      - path: MenoApp/AppPreferenceKey.swift
+      - path: Features/QuickRun/QuickRunController.swift
+      - path: Features/QuickRun/QuickScript.swift
+      - path: Features/QuickRun/QuickScriptRunner.swift
       - path: Platform/Power/ClosedLidShutdownContract.swift
       - path: Platform/Power/ClosedLidShutdownValidation.swift
       - path: Helpers/MenoPowerHelper/PowerModeConfiguration.swift

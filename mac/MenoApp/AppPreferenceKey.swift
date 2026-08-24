@@ -16,6 +16,7 @@ enum AppPreferenceKey {
     static let microphoneSharingEnabled = "MicrophoneSharingEnabled"
     static let microphoneActivationKey = "MicrophoneActivationKey"
     static let crossScreenMouseEnabled = "CrossScreenMouseEnabled"
+    static let quickRunDirectoryPath = "QuickRunDirectoryPath"
 
     // These legacy strings are a persistent settings compatibility boundary.
     static let displayHandoffEnabled = "LocalDisplayHandoffEnabled"
