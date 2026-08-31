@@ -44,6 +44,8 @@ final class AppModel: ObservableObject {
     @Published var menuBarGlassEnabled: Bool
     @Published var scrollingEnabled: Bool
     @Published var activityMonitorShortcutEnabled: Bool
+    @Published var mouseVoiceShortcutEnabled: Bool
+    @Published private(set) var mouseVoiceShortcutStatus: MouseVoiceShortcutStatus = .off
     @Published var closedLidMode: ClosedLidMode = .keepRunning
     @Published var clipboardSharingEnabled: Bool
     @Published var microphoneSharingEnabled: Bool
@@ -134,6 +136,9 @@ final class AppModel: ObservableObject {
         },
         onMicrophoneActivationChanged: { [weak self] active in
             self?.setMicrophoneActivationHeld(active)
+        },
+        onMouseVoiceStatusChanged: { [weak self] status in
+            self?.mouseVoiceShortcutStatus = status
         }
     )
 
@@ -186,6 +191,7 @@ final class AppModel: ObservableObject {
     private func setMicrophoneActivationHeld(_ held: Bool) { windowsCompanion.setMicrophoneActivationHeld(held) }
 
     init() {
+        mouseVoiceShortcutEnabled = defaults.bool(forKey: AppPreferenceKey.mouseVoiceShortcutEnabled)
         finderShortcutsEnabled = defaults.boolValue(
             forKey: AppPreferenceKey.finderShortcutsEnabled,
             default: true
@@ -292,6 +298,7 @@ final class AppModel: ObservableObject {
         closedLidShutdown.refreshHelperStatus()
         closedLidBehavior.setMode(closedLidMode)
         applyDisplayHandoffConfiguration()
+        crossScreenMouse.setMouseVoiceShortcutEnabled(mouseVoiceShortcutEnabled)
         crossScreenMouse.setMicrophoneActivationKey(microphoneActivationKey)
         windowsCompanion.setMicrophoneEnabled(microphoneSharingEnabled)
         windowsCompanion.setClipboardEnabled(clipboardSharingEnabled)

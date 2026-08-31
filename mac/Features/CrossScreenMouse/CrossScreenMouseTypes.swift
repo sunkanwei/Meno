@@ -28,6 +28,7 @@ enum CrossScreenMouseStatus: Equatable {
 
 struct CrossScreenMouseState {
     var enabled = false
+    var mouseVoiceShortcut = MouseVoiceShortcut()
     var windowsRouteEnabled = false
     var softKVMTopologyPlan: SoftKVMTopologyPlan?
     var windowsGeometry: WindowsDisplayHandoffGeometry?

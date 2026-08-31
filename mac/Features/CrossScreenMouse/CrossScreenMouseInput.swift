@@ -1,8 +1,20 @@
 @preconcurrency import CoreGraphics
 
 extension CrossScreenMouseController {
-    func handle(type: CGEventType, event: CGEvent) -> Bool {
-        handleInputEvent(type: type, event: event)
+    func handle(type: CGEventType, event: CGEvent, kind: CrossScreenInputTapKind) -> Bool {
+        if event.getIntegerValueField(.eventSourceUserData) == MouseVoiceShortcut.eventMarker {
+            return false
+        }
+        if kind == .hidInput {
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                cancelMouseVoiceShortcut()
+            } else if runtimeLock.withCriticalSection({
+                handleMouseVoiceShortcutLocked(type: type, event: event)
+            }) {
+                return true
+            }
+        }
+        return handleInputEvent(type: type, event: event)
     }
 
     private func handleInputEvent(type: CGEventType, event: CGEvent) -> Bool {
@@ -100,6 +112,7 @@ extension CrossScreenMouseController {
         location: CGPoint,
         state: inout CrossScreenMouseState
     ) -> CrossScreenMouseAction {
+        guard state.enabled else { return .none }
         state.updateLocalButtons(type: type, event: event)
         let deltaX = movementDeltaX(event)
         switch state.entryGate.decision() {
@@ -143,7 +156,8 @@ extension CrossScreenMouseController {
         deltaX: CGFloat,
         state: inout CrossScreenMouseState
     ) -> CrossScreenMouseAction {
-        guard state.windowsRouteEnabled,
+        guard !state.mouseVoiceShortcut.active,
+              state.windowsRouteEnabled,
               let availableRoute = state.availableRoute else {
             return .none
         }

@@ -158,6 +158,13 @@ extension AppModel {
         defaults.set(enabled, forKey: AppPreferenceKey.scrollingEnabled)
         scrolling.setEnabled(enabled)
     }
+
+    func setMouseVoiceShortcutEnabled(_ enabled: Bool) {
+        mouseVoiceShortcutEnabled = enabled
+        defaults.set(enabled, forKey: AppPreferenceKey.mouseVoiceShortcutEnabled)
+        crossScreenMouse.setMouseVoiceShortcutEnabled(enabled)
+    }
+
     func setActivityMonitorShortcutEnabled(_ enabled: Bool) {
         activityMonitorShortcutEnabled = enabled
         defaults.set(enabled, forKey: AppPreferenceKey.activityMonitorShortcutEnabled)

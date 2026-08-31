@@ -187,6 +187,7 @@ targets:
       - path: Features/FinderShortcuts/KeyboardShortcut.swift
       - path: Features/FinderShortcuts/PasteboardCopyPoller.swift
       - path: Features/ClosedLidBehavior/ClosedLidBehaviorPolicy.swift
+      - path: Features/SystemShortcuts/MouseVoiceShortcut.swift
       - path: Features/Scrolling/ScrollDirectionPolicy.swift
       - path: Features/ClipboardSharing/ClipboardProtocol.swift
       - path: Features/ClipboardSharing/ConnectionReadinessGate.swift

@@ -9,6 +9,7 @@ enum AppPreferenceKey {
     static let finderMoveToTrashEnabled = "FinderMoveToTrashEnabled"
     static let menuBarGlassEnabled = "MenuBarGlassEnabled"
     static let scrollingEnabled = "ScrollingEnabled"
+    static let mouseVoiceShortcutEnabled = "MouseVoiceShortcutEnabled"
     static let activityMonitorShortcutEnabled = "ActivityMonitorShortcutEnabled"
     static let pasteSoundEnabled = "ClipboardPasteSoundEnabled"
     static let closedLidMode = "ClosedLidMode"

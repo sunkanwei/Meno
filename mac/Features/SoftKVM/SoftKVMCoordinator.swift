@@ -186,6 +186,7 @@ final class SoftKVMCoordinator {
             applyRouteEnabled(false)
 
         case let .systemSuspended(systemSleeping, sessionInactive):
+            crossScreenMouse.setMouseVoiceSystemAvailable(false)
             delayedRefreshGeneration &+= 1
             delayedRefreshTask?.cancel()
             delayedRefreshTask = nil
@@ -207,6 +208,7 @@ final class SoftKVMCoordinator {
                     sessionBecameActive: sessionBecameActive
                 )
             }
+            crossScreenMouse.setMouseVoiceSystemAvailable(stateMachine.routeMayBeEnabled)
             scheduleRouteRefresh(after: .seconds(1))
 
         case .screenParametersChanged:

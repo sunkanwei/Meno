@@ -94,6 +94,7 @@ extension CrossScreenMouseController {
 
     @MainActor
     func prepareForSystemTransition(forceStopMicrophone: Bool = false) {
+        cancelMouseVoiceShortcut()
         disableRouteAndResetShortcutCapture()
         recoverLocalImmediately(
             sendRelease: true,
