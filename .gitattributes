@@ -9,6 +9,9 @@
 *.toml text eol=lf
 *.json text eol=lf
 
+# Bundled renderer output may contain significant whitespace inside generated strings.
+/mac/Features/MarkdownPreviewRenderer/dist/** -whitespace
+
 /windows/*.ps1 text eol=crlf
 /windows/**/*.ps1 text eol=crlf
 /windows/**/*.cmd text eol=crlf

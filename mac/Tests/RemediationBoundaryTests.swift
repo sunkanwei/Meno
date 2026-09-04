@@ -7,10 +7,10 @@ final class RemediationBoundaryTests: XCTestCase {
         let repositoryURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let rendererURL = repositoryURL.appendingPathComponent("Vendor/FluxMarkdownRenderer")
+        let rendererURL = repositoryURL.appendingPathComponent("Features/MarkdownPreviewRenderer")
         let expectedPolicy = "default-src 'none'; script-src 'self' 'unsafe-eval'; "
-            + "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: local-md:; "
-            + "font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' blob:; "
+            + "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            + "font-src 'self' data:; connect-src 'none'; worker-src 'self' blob:; "
             + "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"
 
         for relativePath in ["index.html", "dist/index.html"] {

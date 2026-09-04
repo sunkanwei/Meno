@@ -30,4 +30,5 @@ Desktop.ini
 
 # Shared local build products and caches
 /build/
+**/node_modules/
 /参考/

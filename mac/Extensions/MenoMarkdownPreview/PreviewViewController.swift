@@ -11,12 +11,16 @@ final class PreviewViewController: NSViewController,
 {
     private struct PendingPreview {
         let content: String
-        let documentURL: URL
-        let imageData: [String: String]
         let renderVersion: Int
     }
 
     private static let maxPreviewBytes = 500 * 1024
+    private static let glassTint = NSColor(
+        srgbRed: 0.180,
+        green: 0.204,
+        blue: 0.247,
+        alpha: 0.28
+    )
     private static let transparentPageStyle = """
     for (const element of [
         document.documentElement,
@@ -33,7 +37,6 @@ final class PreviewViewController: NSViewController,
     )
     private var webView: InteractivePreviewWebView!
     private var rendererHandler: RendererBundleSchemeHandler?
-    private var localFileHandler: LocalFileSchemeHandler?
     private var currentPreview: PendingPreview?
     private var documentMonitor: MarkdownDocumentMonitor?
     private var securityScopedURL: URL?
@@ -54,6 +57,13 @@ final class PreviewViewController: NSViewController,
         materialView.material = .underWindowBackground
         materialView.blendingMode = .behindWindow
         materialView.state = .active
+
+        let tintView = NSView(frame: materialView.bounds)
+        tintView.autoresizingMask = [.width, .height]
+        tintView.wantsLayer = true
+        tintView.layer?.backgroundColor = Self.glassTint.cgColor
+        materialView.addSubview(tintView)
+
         view = materialView
         preferredContentSize = initialSize
     }
@@ -82,7 +92,6 @@ final class PreviewViewController: NSViewController,
         cancelPendingRender()
         currentPreview = nil
         renderedPreviewVersion = nil
-        localFileHandler?.configure(allowedURLs: [])
         cleanupWebView()
         stopAccessingCurrentDocument()
         super.viewWillDisappear()
@@ -117,7 +126,6 @@ final class PreviewViewController: NSViewController,
         cancelPendingRender()
         currentPreview = nil
         renderedPreviewVersion = nil
-        localFileHandler?.configure(allowedURLs: [])
         securityScopedURL = url
         securityScopedAccessActive = url.startAccessingSecurityScopedResource()
         preferredContentSize = constrainedToScreen(windowState.initialSize())
@@ -140,7 +148,7 @@ final class PreviewViewController: NSViewController,
         startMonitoringDocument(at: url)
         do {
             let content = try readMarkdown(at: url)
-            stagePreview(content: content, documentURL: url)
+            stagePreview(content: content)
             handler(nil)
         } catch {
             stopAccessingCurrentDocument()
@@ -232,10 +240,6 @@ final class PreviewViewController: NSViewController,
         userContentController.add(WeakScriptMessageHandler(delegate: self), name: "wheelZoom")
         configuration.userContentController = userContentController
 
-        let localHandler = LocalFileSchemeHandler()
-        configuration.setURLSchemeHandler(localHandler, forURLScheme: "local-md")
-        localFileHandler = localHandler
-
         guard let rendererHandler = RendererBundleSchemeHandler(bundle: Bundle(for: Self.self)) else {
             throw PreviewError.rendererResourceUnavailable
         }
@@ -263,25 +267,9 @@ final class PreviewViewController: NSViewController,
         let version = currentPreview.renderVersion
         activeRenderVersion = version
         startRenderTimeout(renderVersion: version)
-        let options: [String: Any] = [
-            "baseUrl": currentPreview.documentURL.deletingLastPathComponent().path,
-            "theme": "system",
-            "imageData": currentPreview.imageData,
-            "fontSize": 14,
-            "codeHighlightTheme": "default",
-            "enableMermaid": true,
-            "enableKatex": true,
-            "enableTypst": true,
-            "enableEmoji": true,
-            "context": "quicklook",
-            "uiLanguage": "system",
-            "showLineNumbers": false,
-            "renderVersion": currentPreview.renderVersion
-        ]
-
         webView.callAsyncJavaScript(
-            "return window.renderMarkdown(content, options);",
-            arguments: ["content": currentPreview.content, "options": options],
+            "return window.renderMarkdown(content);",
+            arguments: ["content": currentPreview.content],
             in: nil,
             in: .page
         ) { [weak self] result in
@@ -299,17 +287,10 @@ final class PreviewViewController: NSViewController,
         }
     }
 
-    private func stagePreview(content: String, documentURL: URL) {
+    private func stagePreview(content: String) {
         renderVersion += 1
-        let imageResources = MarkdownImageDataCollector.collect(
-            from: documentURL,
-            markdown: content
-        )
-        localFileHandler?.configure(allowedURLs: imageResources.allowedFileURLs)
         currentPreview = PendingPreview(
             content: content,
-            documentURL: documentURL,
-            imageData: imageResources.dataURLs,
             renderVersion: renderVersion
         )
         renderedPreviewVersion = nil
@@ -341,7 +322,7 @@ final class PreviewViewController: NSViewController,
                 cleanupWebView()
                 try configureWebView()
             }
-            stagePreview(content: content, documentURL: url)
+            stagePreview(content: content)
         } catch {
             logger.error(
                 "Unable to reload changed Markdown document: \(error.localizedDescription, privacy: .public)"
@@ -365,7 +346,6 @@ final class PreviewViewController: NSViewController,
         cancelPendingRender()
         currentPreview = nil
         renderedPreviewVersion = nil
-        localFileHandler?.configure(allowedURLs: [])
         stopAccessingCurrentDocument()
         cleanupWebView()
         presentFallback(message)
@@ -519,7 +499,6 @@ final class PreviewViewController: NSViewController,
         rendererReady = false
         guard let webView else {
             rendererHandler = nil
-            localFileHandler = nil
             return
         }
         webView.stopLoading()
@@ -531,6 +510,5 @@ final class PreviewViewController: NSViewController,
         webView.removeFromSuperview()
         self.webView = nil
         rendererHandler = nil
-        localFileHandler = nil
     }
 }

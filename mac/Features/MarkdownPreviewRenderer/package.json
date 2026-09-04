@@ -1,0 +1,31 @@
+{
+  "name": "meno-markdown-preview-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build --logLevel warn && sed -i '' 's/ crossorigin//g' dist/index.html",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dompurify": "3.4.5",
+    "katex": "0.16.47",
+    "marked": "16.4.2",
+    "marked-highlight": "2.2.4",
+    "mermaid": "11.15.0",
+    "prismjs": "1.30.0",
+    "vega-embed": "7.1.0"
+  },
+  "devDependencies": {
+    "@types/prismjs": "1.26.5",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.0",
+    "vitest": "3.2.4"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true,
+    "fsevents@2.3.3": false
+  }
+}

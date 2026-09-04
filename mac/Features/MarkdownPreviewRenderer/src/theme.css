@@ -1,0 +1,420 @@
+/*
+ * Static preview styling derived from MarkText 0.19.1 / Muya.
+ * Meno intentionally keeps the page transparent so macOS supplies the glass background.
+ */
+
+@font-face {
+  font-family: 'Open Sans';
+  src: url('./fonts/OpenSans-Regular.woff') format('woff');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  src: url('./fonts/OpenSans-SemiBold.woff') format('woff');
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  src: url('./fonts/OpenSans-Bold.woff') format('woff');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  src: url('./fonts/OpenSans-Italic.woff') format('woff');
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  src: url('./fonts/DejaVuSansMono.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'DejaVu Sans Mono';
+  src: url('./fonts/DejaVuSansMono-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  --theme-color: rgb(33 181 111);
+  --theme-color-soft: rgb(33 181 111 / 18%);
+  --editor-color: rgb(0 0 0 / 70%);
+  --editor-color-80: rgb(0 0 0 / 80%);
+  --editor-color-60: rgb(0 0 0 / 60%);
+  --editor-color-50: rgb(0 0 0 / 50%);
+  --editor-color-30: rgb(0 0 0 / 30%);
+  --editor-color-10: rgb(0 0 0 / 10%);
+  --editor-color-04: rgb(0 0 0 / 4%);
+  --code-background: rgb(255 255 255 / 38%);
+  --panel-background: rgb(255 255 255 / 34%);
+  --panel-background-strong: rgb(255 255 255 / 52%);
+  --selection-color: rgb(0 0 0 / 10%);
+  --checkbox-background: #fff;
+  --error-color: #c62828;
+  --scrollbar-color: rgb(0 0 0 / 24%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --theme-color: #409eff;
+    --theme-color-soft: rgb(64 158 255 / 18%);
+    --editor-color: rgb(255 255 255 / 70%);
+    --editor-color-80: rgb(255 255 255 / 80%);
+    --editor-color-60: rgb(255 255 255 / 60%);
+    --editor-color-50: rgb(255 255 255 / 50%);
+    --editor-color-30: rgb(255 255 255 / 30%);
+    --editor-color-10: rgb(255 255 255 / 12%);
+    --editor-color-04: rgb(255 255 255 / 5%);
+    --code-background: rgb(66 67 68 / 64%);
+    --panel-background: rgb(35 35 35 / 46%);
+    --panel-background-strong: rgb(44 44 44 / 66%);
+    --selection-color: rgb(102 177 255 / 30%);
+    --checkbox-background: #242424;
+    --error-color: #ff8a80;
+    --scrollbar-color: rgb(255 255 255 / 24%);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html,
+body {
+  min-width: 200px;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  color: var(--editor-color);
+  font-family: 'Open Sans', 'Clear Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif, 'Apple Color Emoji';
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+::selection {
+  color: var(--editor-color);
+  background: var(--selection-color);
+}
+
+::-webkit-scrollbar { width: 12px; height: 12px; background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-color); border: 3px solid transparent; border-radius: 8px; background-clip: padding-box; }
+
+#loading-status {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  color: var(--editor-color-50);
+  font-size: 14px;
+  transform: translate(-50%, -50%);
+}
+
+#loading-status.hidden { display: none; }
+
+.markdown-body {
+  width: 100%;
+  max-width: 750px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 20px 50px 100px;
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+
+.markdown-body.ready { opacity: 1; }
+
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body > :last-child { margin-bottom: 0; }
+
+p,
+blockquote,
+ul,
+ol,
+dl,
+table,
+figure {
+  margin: 0.5em 0;
+  padding: 0;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 1rem 0;
+  padding: 0;
+  color: var(--editor-color-80);
+  font-weight: 700;
+  line-height: 1.4;
+  scroll-margin-top: 1em;
+}
+
+h1 { font-size: 1.875em; }
+h2 { font-size: 1.5em; }
+h3 { font-size: 1.375em; }
+h4 { font-size: 1.25em; }
+h5 { font-size: 1.125em; }
+h6 { font-size: 1em; }
+
+strong { color: var(--editor-color-80); font-weight: 700; }
+em { color: var(--editor-color); }
+del { color: var(--editor-color-50); }
+mark { color: inherit; background: var(--theme-color-soft); border-radius: 2px; padding: 0 2px; }
+
+a {
+  color: var(--theme-color);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a:hover { text-decoration: underline; }
+
+blockquote {
+  position: relative;
+  padding: 0 30px;
+  color: var(--editor-color-50);
+}
+
+blockquote::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 15px;
+  width: 2px;
+  background: var(--theme-color);
+  border-radius: 3px;
+  content: '';
+}
+
+blockquote blockquote { padding-right: 0; }
+
+ul, ol { padding-left: 30px; }
+li > ol, li > ul { margin: 0; }
+li > p { margin: 0; padding: 0; }
+
+ul:has(> li > input[type='checkbox']) { padding-left: 1em; }
+
+li:has(> input[type='checkbox']) {
+  position: relative;
+  padding-left: 0.3em;
+  color: var(--editor-color);
+  list-style: none;
+}
+
+li:has(> input[type='checkbox']:checked) { color: var(--editor-color-50); }
+
+li > input[type='checkbox'] {
+  position: absolute;
+  top: 0.3em;
+  left: -23px;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+}
+
+li > input[type='checkbox']::before {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  display: block;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  background: var(--checkbox-background);
+  border: 2px solid var(--editor-color-50);
+  border-radius: 50%;
+  content: '';
+}
+
+li > input[type='checkbox']::after {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  display: block;
+  box-sizing: content-box;
+  width: 8px;
+  height: 4px;
+  border: 2px solid var(--checkbox-background);
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg) scale(0);
+  transform-origin: bottom;
+  content: '';
+}
+
+li > input[type='checkbox']:checked::before {
+  background: var(--theme-color);
+  border-color: var(--theme-color);
+}
+
+li > input[type='checkbox']:checked::after { transform: rotate(-45deg) scale(1); }
+
+hr {
+  height: 1px;
+  margin: 1.2em 0;
+  background: var(--editor-color-10);
+  border: 0;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: 'DejaVu Sans Mono', 'Source Code Pro', 'SFMono-Regular', Consolas, monospace;
+}
+
+:not(pre) > code {
+  margin: 0;
+  padding: 0.2em 0.4em;
+  color: var(--editor-color);
+  font-size: 0.8em;
+  background: var(--code-background);
+  border-radius: 3px;
+}
+
+pre {
+  margin: 1.5em 0 0.5em;
+  padding: 1em;
+  overflow: auto;
+  color: var(--editor-color-60);
+  font-size: 0.9em;
+  line-height: 1.6;
+  white-space: pre;
+  word-break: normal;
+  background: var(--code-background);
+  border: 1px solid var(--editor-color-10);
+  border-radius: 3px;
+  tab-size: 4;
+}
+
+pre code { color: inherit; font-size: inherit; background: transparent; }
+
+.front-matter {
+  color: var(--editor-color-50);
+  white-space: pre-wrap;
+}
+
+table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+th, td {
+  min-width: 5em;
+  padding: 6px 13px;
+  text-align: left;
+  border: 1px solid var(--editor-color-10);
+}
+
+th { color: var(--editor-color-80); font-weight: 700; background: var(--panel-background); }
+tbody tr:nth-child(2n) { background: var(--editor-color-04); }
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.5em auto;
+  border-radius: 3px;
+}
+
+img[data-align='left'] { margin-left: 0; }
+img[data-align='right'] { margin-right: 0; }
+
+.image-unavailable {
+  display: block;
+  width: fit-content;
+  margin: 0.5em 0;
+  padding: 6px 10px;
+  color: var(--editor-color-50);
+  font-size: 0.875em;
+  background: var(--panel-background);
+  border: 1px solid var(--editor-color-10);
+  border-radius: 3px;
+}
+
+.katex-display { margin: 0.5em 0; padding: 0.5em 0; overflow-x: auto; overflow-y: hidden; }
+
+.diagram {
+  margin: 1em 0;
+  padding: 0.5em;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.diagram svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+
+.diagram-error,
+.render-error {
+  margin: 1em 0;
+  padding: 0.75em 1em;
+  color: var(--error-color);
+  background: var(--panel-background-strong);
+  border: 1px solid color-mix(in srgb, var(--error-color) 35%, transparent);
+  border-radius: 4px;
+}
+
+.footnotes {
+  margin-top: 2em;
+  padding-top: 1em;
+  color: var(--editor-color-60);
+  font-size: 0.9em;
+  border-top: 1px solid var(--editor-color-10);
+}
+
+.footnotes ol { padding-left: 1.6em; }
+.footnote-backref { margin-left: 0.3em; }
+
+/* Prism token colors used by MarkText's static renderer. */
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: slategray; }
+.token.punctuation { color: #777; }
+.token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #905; }
+.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #568000; }
+.token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #8a5f2c; }
+.token.atrule, .token.attr-value, .token.keyword { color: #0072a8; }
+.token.function, .token.class-name { color: #d13f61; }
+.token.regex, .token.important, .token.variable { color: #d47a00; }
+
+@media (prefers-color-scheme: dark) {
+  .token.punctuation { color: #f8f8f2; }
+  .token.property, .token.tag, .token.constant, .token.symbol { color: #f92672; }
+  .token.boolean, .token.number { color: #ae81ff; }
+  .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #a6e22e; }
+  .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #e67e65; }
+  .token.atrule, .token.attr-value, .token.function, .token.class-name { color: #e6db74; }
+  .token.keyword { color: #66d9ef; }
+  .token.regex, .token.important, .token.variable { color: #fd971f; }
+}
+
+@media (max-width: 680px) {
+  .markdown-body { padding: 20px 22px 64px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body { transition: none; }
+  html { scroll-behavior: auto; }
+}

@@ -147,7 +147,7 @@ targets:
           - Info.plist
           - MenoMarkdownPreview.entitlements
       - path: Platform/QuickLook/MarkdownPreviewWindowPreferences.swift
-      - path: Vendor/FluxMarkdownRenderer/dist
+      - path: Features/MarkdownPreviewRenderer/dist
         name: MarkdownRenderer
         type: folder
     dependencies:
@@ -241,9 +241,7 @@ targets:
       - path: Platform/Finder/FinderContextMenuPreferences.swift
       - path: Platform/Finder/FinderProcess.swift
       - path: Platform/Finder/TerminalApplicationDetector.swift
-      - path: Extensions/MenoMarkdownPreview/MarkdownImageDataCollector.swift
       - path: Extensions/MenoMarkdownPreview/MarkdownDocumentMonitor.swift
-      - path: Extensions/MenoMarkdownPreview/LocalFileSchemeHandler.swift
       - path: Extensions/MenoMarkdownPreview/MarkdownPreviewError.swift
       - path: Extensions/MenoMarkdownPreview/MarkdownPreviewWindowState.swift
       - path: Platform/QuickLook/MarkdownPreviewWindowPreferences.swift
