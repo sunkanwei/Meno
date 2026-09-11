@@ -35,6 +35,8 @@ targets:
     platform: macOS
     productName: Meno
     sources:
+      - path: ../THIRD_PARTY_NOTICES.md
+        buildPhase: resources
       - path: MenoApp
         excludes:
           - Info.plist
@@ -47,6 +49,7 @@ targets:
       - path: Features/Scrolling
       - path: Features/SystemShortcuts
       - path: Features/ClosedLidBehavior
+      - path: Features/LidFold
       - path: Features/ClipboardSharing
       - path: Features/MicrophoneSharing
       - path: Features/CrossScreenMouse
@@ -183,6 +186,10 @@ targets:
     platform: macOS
     sources:
       - path: Tests
+      - path: Features/LidFold/LidFoldSensor.swift
+      - path: Features/LidFold/LidFoldCapture.swift
+      - path: Features/LidFold/LidFoldRenderer.swift
+      - path: Features/LidFold/LidFoldShader.swift
       - path: Features/FinderShortcuts/CutStateMachine.swift
       - path: Features/FinderShortcuts/KeyboardShortcut.swift
       - path: Features/FinderShortcuts/PasteboardCopyPoller.swift
