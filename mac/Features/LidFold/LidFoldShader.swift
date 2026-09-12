@@ -16,6 +16,66 @@ enum LidFoldShader {
         return v;
     }
 
+    float3 encodeSRGB(float3 color) {
+        color = max(color, 0.0f);
+        return select(1.055f*pow(color, float3(1.0f/2.4f))-0.055f,
+                      12.92f*color, color <= 0.0031308f);
+    }
+
+    kernel void foldLinearize(texture2d<float, access::sample> source [[texture(0)]],
+                             texture2d<half, access::write> target [[texture(1)]],
+                             uint2 pixel [[thread_position_in_grid]]) {
+        if (pixel.x >= target.get_width() || pixel.y >= target.get_height()) return;
+        constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::nearest);
+        float2 uv = (float2(pixel)+0.5f)/float2(target.get_width(),target.get_height());
+        target.write(half4(half3(source.sample(s,uv).rgb), 1.0h), pixel);
+    }
+
+    // Positive cubic B-spline weights keep enlarged blur levels smooth without
+    // ringing. Pair adjacent weights to evaluate sixteen texels in four reads.
+    float4 cubicWeights(float f) {
+        float g = 1.0f-f;
+        return float4(g*g*g, 4.0f-6.0f*f*f+3.0f*f*f*f,
+                      1.0f+3.0f*f+3.0f*f*f-3.0f*f*f*f, f*f*f)/6.0f;
+    }
+
+    float3 sampleCubic(texture2d<float> texture, float2 uv, uint mip) {
+        constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::nearest);
+        float2 size = float2(texture.get_width(mip), texture.get_height(mip));
+        float2 position = uv*size-0.5f;
+        float2 base = floor(position);
+        float4 x = cubicWeights(fract(position.x));
+        float4 y = cubicWeights(fract(position.y));
+        float2 gx = float2(x.x+x.y, x.z+x.w);
+        float2 gy = float2(y.x+y.y, y.z+y.w);
+        float2 px = (base.x+float2(-0.5f+x.y/gx.x, 1.5f+x.w/gx.y))/size.x;
+        float2 py = (base.y+float2(-0.5f+y.y/gy.x, 1.5f+y.w/gy.y))/size.y;
+        float3 top = mix(texture.sample(s, float2(px.x,py.x), level(mip)).rgb,
+                         texture.sample(s, float2(px.y,py.x), level(mip)).rgb, gx.y);
+        float3 bottom = mix(texture.sample(s, float2(px.x,py.y), level(mip)).rgb,
+                            texture.sample(s, float2(px.y,py.y), level(mip)).rgb, gx.y);
+        return mix(top, bottom, gy.y);
+    }
+
+    float3 sampleBlur(texture2d<float> pyramid, float2 uv, float sigma) {
+        constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
+        // Match blur variance rather than interpolating its logarithm. Include
+        // cubic reconstruction's 1/3-texel variance when selecting pyramid levels.
+        float variance = sigma*sigma;
+        float lod = clamp(0.5f*log2(1.0f+max(0.0f,variance-1.0f/3.0f)/0.75f),
+                          0.0f, float(pyramid.get_num_mip_levels()-1));
+        uint lower = uint(floor(lod));
+        uint upper = min(lower+1, pyramid.get_num_mip_levels()-1);
+        float lowVariance = 0.75f*exp2(2.0f*float(lower))-5.0f/12.0f;
+        float highVariance = 0.75f*exp2(2.0f*float(upper))-5.0f/12.0f;
+        float blend = clamp((variance-lowVariance)/max(highVariance-lowVariance,0.0001f),0.0f,1.0f);
+        float3 color = mix(sampleCubic(pyramid,uv,lower), sampleCubic(pyramid,uv,upper),blend);
+        // Preserve a continuous transition from the unblurred image near zero.
+        if (variance < 1.0f/3.0f)
+            color = mix(pyramid.sample(s,uv,level(0)).rgb,color,variance*3.0f);
+        return color;
+    }
+
     // Separable binomial filter [1,4,6,4,1]/16, evaluated with nine
     // bilinear reads while halving both dimensions. No random or time-based taps.
     kernel void foldDownsample(texture2d<float, access::sample> source [[texture(0)]],
@@ -47,23 +107,20 @@ enum LidFoldShader {
         float expansion = 1.0f+p*(0.12f+mix(0.30f,0.66f,clamp(u.perspective,0.0f,1.0f))*height);
         float2 uv = float2(0.5f+(v.uv.x-0.5f)/expansion,1.0f-height/expansion);
 
-        // Sigma is measured as a fraction of image height, matching the preview
-        // and Retina desktop. The hinge stays more focused, but not pin-sharp.
-        float focus = pow(p,0.7f);
-        float spread = 0.12f+0.88f*pow(height,1.15f);
-        float sigmaUV = clamp(u.blur,0.0f,1.0f)*0.052f*focus*spread;
+        // Sigma is measured as a fraction of image height on the Retina desktop. The hinge stays more focused, but not pin-sharp.
+        float focus = smoothstep(0.0f,1.0f,p);
+        float spread = 0.08f+0.92f*smoothstep(0.0f,1.0f,height);
+        float sigmaUV = clamp(u.blur,0.0f,1.0f)*0.045f*focus*spread;
         float sigma = sigmaUV*float(desktop.get_height());
-        // Each 2x level contributes 1.25 source-pixel variance per axis.
-        float lod = 0.5f*log2(1.0f+sigma*sigma*2.4f);
-        lod = min(lod,float(pyramid.get_num_mip_levels()-1));
-        float3 color = pyramid.sample(s,uv,level(lod)).rgb;
+        float3 color = u.blur > 0.0f ? encodeSRGB(sampleBlur(pyramid,uv,sigma))
+                                     : desktop.sample(s,uv).rgb;
         // Feather in display coordinates: zooming the source beyond its borders
         // must not remove the dark surround. Side widths use height units to keep
         // the same optical width on different display aspect ratios.
         float softness = clamp(u.blur,0.0f,1.0f);
-        float topWidth = p*(0.075f+0.15f*softness)+1.5f*sigmaUV;
-        float sideWidth = (p*(0.055f+0.12f*softness)+1.5f*sigmaUV)*u.size.y/u.size.x;
-        float bottomWidth = p*(0.012f+0.025f*softness)+0.5f*sigmaUV;
+        float topWidth = p*(0.04f+0.075f*softness)+sigmaUV;
+        float sideWidth = (p*(0.018f+0.045f*softness)+0.65f*sigmaUV)*u.size.y/u.size.x;
+        float bottomWidth = p*(0.006f+0.012f*softness)+0.25f*sigmaUV;
         float mask = smoothstep(0.0f,topWidth,v.uv.y)*smoothstep(0.0f,bottomWidth,height)
                    * smoothstep(0.0f,sideWidth,v.uv.x)*smoothstep(0.0f,sideWidth,1.0f-v.uv.x);
         float shade = 1.0f-clamp(u.shadow,0.0f,1.0f)*0.12f*p*p*height;

@@ -11,7 +11,7 @@ struct LidFoldSettingsSection: View {
                 set: { controller.setEnabled($0) }
             ))
             .toggleStyle(.switch)
-            Text("开合 MacBook 时，桌面随屏幕角度逐渐扩散、模糊和淡出。停止移动后恢复正常桌面。")
+            Text("内建屏幕随 MacBook 开合逐渐扩散、模糊和淡出。外接屏仅在合盖时联动，合严后保持纯黑，等待屏幕关闭。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Text(controller.status)
@@ -21,7 +21,7 @@ struct LidFoldSettingsSection: View {
                 Button("打开屏幕录制设置") { controller.openPermissionSettings() }
             }
             if controller.enabled {
-                Text("按 Esc 或点击动效画面即可关闭。只作用于内建屏幕。")
+                Text("按 Esc 或点击动效画面即可关闭。外接屏重新开盖时直接恢复桌面。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

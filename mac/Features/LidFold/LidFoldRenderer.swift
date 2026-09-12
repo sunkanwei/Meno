@@ -25,6 +25,7 @@ final class LidFoldRenderer: NSObject, MTKViewDelegate {
     let device: MTLDevice
     let queue: MTLCommandQueue
     let pipeline: MTLRenderPipelineState
+    private let linearizePipeline: MTLComputePipelineState
     private let downsamplePipeline: MTLComputePipelineState
     private var blurPyramid: MTLTexture?
     private var blurLevels: [MTLTexture] = []
@@ -53,6 +54,10 @@ final class LidFoldRenderer: NSObject, MTKViewDelegate {
             throw LidFoldError.message("无法创建翻盖模糊效果。")
         }
         downsamplePipeline = try device.makeComputePipelineState(function: function)
+        guard let linearize = library.makeFunction(name: "foldLinearize") else {
+            throw LidFoldError.message("无法创建桌面颜色转换。")
+        }
+        linearizePipeline = try device.makeComputePipelineState(function: linearize)
         super.init()
         guard CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess else {
             throw LidFoldError.message("无法创建桌面画面缓存。")
@@ -62,6 +67,9 @@ final class LidFoldRenderer: NSObject, MTKViewDelegate {
     func clearFrame() {
         generation += 1
         frame = nil
+        blurPyramid = nil
+        blurLevels.removeAll()
+        blurredRevision = nil
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -105,8 +113,8 @@ final class LidFoldRenderer: NSObject, MTKViewDelegate {
     }
 
     private func prepareBlur(command: MTLCommandBuffer, input: MTLTexture, revision: UInt64?) throws -> MTLTexture {
-        if blurPyramid?.width != input.width || blurPyramid?.height != input.height || blurPyramid?.pixelFormat != input.pixelFormat {
-            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: input.pixelFormat,
+        if blurPyramid?.width != input.width || blurPyramid?.height != input.height {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
                 width: input.width, height: input.height, mipmapped: true)
             descriptor.mipmapLevelCount = min(9, descriptor.mipmapLevelCount)
             descriptor.storageMode = .private
@@ -124,13 +132,19 @@ final class LidFoldRenderer: NSObject, MTKViewDelegate {
             blurredRevision = nil
         }
         if let revision, blurredRevision == revision, let pyramid = blurPyramid { return pyramid }
-        guard let pyramid = blurPyramid, let blit = command.makeBlitCommandEncoder() else {
-            throw LidFoldError.message("Blur copy encoder unavailable.")
+        guard let pyramid = blurPyramid,
+              let linearInput = input.makeTextureView(pixelFormat: .bgra8Unorm_srgb),
+              let conversion = command.makeComputeCommandEncoder() else {
+            throw LidFoldError.message("Desktop color conversion unavailable.")
         }
-        blit.copy(from: input, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
-            sourceSize: MTLSize(width: input.width, height: input.height, depth: 1),
-            to: pyramid, destinationSlice: 0, destinationLevel: 0, destinationOrigin: MTLOrigin())
-        blit.endEncoding()
+        // sRGB sampling decodes before filtering; keep every blur level in
+        // linear half-float so highlights and gentle gradients survive averaging.
+        conversion.setComputePipelineState(linearizePipeline)
+        conversion.setTexture(linearInput, index: 0)
+        conversion.setTexture(blurLevels[0], index: 1)
+        conversion.dispatchThreads(MTLSize(width: input.width, height: input.height, depth: 1),
+                                   threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        conversion.endEncoding()
         for level in 1..<blurLevels.count {
             guard let encoder = command.makeComputeCommandEncoder() else { throw LidFoldError.message("Blur encoder unavailable.") }
             encoder.setComputePipelineState(downsamplePipeline)
@@ -145,7 +159,7 @@ final class LidFoldRenderer: NSObject, MTKViewDelegate {
     }
 
     func encode(command: MTLCommandBuffer, pass: MTLRenderPassDescriptor, texture: MTLTexture, uniforms: LidFoldUniforms, sourceRevision: UInt64? = nil) throws {
-        let moving = uniforms.progress > 0.00001 && uniforms.progress < 1
+        let moving = uniforms.progress > 0 && uniforms.progress < 1
         let needsBlur = moving && uniforms.blur > 0
         let blurred = needsBlur ? try prepareBlur(command: command, input: texture, revision:sourceRevision) : texture
         guard let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { throw LidFoldError.message("Render encoder unavailable.") }

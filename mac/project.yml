@@ -186,6 +186,7 @@ targets:
     platform: macOS
     sources:
       - path: Tests
+      - path: Features/LidFold/LidFoldExternalPolicy.swift
       - path: Features/LidFold/LidFoldSensor.swift
       - path: Features/LidFold/LidFoldCapture.swift
       - path: Features/LidFold/LidFoldRenderer.swift

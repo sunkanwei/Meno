@@ -14,9 +14,10 @@ final class LidFoldController: ObservableObject {
     private let defaults: UserDefaults
     private let capture = LidFoldCapture()
     private var sensor: LidFoldSensor?
-    private var renderer: LidFoldRenderer?
-    private var view: MTKView?
-    private var panel: NSPanel?
+    private var overlay: LidFoldOverlay?
+    private var renderer: LidFoldRenderer? { overlay?.renderer }
+    private var view: MTKView? { overlay?.view }
+    private var panel: NSPanel? { overlay?.panel }
     private var timer: Timer?
     private var permissionTask: Task<Void, Never>?
     private var captureTask: Task<Void, Never>?
@@ -42,6 +43,12 @@ final class LidFoldController: ObservableObject {
         self?.setEnabled(false)
         self?.status = "已停止翻盖动效。"
     }
+
+    private lazy var external = LidFoldExternalController(
+        onStopRequested: { [weak self] in self?.setEnabled(false) },
+        onWillShow: { [weak self] in self?.prepareEscape() ?? false },
+        onVisibilityChanged: { [weak self] in self?.releaseEscapeIfUnused() }
+    )
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -88,6 +95,7 @@ final class LidFoldController: ObservableObject {
         defaults.set(enabled, forKey: AppPreferenceKey.lidFoldEnabled)
         permissionTask?.cancel(); permissionTask = nil
         ready = false
+        external.stop()
         stopMonitoring()
         clearAngle = nil
         needsPermission = false
@@ -100,6 +108,7 @@ final class LidFoldController: ObservableObject {
                 _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
                 guard generation == token, !Task.isCancelled, self.enabled else { return }
                 ready = true
+                external.start()
                 status = "正在读取屏幕开合角度…"
                 startMonitoring()
             } catch {
@@ -124,6 +133,7 @@ final class LidFoldController: ObservableObject {
         generation += 1
         enabled = false
         permissionTask?.cancel()
+        external.stop()
         stopMonitoring()
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach { center.removeObserver($0) }
@@ -143,6 +153,7 @@ final class LidFoldController: ObservableObject {
         sensor = LidFoldSensor { [weak self] value in
             guard let self, monitorGeneration == token, canRun else { return }
             guard let value else {
+                external.angleUnavailable()
                 angle = nil
                 motionAnchor = nil
                 lastMotion = 0
@@ -153,6 +164,8 @@ final class LidFoldController: ObservableObject {
             let now = ProcessInfo.processInfo.systemUptime
             lastReading = now
             if clearAngle == nil { clearAngle = min(140, max(60, value)) }
+            external.read(angle: value, reference: clearAngle ?? 90)
+            guard canRun else { return }
             if let anchor = motionAnchor {
                 if abs(value - anchor) >= 1 {
                     motionAnchor = value
@@ -176,8 +189,7 @@ final class LidFoldController: ObservableObject {
         sensor?.stop(); sensor = nil
         timer?.invalidate(); timer = nil
         clearOverlay()
-        panel?.close(); panel = nil
-        view = nil; renderer = nil
+        overlay?.close(); overlay = nil
         angle = nil; motionAnchor = nil
         displayRetryAt = 0
     }
@@ -188,6 +200,7 @@ final class LidFoldController: ObservableObject {
         let dt = min(0.1, max(0, now - lastTick))
         lastTick = now
         guard now - lastReading < 1 else {
+            external.angleUnavailable()
             clearOverlay()
             status = "正在等待开合角度恢复，翻盖动效仍保持开启。"
             return
@@ -230,10 +243,7 @@ final class LidFoldController: ObservableObject {
                 }
             }
             if renderer?.frame != nil, panel?.isVisible != true {
-                guard escape.register() else {
-                    fail("无法启用 Esc 停止键，翻盖动效未启动。")
-                    return
-                }
+                guard prepareEscape() else { return }
                 lastPresented = now
                 awaitingFirstPresentation = true
                 // A zero-alpha window can be occluded before Metal ever acquires its first drawable.
@@ -278,8 +288,8 @@ final class LidFoldController: ObservableObject {
             throw LidFoldError.displayUnavailable
         }
         if panel != nil { return number.uint32Value }
-        guard let device = MTLCreateSystemDefaultDevice() else { throw LidFoldError.message("图形设备不可用。") }
-        let renderer = try LidFoldRenderer(device: device)
+        let overlay = try LidFoldOverlay(screen: screen) { [weak self] in self?.setEnabled(false) }
+        let renderer = overlay.renderer
         renderer.onFailure = { [weak self, weak renderer] in
             guard let self, self.renderer === renderer else { return }
             fail("翻盖渲染已停止，桌面已恢复。")
@@ -293,43 +303,36 @@ final class LidFoldController: ObservableObject {
             lastPresented = ProcessInfo.processInfo.systemUptime
             panel?.alphaValue = 1
         }
-        let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
-        panel.isReleasedWhenClosed = false
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
-        panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        // Consume clicks rather than sending them to invisible transformed controls.
-        panel.ignoresMouseEvents = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.sharingType = .none
-        let view = LidFoldView(frame: NSRect(origin: .zero, size: screen.frame.size), device: device)
-        view.onClick = { [weak self] in self?.setEnabled(false) }
-        view.colorPixelFormat = .bgra8Unorm
-        view.clearColor = MTLClearColorMake(0, 0, 0, 0)
-        view.layer?.isOpaque = false
-        view.enableSetNeedsDisplay = false
-        view.preferredFramesPerSecond = 60
-        view.isPaused = true; view.delegate = renderer
-        panel.contentView = view
-        panel.setFrame(screen.frame, display: false)
-        self.renderer = renderer; self.panel = panel; self.view = view
+        self.overlay = overlay
         return number.uint32Value
     }
 
     private func clearOverlay() {
         panel?.orderOut(nil)
         view?.isPaused = true
-        escape.stop()
+        releaseEscapeIfUnused()
         captureTask?.cancel(); captureTask = nil
         if capture.isRunning { capture.stop() }
         renderer?.clearFrame()
         progress = 0
     }
 
+    private func releaseEscapeIfUnused() {
+        if panel?.isVisible != true, !external.hasVisibleOverlay { escape.stop() }
+    }
+
+    private func prepareEscape() -> Bool {
+        guard escape.register() else {
+            fail("无法启用 Esc 停止键，翻盖动效未启动。")
+            return false
+        }
+        return true
+    }
+
     private func fail(_ message: String) {
         // A runtime failure must never rewrite the user's enabled preference.
         ready = false
+        external.stop()
         stopMonitoring()
         status = message
         logger.error("\(message, privacy: .public)")
@@ -350,6 +353,9 @@ final class LidFoldController: ObservableObject {
                     if kind == 0 { self.systemAwake = awake }
                     if kind == 1 { self.displayAwake = awake }
                     if kind == 2 { self.sessionActive = awake }
+                    if kind == 2 { self.external.setSessionActive(awake) }
+                    else if awake { self.external.didWake() }
+                    else { self.external.willSleep() }
                     self.logger.notice("Workspace transition: kind=\(kind), awake=\(awake)")
                     self.stopMonitoring()
                     if self.canRun { self.startMonitoring() }
@@ -358,26 +364,20 @@ final class LidFoldController: ObservableObject {
         }
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
                                                        object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clearOverlay() }
+            MainActor.assumeIsolated {
+                self?.external.spaceChanged()
+                self?.clearOverlay()
+            }
         })
         displayObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.external.displaysChanged()
                 self.stopMonitoring()
                 if self.canRun { self.startMonitoring() }
             }
         }
     }
-}
-
-@MainActor
-private final class LidFoldView: MTKView {
-    var onClick: (() -> Void)?
-    override var acceptsFirstResponder: Bool { false }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { onClick?() }
-    override func rightMouseDown(with event: NSEvent) { onClick?() }
-    override func otherMouseDown(with event: NSEvent) { onClick?() }
 }

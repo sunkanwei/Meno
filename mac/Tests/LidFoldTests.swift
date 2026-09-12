@@ -17,6 +17,79 @@ final class LidFoldTests: XCTestCase {
         XCTAssertEqual(LidFoldSensor.decodeReport([99, 1, 90, 0].dropFirst()), 90)
     }
 
+    func testExternalOpeningNeverStartsAnAnimation() {
+        var policy = LidFoldExternalPolicy()
+        policy.read(angle: 0, reference: 100, now: 0)
+        policy.read(angle: 45, reference: 100, now: 1)
+        policy.read(angle: 100, reference: 100, now: 2)
+        XCTAssertEqual(policy.phase, .idle)
+        XCTAssertEqual(policy.target(now: 2), 0)
+    }
+
+    func testExternalClosingFollowsTheLidAndRestingRestoresDesktop() {
+        var policy = LidFoldExternalPolicy()
+        policy.read(angle: 100, reference: 100, now: 0)
+        policy.read(angle: 60, reference: 100, now: 1)
+        let first = policy.target(now: 1)
+        policy.read(angle: 30, reference: 100, now: 1.5)
+        XCTAssertGreaterThan(policy.target(now: 1.5), first)
+        XCTAssertGreaterThan(first, 0)
+        XCTAssertEqual(policy.target(now: 3), 0)
+    }
+
+    func testExternalBlackWaitDoesNotFadeBackToDesktopWhileClosing() {
+        var policy = LidFoldExternalPolicy()
+        policy.read(angle: 100, reference: 100, now: 0)
+        policy.read(angle: 7, reference: 100, now: 1)
+        XCTAssertEqual(policy.target(now: 1), 1)
+        policy.read(angle: 0, reference: 100, now: 2)
+        policy.didClose(now: 3)
+        XCTAssertEqual(policy.target(now: 8.9), 1)
+        XCTAssertEqual(policy.target(now: 9), 0)
+        XCTAssertEqual(policy.phase, .waitingForOpening)
+        policy.didClose(now: 10)
+        policy.read(angle: 0, reference: 100, now: 10)
+        XCTAssertEqual(policy.target(now: 10), 0)
+    }
+
+    func testClosedAngleJitterCannotRestartTheBlackWait() {
+        var policy = LidFoldExternalPolicy()
+        policy.read(angle: 100, reference: 100, now: 0)
+        policy.read(angle: 7, reference: 100, now: 1)
+        policy.read(angle: 6, reference: 100, now: 2)
+        policy.read(angle: 7, reference: 100, now: 3)
+        XCTAssertEqual(policy.phase, .black(until: 9))
+        XCTAssertEqual(policy.target(now: 9), 0)
+        policy.read(angle: 6, reference: 100, now: 10)
+        policy.read(angle: 7, reference: 100, now: 11)
+        policy.didClose(now: 12)
+        XCTAssertEqual(policy.phase, .waitingForOpening)
+    }
+
+    func testExternalReopeningImmediatelyCancelsBlackAndAllowsNextClosure() {
+        var policy = LidFoldExternalPolicy()
+        policy.read(angle: 100, reference: 100, now: 0)
+        policy.read(angle: 0, reference: 100, now: 1)
+        policy.read(angle: 10, reference: 100, now: 2)
+        XCTAssertEqual(policy.phase, .idle)
+        XCTAssertEqual(policy.target(now: 2), 0)
+        policy.read(angle: 90, reference: 100, now: 3)
+        policy.read(angle: 45, reference: 100, now: 4)
+        XCTAssertEqual(policy.phase, .closing)
+        XCTAssertGreaterThan(policy.target(now: 4), 0)
+    }
+
+    func testExternalBinaryClosureCoversMissedAngleReports() {
+        var policy = LidFoldExternalPolicy()
+        policy.read(angle: 100, reference: 100, now: 0)
+        policy.didClose(now: 1)
+        XCTAssertEqual(policy.target(now: 1), 1)
+        policy.cancel()
+        XCTAssertEqual(policy.target(now: 2), 0)
+        policy.read(angle: 50, reference: 100, now: 3)
+        XCTAssertEqual(policy.phase, .idle)
+    }
+
     @MainActor
     func testRenderingPreservesOpenDesktopAndBlacksOutClosedDesktop() throws {
         let (renderer, input) = try makeRenderer()
@@ -41,9 +114,42 @@ final class LidFoldTests: XCTestCase {
             input.replace(region: MTLRegionMake2D(0, 0, 64, 64), mipmapLevel: 0,
                           withBytes: $0.baseAddress!, bytesPerRow: 64 * 4)
         }
-        let restarted = try render(renderer, input: input, progress: 0.5, revision: 2)
+        // Clearing releases cached desktop data, even if the next capture
+        // starts numbering its source frames from the same revision.
+        let restarted = try render(renderer, input: input, progress: 0.5, revision: 1)
         XCTAssertEqual(restarted[center + 2], 0)
         XCTAssertEqual(restarted[center + 3], 255)
+    }
+
+    @MainActor
+    func testBlurPreservesLightEnergyAcrossBlackAndWhiteDetails() throws {
+        let (renderer, input) = try makeRenderer()
+        var pixels = [UInt8](repeating: 255, count: 64 * 64 * 4)
+        for y in 0..<64 {
+            for x in 0..<64 where (x + y).isMultiple(of: 2) {
+                let index = (y * 64 + x) * 4
+                pixels[index] = 0; pixels[index + 1] = 0; pixels[index + 2] = 0
+            }
+        }
+        pixels.withUnsafeBytes {
+            input.replace(region: MTLRegionMake2D(0, 0, 64, 64), mipmapLevel: 0,
+                          withBytes: $0.baseAddress!, bytesPerRow: 64 * 4)
+        }
+        let result = try render(renderer, input: input, progress: 0.8, revision: 1)
+        // Equal black/white light averages to approximately 188 in sRGB, not
+        // the muddy 128 produced by averaging encoded display values.
+        let center = (32 * 64 + 32) * 4
+        XCTAssertGreaterThan(result[center], 170)
+        XCTAssertLessThan(result[center], 200)
+        XCTAssertEqual(result[center], result[center + 1])
+        XCTAssertEqual(result[center], result[center + 2])
+        XCTAssertEqual(result[center + 3], 255)
+        // A blurred checkerboard must also stay uniform between texel centers.
+        // Incorrect mip sampling can pass a single point yet leave repeated bands.
+        let row = (20..<44).map { result[(8 * 64 + $0) * 4] }
+        XCTAssertGreaterThan(try XCTUnwrap(row.min()), 175)
+        XCTAssertLessThan(try XCTUnwrap(row.max()), 195)
+        XCTAssertLessThan(Int(try XCTUnwrap(row.max())) - Int(try XCTUnwrap(row.min())), 3)
     }
 
     @MainActor
