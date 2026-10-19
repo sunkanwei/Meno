@@ -6,15 +6,14 @@ use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::HWND;
 
-use crate::audio_session::{AudioSession, AudioStatus};
 use crate::channel_health::{ChannelHealth, HealthAction};
 use crate::discovery;
 use crate::file_transfer::WorkerEvent as FileWorkerEvent;
 use crate::mouse_session::{self, SessionEvent};
 use crate::protocol::{
-    CAPABILITY_FILE_CLIPBOARD, CAPABILITY_MAC_MICROPHONE, CAPABILITY_PNG_CLIPBOARD,
-    CAPABILITY_TEXT_CLIPBOARD, CAPABILITY_WINDOWS_ONLINE_NOTIFICATION, Capabilities, Frame,
-    FrameDecoder, Hello, MAX_IMAGE_SIZE, MAX_TEXT_SIZE, MessageKind, clipboard_hello, parse_hello,
+    CAPABILITY_FILE_CLIPBOARD, CAPABILITY_PNG_CLIPBOARD, CAPABILITY_TEXT_CLIPBOARD,
+    CAPABILITY_WINDOWS_ONLINE_NOTIFICATION, Capabilities, Frame, FrameDecoder, MAX_IMAGE_SIZE,
+    MAX_TEXT_SIZE, MessageKind, clipboard_hello, parse_hello,
 };
 
 const FIRST_DISCOVERY_DELAY: Duration = Duration::from_secs(2);
@@ -39,7 +38,6 @@ pub enum NetworkCommand {
 pub enum NetworkEvent {
     Searching,
     Connected { name: String, address: String },
-    AudioStatus(AudioStatus),
     Clipboard(Frame),
     Error(String),
 }
@@ -55,10 +53,6 @@ pub(crate) enum WorkerEvent {
     Mouse {
         connection_id: u64,
         event: SessionEvent,
-    },
-    Audio {
-        connection_id: u64,
-        status: AudioStatus,
     },
 }
 
@@ -309,7 +303,6 @@ struct ConnectionState {
     remote_name: String,
     connected_reported: bool,
     negotiated_reported: bool,
-    audio_negotiated: bool,
 }
 
 impl ConnectionState {
@@ -326,7 +319,6 @@ impl ConnectionState {
             remote_name: String::new(),
             connected_reported: false,
             negotiated_reported: false,
-            audio_negotiated: false,
         }
     }
 
@@ -399,7 +391,6 @@ fn run_connection(
     };
 
     let mut state = ConnectionState::new(mouse_session.is_none());
-    let mut audio_session: Option<AudioSession> = None;
     let exit = 'connected: loop {
         let wait = state
             .clipboard
@@ -506,33 +497,6 @@ fn run_connection(
                             state.clipboard.ready = true;
                             state.clipboard.last_activity = Instant::now();
                             state.remote_name = crate::peer_name::normalize(&hello.name);
-                            match negotiated_audio_port(&hello) {
-                                Err(()) => crate::logging::error(
-                                    "audio protocol error: control Ready must contain capability 8 and audioPort together",
-                                ),
-                                Ok(None) => {}
-                                Ok(Some(port)) => {
-                                    let endpoint = SocketAddr::V4(SocketAddrV4::new(address, port));
-                                    let audio_sender = sender.clone();
-                                    state.audio_negotiated = true;
-                                    audio_session = Some(AudioSession::spawn(
-                                        endpoint,
-                                        connection_id,
-                                        computer_name.clone(),
-                                        move |status| {
-                                            let event = WorkerEvent::Audio {
-                                                connection_id,
-                                                status,
-                                            };
-                                            match audio_sender.try_send(event) {
-                                                Ok(()) => true,
-                                                Err(TrySendError::Full(_)) => false,
-                                                Err(TrySendError::Disconnected(_)) => false,
-                                            }
-                                        },
-                                    ));
-                                }
-                            }
                             if state
                                 .clipboard_capabilities
                                 .contains(CAPABILITY_FILE_CLIPBOARD)
@@ -646,12 +610,6 @@ fn run_connection(
                     report_connection(hwnd, &address_text, &mut state);
                 }
             },
-            Ok(WorkerEvent::Audio {
-                connection_id: event_connection_id,
-                status,
-            }) if event_connection_id == connection_id => {
-                post(hwnd, NetworkEvent::AudioStatus(status));
-            }
             Err(RecvTimeoutError::Timeout) => {
                 if service_health(&mut clipboard_stream, &mut state.clipboard).is_err() {
                     break 'connected ConnectionExit::Reconnect;
@@ -664,9 +622,6 @@ fn run_connection(
     // Unified teardown: both channels of one session close together, and the
     // mouse thread always finishes its release before a new session begins.
     let _ = send_file_event(file_events, FileWorkerEvent::Closed { connection_id });
-    if let Some(audio_session) = audio_session {
-        audio_session.stop();
-    }
     stop.request(matches!(exit, ConnectionExit::Pause));
     if let Some(mouse_wakeup) = mouse_wakeup {
         let _ = mouse_wakeup.shutdown(Shutdown::Read);
@@ -677,17 +632,6 @@ fn run_connection(
         let _ = mouse_session.join();
     }
     exit
-}
-
-fn negotiated_audio_port(hello: &Hello) -> Result<Option<u16>, ()> {
-    match (
-        hello.capabilities.contains(CAPABILITY_MAC_MICROPHONE),
-        hello.audio_port,
-    ) {
-        (true, Some(port)) => Ok(Some(port)),
-        (false, None) => Ok(None),
-        _ => Err(()),
-    }
 }
 
 fn send_windows_online_if_needed(
@@ -729,7 +673,7 @@ fn report_connection(hwnd: HWND, address: &str, state: &mut ConnectionState) {
             CAPABILITY_FILE_CLIPBOARD,
         ]));
     crate::logging::info(&format!(
-        "Negotiated MENO capabilities: content={} text={} png={} file={} microphone={} windowsOnline={} mouse={} keyboard={} mouseRouteContract={} shutdown={} driver_abi={}",
+        "Negotiated MENO capabilities: content={} text={} png={} file={} windowsOnline={} mouse={} keyboard={} mouseRouteContract={} shutdown={} driver_abi={}",
         !content_capabilities.is_empty(),
         state
             .clipboard_capabilities
@@ -740,7 +684,6 @@ fn report_connection(hwnd: HWND, address: &str, state: &mut ConnectionState) {
         state
             .clipboard_capabilities
             .contains(CAPABILITY_FILE_CLIPBOARD),
-        state.audio_negotiated,
         state
             .clipboard_capabilities
             .contains(CAPABILITY_WINDOWS_ONLINE_NOTIFICATION),
@@ -875,31 +818,6 @@ mod tests {
         let mut bytes = Vec::new();
         receiver.read_to_end(&mut bytes).unwrap();
         FrameDecoder::new().append(&bytes).unwrap()
-    }
-
-    #[test]
-    fn microphone_capability_and_audio_port_must_be_negotiated_together() {
-        let none = Hello::default();
-        assert_eq!(negotiated_audio_port(&none), Ok(None));
-
-        let capability_only = Hello {
-            capabilities: Capabilities::from_slice(&[CAPABILITY_MAC_MICROPHONE]),
-            ..Default::default()
-        };
-        assert_eq!(negotiated_audio_port(&capability_only), Err(()));
-
-        let port_only = Hello {
-            audio_port: Some(48_000),
-            ..Default::default()
-        };
-        assert_eq!(negotiated_audio_port(&port_only), Err(()));
-
-        let paired = Hello {
-            capabilities: Capabilities::from_slice(&[CAPABILITY_MAC_MICROPHONE]),
-            audio_port: Some(48_000),
-            ..Default::default()
-        };
-        assert_eq!(negotiated_audio_port(&paired), Ok(Some(48_000)));
     }
 
     #[test]

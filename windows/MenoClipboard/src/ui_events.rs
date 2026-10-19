@@ -35,7 +35,6 @@ pub(crate) fn post_network(hwnd: HWND, event: NetworkEvent) -> bool {
     let bytes = match &event {
         NetworkEvent::Searching => 1,
         NetworkEvent::Connected { name, address } => name.len().saturating_add(address.len()),
-        NetworkEvent::AudioStatus(status) => status.label().map_or(1, str::len),
         NetworkEvent::Clipboard(frame) => frame.payload.len(),
         NetworkEvent::Error(error) => error.len(),
     };
@@ -47,9 +46,6 @@ pub(crate) fn post_network(hwnd: HWND, event: NetworkEvent) -> bool {
     let result = match &event {
         NetworkEvent::Clipboard(_) => queue.push_latest(event, bytes, |queued| {
             matches!(queued, NetworkEvent::Clipboard(_))
-        }),
-        NetworkEvent::AudioStatus(_) => queue.push_latest(event, bytes, |queued| {
-            matches!(queued, NetworkEvent::AudioStatus(_))
         }),
         _ => queue.push(event, bytes),
     };

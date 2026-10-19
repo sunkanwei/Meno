@@ -1,8 +1,7 @@
 use crate::menu_model::MenuModel;
 use crate::tray::{
-    COMMAND_AGENT_SETTINGS, COMMAND_CLEAR_LOG, COMMAND_CURSOR_THEME, COMMAND_EXIT,
-    COMMAND_INSTALL_AUDIO_DRIVER, COMMAND_PAUSE, COMMAND_REDISCOVER, COMMAND_REPAIR_DRIVER,
-    COMMAND_STARTUP, COMMAND_VB_CABLE_WEBSITE, COMMAND_VIEW_LOG,
+    COMMAND_AGENT_SETTINGS, COMMAND_CLEAR_LOG, COMMAND_CURSOR_THEME, COMMAND_EXIT, COMMAND_PAUSE,
+    COMMAND_REDISCOVER, COMMAND_REPAIR_DRIVER, COMMAND_STARTUP, COMMAND_VIEW_LOG,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -89,16 +88,6 @@ pub(crate) fn build_items(model: &MenuModel) -> Vec<Item> {
     ));
     items.push(Item::separator());
     items.push(Item::action(COMMAND_REPAIR_DRIVER, "修复鼠标驱动", 0xE90F));
-    items.push(Item::action(
-        COMMAND_INSTALL_AUDIO_DRIVER,
-        "安装音频驱动 (VB-CABLE)",
-        0xE8D6,
-    ));
-    items.push(Item::action(
-        COMMAND_VB_CABLE_WEBSITE,
-        "VB-CABLE 官网与捐赠",
-        0xE774,
-    ));
     items.push(Item::action(COMMAND_VIEW_LOG, "查看日志", 0xE8A5));
     items.push(Item::action(COMMAND_CLEAR_LOG, "清理日志", 0xE74D));
     items.push(Item::separator());

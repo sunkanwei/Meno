@@ -5,7 +5,6 @@ use std::process::Command;
 
 const ICON_GROUP_ID: u16 = 101;
 const MANIFEST_PATH: &str = "assets/MenoClipboard.manifest";
-const AUDIO_DRIVER_ARCHIVE: &str = "VBCABLE_Driver_Pack45.zip";
 const DRIVER_FILES: &[&str] = &[
     "MenoVirtualMouse.dll",
     "MenoVirtualMouse.inf",
@@ -63,31 +62,6 @@ fn main() {
         fs::write(output_directory.join(name), bytes)
             .expect("could not prepare embedded driver file");
     }
-
-    let manifest_directory = PathBuf::from(
-        env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is unavailable"),
-    );
-    let audio_driver_archive = manifest_directory
-        .parent()
-        .expect("MenoClipboard must have a project parent")
-        .join("third_party")
-        .join("VB-CABLE")
-        .join(AUDIO_DRIVER_ARCHIVE);
-    println!("cargo:rerun-if-changed={}", audio_driver_archive.display());
-    let audio_driver_bytes = fs::read(&audio_driver_archive).unwrap_or_default();
-    println!(
-        "cargo:rustc-env=MENO_AUDIO_DRIVER_EMBEDDED={}",
-        if audio_driver_bytes.is_empty() {
-            "0"
-        } else {
-            "1"
-        }
-    );
-    fs::write(
-        output_directory.join(AUDIO_DRIVER_ARCHIVE),
-        audio_driver_bytes,
-    )
-    .expect("could not prepare embedded VB-CABLE archive");
 
     let mut resource = Vec::new();
     write_resource(&mut resource, 0, 0, &[]);

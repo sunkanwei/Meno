@@ -398,10 +398,7 @@ fn extended_message_kinds_decode() {
         MessageKind::try_from(25).unwrap(),
         MessageKind::ShutdownRequest
     );
-    assert_eq!(
-        MessageKind::try_from(28).unwrap(),
-        MessageKind::MicrophonePcm
-    );
+    assert!(MessageKind::try_from(28).is_err());
     assert_eq!(
         MessageKind::try_from(29).unwrap(),
         MessageKind::DirectionalMouseEnter
@@ -427,21 +424,27 @@ fn extended_message_kinds_decode() {
 }
 
 #[test]
-fn microphone_pcm_frame_uses_fixed_meno_header_bytes() {
-    let encoded = Frame {
-        kind: MessageKind::MicrophonePcm,
-        message_id: 1,
-        payload: vec![0; 1_920],
+fn retired_microphone_frames_are_ignored_without_losing_the_next_frame() {
+    // Preserve the published PCM bytes as a retirement fixture shared with Mac.
+    let mut retired = vec![
+        0x4D, 0x45, 0x4E, 0x4F, 0x1C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0x07, 0x80,
+    ];
+    retired.extend_from_slice(&[0; 1_920]);
+    let ping = Frame {
+        kind: MessageKind::Ping,
+        message_id: 2,
+        payload: Vec::new(),
     }
     .encoded()
     .unwrap();
-    assert_eq!(
-        &encoded[..protocol::HEADER_SIZE],
-        &[
-            0x4D, 0x45, 0x4E, 0x4F, 0x1C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x01, 0x00, 0x00, 0x07, 0x80,
-        ]
-    );
+    let mut decoder = FrameDecoder::new();
+    assert!(decoder.append(&retired[..21]).unwrap().is_empty());
+    let mut rest = retired[21..].to_vec();
+    rest.extend_from_slice(&ping);
+    let frames = decoder.append(&rest).unwrap();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].kind, MessageKind::Ping);
+    assert_eq!(frames[0].message_id, 2);
 }
 
 #[test]
@@ -534,7 +537,7 @@ fn directional_mouse_handoff_is_reserved_and_route_contract_is_advertised() {
 fn windows_online_notification_capability_is_fixed_big_endian_ten() {
     assert_eq!(protocol::CAPABILITY_WINDOWS_ONLINE_NOTIFICATION, 10);
     let payload = protocol::clipboard_hello("Win");
-    assert_eq!(&payload[17..19], &[0x00, 0x0A]);
+    assert_eq!(&payload[15..17], &[0x00, 0x0A]);
 }
 
 #[test]
@@ -640,11 +643,7 @@ fn clipboard_hello_offers_text_png_and_files() {
             .capabilities
             .contains(protocol::CAPABILITY_FILE_CLIPBOARD)
     );
-    assert!(
-        hello
-            .capabilities
-            .contains(protocol::CAPABILITY_MAC_MICROPHONE)
-    );
+    assert!(!hello.capabilities.contains(8));
     assert!(
         hello
             .capabilities
@@ -677,27 +676,10 @@ fn clipboard_hello_capabilities_match_fixed_tlv_bytes() {
     assert_eq!(
         payload,
         vec![
-            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x0A, 0x00, 0x01, 0x00, 0x02, 0x00,
-            0x05, 0x00, 0x08, 0x00, 0x0A,
+            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x08, 0x00, 0x01, 0x00, 0x02, 0x00,
+            0x05, 0x00, 0x0A,
         ]
     );
-}
-
-#[test]
-fn audio_hello_only_offers_microphone_and_has_fixed_tlv_bytes() {
-    let payload = protocol::audio_hello("Win");
-    assert_eq!(
-        payload,
-        vec![
-            0x01, 0x00, 0x03, 0x57, 0x69, 0x6E, 0x02, 0x00, 0x02, 0x00, 0x08,
-        ]
-    );
-    let hello = protocol::parse_hello(&payload).unwrap();
-    assert_eq!(
-        hello.capabilities,
-        protocol::Capabilities::from_slice(&[protocol::CAPABILITY_MAC_MICROPHONE])
-    );
-    assert_eq!(hello.audio_port, None);
 }
 
 #[test]
@@ -749,11 +731,7 @@ fn hello_ignores_unknown_fields_and_capabilities() {
             .capabilities
             .contains(protocol::CAPABILITY_REMOTE_SHUTDOWN)
     );
-    assert!(
-        hello
-            .capabilities
-            .contains(protocol::CAPABILITY_MAC_MICROPHONE)
-    );
+    assert!(!hello.capabilities.contains(8));
     assert!(
         hello
             .capabilities
@@ -772,18 +750,29 @@ fn hello_rejects_duplicate_known_fields() {
     let mut payload = vec![1, 0, 1, 0x57];
     payload.extend_from_slice(&[200, 0, 1, 1, 200, 0, 1, 2]);
     assert!(protocol::parse_hello(&payload).is_ok());
-
-    let payload = [6, 0, 2, 0xBE, 0xEF, 6, 0, 2, 0xBE, 0xF0];
-    assert!(protocol::parse_hello(&payload).is_err());
 }
 
 #[test]
-fn hello_audio_port_is_unique_nonzero_big_endian_u16() {
-    let hello = protocol::parse_hello(&[6, 0, 2, 0xBE, 0xEF]).unwrap();
-    assert_eq!(hello.audio_port, Some(0xBEEF));
-    assert!(protocol::parse_hello(&[6, 0, 2, 0, 0]).is_err());
-    assert!(protocol::parse_hello(&[6, 0, 1, 1]).is_err());
-    assert!(protocol::parse_hello(&[6, 0, 3, 0, 1, 2]).is_err());
+fn retired_microphone_capability_and_audio_port_are_ignored() {
+    // Fixed Hello bytes also used by the Mac retirement test.
+    let published = [
+        1, 0, 3, 0x57, 0x69, 0x6E, 2, 0, 6, 0, 1, 0, 8, 0, 10, 6, 0, 2, 0xBE, 0xEF,
+    ];
+    let hello = protocol::parse_hello(&published).unwrap();
+    assert_eq!(hello.name, "Win");
+    assert_eq!(
+        hello.capabilities,
+        protocol::Capabilities::from_slice(&[
+            protocol::CAPABILITY_TEXT_CLIPBOARD,
+            protocol::CAPABILITY_WINDOWS_ONLINE_NOTIFICATION,
+        ])
+    );
+    let mut repeated = published.to_vec();
+    repeated.extend_from_slice(&[6, 0, 1, 0]);
+    assert_eq!(protocol::parse_hello(&repeated).unwrap(), hello);
+    let mut truncated = published.to_vec();
+    truncated.extend_from_slice(&[6, 0, 2, 0]);
+    assert!(protocol::parse_hello(&truncated).is_err());
 }
 
 #[test]

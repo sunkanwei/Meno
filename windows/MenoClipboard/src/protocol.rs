@@ -26,7 +26,7 @@ pub const CAPABILITY_MOUSE_CONTROL: u16 = 3;
 pub const CAPABILITY_KEYBOARD_STATE: u16 = 4;
 pub const CAPABILITY_FILE_CLIPBOARD: u16 = 5;
 pub const CAPABILITY_REMOTE_SHUTDOWN: u16 = 6;
-pub const CAPABILITY_MAC_MICROPHONE: u16 = 8;
+// Capability 8 (retired Mac microphone sharing) is permanently reserved.
 pub const CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF: u16 = 9;
 pub const CAPABILITY_WINDOWS_ONLINE_NOTIFICATION: u16 = 10;
 // Published identifiers remain reserved even though remote diagnostics was removed.
@@ -39,7 +39,7 @@ const FIELD_CAPABILITIES: u8 = 2;
 const FIELD_DRIVER_ABI: u8 = 3;
 const FIELD_SCREEN_WIDTH: u8 = 4;
 const FIELD_SCREEN_HEIGHT: u8 = 5;
-const FIELD_AUDIO_PORT: u8 = 6;
+// Hello TLV field 6 (retired audio port) is permanently reserved and ignored.
 const MAX_CAPABILITIES_BYTES: usize = 128;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,7 +70,7 @@ pub enum MessageKind {
     FileCancel = 23,
     FileAck = 24,
     ShutdownRequest = 25,
-    MicrophonePcm = 28,
+    // Message kind 28 (retired microphone PCM) is permanently reserved and ignored.
     DirectionalMouseEnter = 29,
     WindowsOnline = 30,
     // Reserved legacy remote-diagnostics identifier; never reuse.
@@ -114,7 +114,6 @@ impl TryFrom<u8> for MessageKind {
             23 => Ok(Self::FileCancel),
             24 => Ok(Self::FileAck),
             25 => Ok(Self::ShutdownRequest),
-            28 => Ok(Self::MicrophonePcm),
             29 => Ok(Self::DirectionalMouseEnter),
             30 => Ok(Self::WindowsOnline),
             31 => Ok(Self::DiagnosticEvent),
@@ -326,7 +325,6 @@ pub struct Hello {
     pub driver_abi: Option<u16>,
     pub screen_width: Option<u32>,
     pub screen_height: Option<u32>,
-    pub audio_port: Option<u16>,
 }
 
 pub fn clipboard_hello(name: &str) -> Vec<u8> {
@@ -336,18 +334,8 @@ pub fn clipboard_hello(name: &str) -> Vec<u8> {
             CAPABILITY_TEXT_CLIPBOARD,
             CAPABILITY_PNG_CLIPBOARD,
             CAPABILITY_FILE_CLIPBOARD,
-            CAPABILITY_MAC_MICROPHONE,
             CAPABILITY_WINDOWS_ONLINE_NOTIFICATION,
         ]),
-        None,
-        None,
-    )
-}
-
-pub fn audio_hello(name: &str) -> Vec<u8> {
-    hello_payload(
-        name,
-        Capabilities::from_slice(&[CAPABILITY_MAC_MICROPHONE]),
         None,
         None,
     )
@@ -469,7 +457,6 @@ pub fn parse_hello(payload: &[u8]) -> Result<Hello, String> {
                             | CAPABILITY_KEYBOARD_STATE
                             | CAPABILITY_FILE_CLIPBOARD
                             | CAPABILITY_REMOTE_SHUTDOWN
-                            | CAPABILITY_MAC_MICROPHONE
                             | CAPABILITY_DIRECTIONAL_MOUSE_HANDOFF
                             | CAPABILITY_WINDOWS_ONLINE_NOTIFICATION
                             | CAPABILITY_MOUSE_ROUTE_CONTRACT
@@ -498,17 +485,6 @@ pub fn parse_hello(payload: &[u8]) -> Result<Hello, String> {
                     return Err("invalid hello screen height".to_string());
                 }
                 hello.screen_height = Some(u32::from_be_bytes(value.try_into().unwrap()));
-            }
-            FIELD_AUDIO_PORT => {
-                reject_duplicate_field(&mut seen_fields, field)?;
-                if length != 2 {
-                    return Err("invalid hello audio port".to_string());
-                }
-                let audio_port = u16::from_be_bytes([value[0], value[1]]);
-                if audio_port == 0 {
-                    return Err("invalid hello audio port".to_string());
-                }
-                hello.audio_port = Some(audio_port);
             }
             _ => {}
         }

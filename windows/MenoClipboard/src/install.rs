@@ -2,13 +2,11 @@ use std::env;
 use std::fs;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use windows::Wdk::System::SystemServices::RtlGetVersion;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     DICD_GENERATE_ID, DIF_REGISTERDEVICE, DIIRFLAG_FORCE_INF, DiInstallDriverW,
     GUID_DEVCLASS_HIDCLASS, INSTALLFLAG_FORCE, SP_DEVINFO_DATA, SPDRP_HARDWAREID,
@@ -16,19 +14,15 @@ use windows::Win32::Devices::DeviceAndDriverInstallation::{
     SetupDiDestroyDeviceInfoList, SetupDiSetDeviceRegistryPropertyW,
     UpdateDriverForPlugAndPlayDevicesW,
 };
-use windows::Win32::Foundation::{CloseHandle, LPARAM, WAIT_OBJECT_0, WPARAM};
+use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
-use windows::Win32::System::SystemInformation::OSVERSIONINFOW;
 use windows::Win32::System::SystemInformation::{GetSystemDirectoryW, GetTickCount64};
-use windows::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject};
-use windows::Win32::UI::Shell::{
-    SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW, ShellExecuteW,
-};
+use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, IDYES, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MB_YESNO,
-    MessageBoxW, PostMessageW, WM_CLOSE, WM_COMMAND,
+    FindWindowW, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MessageBoxW, PostMessageW, WM_CLOSE,
+    WM_COMMAND,
 };
 use windows::core::{HRESULT, PCWSTR, w};
 
@@ -36,19 +30,6 @@ const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "MenoClipboard";
 const DRIVER_HARDWARE_ID: &str = r"ROOT\MENOVIRTUALMOUSE";
 const RESTART_MARKER: &str = "restart-required";
-const WINDOWS_11_MINIMUM_BUILD: u32 = 22_000;
-const AUDIO_DRIVER_ARCHIVE_NAME: &str = "VBCABLE_Driver_Pack45.zip";
-const AUDIO_DRIVER_DIRECTORY_NAME: &str = "VBCABLE_Driver_Pack45-b950e39f";
-const VB_CABLE_WEBSITE: &str = "https://vb-audio.com/Cable/";
-const AUDIO_DRIVER_REQUIRED_FILES: &[&str] = &[
-    "readme.txt",
-    "VBCABLE_Setup_x64.exe",
-    "vbMmeCable64_win10.inf",
-    "vbaudio_cable64_win10.cat",
-    "vbaudio_cable64_win10.sys",
-];
-const AUDIO_DRIVER_ARCHIVE: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/VBCABLE_Driver_Pack45.zip"));
 const DRIVER_FILES: &[(&str, &[u8])] = &[
     (
         "MenoVirtualMouse.dll",
@@ -101,11 +82,7 @@ pub fn install_if_needed(portable: bool) -> io::Result<bool> {
     if first_install {
         set_startup_enabled(true)?;
     }
-    let mut relaunch = Command::new(target);
-    if first_install {
-        relaunch.arg("--first-install");
-    }
-    relaunch.spawn()?;
+    Command::new(target).spawn()?;
     Ok(true)
 }
 
@@ -184,88 +161,8 @@ pub fn request_driver_install() -> io::Result<bool> {
     Ok(true)
 }
 
-pub fn request_audio_driver_install() -> io::Result<bool> {
-    request_audio_driver_install_inner(true)
-}
-
-pub fn request_audio_driver_install_if_missing() -> io::Result<bool> {
-    request_audio_driver_install_inner(false)
-}
-
-fn request_audio_driver_install_inner(notify_if_available: bool) -> io::Result<bool> {
-    ensure_windows_11_x64()?;
-    if crate::audio_output::cable_is_available() {
-        if notify_if_available {
-            show_message(
-                "已经检测到 VB-CABLE，音频驱动无需重复安装。",
-                "Meno 音频驱动",
-                MB_OK | MB_ICONINFORMATION,
-            );
-        }
-        return Ok(false);
-    }
-    if !audio_driver_package_embedded() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "the EXE does not contain the official VB-CABLE package",
-        ));
-    }
-    let decision = show_message(
-        "Meno 将安装 VB-Audio 提供的官方 VB-CABLE 驱动。\n\nVB-CABLE 来源：www.vb-cable.com。它是捐赠软件，所有参与和捐赠都受到欢迎；官网可从托盘菜单打开。\n\n安装需要管理员权限，完成后必须重启 Windows。是否继续？",
-        "安装 Meno 音频驱动",
-        MB_YESNO | MB_DEFBUTTON2 | MB_ICONINFORMATION,
-    );
-    if decision != IDYES {
-        return Ok(false);
-    }
-    match install_audio_driver_package() {
-        Ok(()) => {
-            notify_existing_rediscover();
-            show_message(
-                "VB-CABLE 音频驱动安装程序已经执行完成。\n\n请重启 Windows 后再使用 Mac 麦克风。\n\nVB-CABLE 来源：www.vb-cable.com。它是捐赠软件，可通过托盘菜单访问其官网。",
-                "Meno 音频驱动",
-                MB_OK | MB_ICONINFORMATION,
-            );
-            Ok(true)
-        }
-        Err(error) => {
-            show_message(
-                &format!(
-                    "VB-CABLE 音频驱动安装失败：\n\n{error}\n\n可在托盘菜单中选择“查看日志”查看详情。"
-                ),
-                "Meno 音频驱动",
-                MB_OK | MB_ICONERROR,
-            );
-            Err(error)
-        }
-    }
-}
-
-pub fn open_vb_cable_website() -> io::Result<()> {
-    let website = wide(VB_CABLE_WEBSITE);
-    let result = unsafe {
-        ShellExecuteW(
-            None,
-            w!("open"),
-            PCWSTR(website.as_ptr()),
-            PCWSTR::null(),
-            None,
-            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-        )
-    };
-    if result.0 as usize <= 32 {
-        Err(io::Error::other("could not open the VB-CABLE website"))
-    } else {
-        Ok(())
-    }
-}
-
 pub fn driver_package_embedded() -> bool {
     env!("MENO_DRIVER_EMBEDDED") == "1" && DRIVER_FILES.iter().all(|(_, bytes)| !bytes.is_empty())
-}
-
-pub fn audio_driver_package_embedded() -> bool {
-    env!("MENO_AUDIO_DRIVER_EMBEDDED") == "1" && !AUDIO_DRIVER_ARCHIVE.is_empty()
 }
 
 pub fn startup_enabled() -> bool {
@@ -397,175 +294,6 @@ fn install_driver_package() -> io::Result<DriverInstallOutcome> {
     }
     let _ = fs::remove_file(directory.join(RESTART_MARKER));
     Ok(DriverInstallOutcome::Installed)
-}
-
-fn install_audio_driver_package() -> io::Result<()> {
-    ensure_windows_11_x64()?;
-    if !audio_driver_package_embedded() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "the EXE does not contain the official VB-CABLE package",
-        ));
-    }
-
-    let directory = audio_driver_directory()?;
-    ensure_safe_directory(
-        directory
-            .parent()
-            .ok_or_else(|| io::Error::other("audio driver directory has no parent"))?,
-    )?;
-    reset_audio_driver_directory(&directory)?;
-    fs::create_dir_all(&directory)?;
-    let result = install_audio_driver_from_directory(&directory);
-    if let Err(error) = reset_audio_driver_directory(&directory) {
-        crate::logging::error(&format!(
-            "Could not remove temporary VB-CABLE files: {error}"
-        ));
-    }
-    result
-}
-
-fn install_audio_driver_from_directory(directory: &Path) -> io::Result<()> {
-    let archive = directory.join(AUDIO_DRIVER_ARCHIVE_NAME);
-    fs::write(&archive, AUDIO_DRIVER_ARCHIVE)?;
-    if fs::read(&archive)?.as_slice() != AUDIO_DRIVER_ARCHIVE {
-        return Err(io::Error::other(
-            "written VB-CABLE archive verification failed",
-        ));
-    }
-
-    let archive_argument = archive.to_string_lossy().into_owned();
-    let directory_argument = directory.to_string_lossy().into_owned();
-    run_checked(
-        "tar.exe",
-        &["-xf", &archive_argument, "-C", &directory_argument],
-        &[],
-    )?;
-    for name in AUDIO_DRIVER_REQUIRED_FILES {
-        if !directory.join(name).is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("extracted VB-CABLE package is missing: {name}"),
-            ));
-        }
-    }
-
-    let exit_code = run_elevated_audio_driver_setup(directory)?;
-    if exit_code == 0 || exit_code == 3010 {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "VB-CABLE 安装程序执行失败，退出码为 {exit_code}"
-        )))
-    }
-}
-
-fn run_elevated_audio_driver_setup(directory: &Path) -> io::Result<u32> {
-    let setup = wide_os(directory.join("VBCABLE_Setup_x64.exe").as_os_str());
-    let parameters = wide("-i -h");
-    let working_directory = wide_os(directory.as_os_str());
-    let mut execution = SHELLEXECUTEINFOW {
-        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS,
-        lpVerb: w!("runas"),
-        lpFile: PCWSTR(setup.as_ptr()),
-        lpParameters: PCWSTR(parameters.as_ptr()),
-        lpDirectory: PCWSTR(working_directory.as_ptr()),
-        nShow: windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL.0,
-        ..Default::default()
-    };
-    unsafe { ShellExecuteExW(&mut execution) }
-        .map_err(|error| io::Error::other(format!("audio driver elevation failed: {error}")))?;
-    if execution.hProcess.is_invalid() {
-        return Err(io::Error::other(
-            "audio driver installer did not return a process handle",
-        ));
-    }
-    let wait_result = unsafe { WaitForSingleObject(execution.hProcess, INFINITE) };
-    let mut exit_code = 0_u32;
-    let result = if wait_result != WAIT_OBJECT_0 {
-        Err(io::Error::last_os_error())
-    } else {
-        unsafe { GetExitCodeProcess(execution.hProcess, &mut exit_code) }
-            .map_err(io::Error::other)
-            .map(|()| exit_code)
-    };
-    let _ = unsafe { CloseHandle(execution.hProcess) };
-    result
-}
-
-fn ensure_windows_11_x64() -> io::Result<()> {
-    if !cfg!(target_arch = "x86_64") {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Meno only supports Windows 11 x64",
-        ));
-    }
-    let mut version = OSVERSIONINFOW {
-        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
-        ..Default::default()
-    };
-    let status = unsafe { RtlGetVersion(&mut version) };
-    if status.0 < 0 {
-        return Err(io::Error::other(format!(
-            "could not read the Windows version: 0x{:08X}",
-            status.0 as u32
-        )));
-    }
-    if version.dwMajorVersion != 10 || version.dwBuildNumber < WINDOWS_11_MINIMUM_BUILD {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Meno audio driver only supports Windows 11 x64",
-        ));
-    }
-    Ok(())
-}
-
-fn audio_driver_directory() -> io::Result<PathBuf> {
-    let local_app_data = env::var_os("LOCALAPPDATA")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "LOCALAPPDATA is unavailable"))?;
-    Ok(PathBuf::from(local_app_data)
-        .join("Meno")
-        .join("AudioDriver")
-        .join(AUDIO_DRIVER_DIRECTORY_NAME))
-}
-
-fn reset_audio_driver_directory(directory: &Path) -> io::Result<()> {
-    let metadata = match fs::symlink_metadata(directory) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
-        return Err(io::Error::other(
-            "refusing to replace an unsafe audio driver directory",
-        ));
-    }
-    fs::remove_dir_all(directory)
-}
-
-fn ensure_safe_directory(directory: &Path) -> io::Result<()> {
-    if let Some(parent) = directory.parent() {
-        let metadata = fs::symlink_metadata(parent)?;
-        if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
-            return Err(io::Error::other(
-                "refusing to use an unsafe audio driver parent directory",
-            ));
-        }
-    }
-    match fs::symlink_metadata(directory) {
-        Ok(metadata)
-            if metadata.is_dir()
-                && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 == 0 =>
-        {
-            Ok(())
-        }
-        Ok(_) => Err(io::Error::other(
-            "refusing to use an unsafe audio driver directory",
-        )),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(directory),
-        Err(error) => Err(error),
-    }
 }
 
 fn driver_directory() -> io::Result<PathBuf> {
@@ -846,12 +574,5 @@ mod tests {
         assert!(is_no_such_device(HRESULT::from_win32(433)));
         assert!(!is_no_such_device(HRESULT::from_win32(5)));
         assert!(!is_no_such_device(HRESULT::from_win32(259)));
-    }
-
-    #[test]
-    fn official_audio_driver_archive_is_embedded() {
-        assert!(audio_driver_package_embedded());
-        assert_eq!(AUDIO_DRIVER_ARCHIVE.len(), 1_318_877);
-        assert!(AUDIO_DRIVER_ARCHIVE.starts_with(b"PK\x03\x04"));
     }
 }

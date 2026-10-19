@@ -24,7 +24,6 @@ windows-agent = { path = "../WindowsAgent" }
 png = "0.18.1"
 
 [target.'cfg(windows)'.dependencies]
-cpal = "0.18.1"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Devices_DeviceAndDriverInstallation",
@@ -52,7 +51,6 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Storage_FileSystem",
-    "Wdk_System_SystemServices",
 ] }
 
 [profile.release]

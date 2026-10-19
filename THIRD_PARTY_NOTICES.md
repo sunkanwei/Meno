@@ -54,7 +54,7 @@ Meno 的 Markdown 空格预览以 MarkText 0.19.1 与其 Muya 0.2.0 渲染行为
 - Copyright (c) 2013-2020 Khan Academy and other contributors
 - Copyright (c) 2014-2022 Knut Sveidqvist
 
-DOMPurify 与 Open Sans 采用的 Apache License 2.0 全文已在本文件的 Windows Rust 音频组件一节列出。
+DOMPurify 与 Open Sans 采用的 Apache License 2.0 全文已在本文件的 Apache License 2.0 一节列出。
 
 Vega、Vega-Lite、Vega-Embed 及其 BSD-3-Clause 组件：
 
@@ -183,33 +183,9 @@ Meno 的剪贴板反馈使用以下从 LottieFiles 下载的动画：
 
 粘贴反馈使用项目所有者提供的 `apple-pay-success.mp3`，在应用内重命名为 `clipboard-paste-success.mp3`。该文件的使用授权由项目所有者负责确认。
 
-## Windows: VB-CABLE
+## Apache License 2.0
 
-Meno Windows 内嵌 VB-Audio 发布的原始 `VBCABLE_Driver_Pack45.zip`，用于把 Meno 写入的音频公开为 Windows 录音设备。压缩包及其中的驱动、安装程序、图标和说明文件均未修改。
-
-- 产品与版权所有者：VB-CABLE，Vincent Burel / VB-Audio Software，Copyright 2010–2024
-- 指定来源：www.vb-cable.com
-- 官方产品页：https://vb-audio.com/Cable/
-- 许可与分发规则：https://vb-audio.com/Services/licensing.htm
-- 内嵌版本：Pack 4.5（2024-10）
-- 原始压缩包 SHA-256：`B950E39F01AF1D04EA623C8F6D8EB9B6EA5C477C637295FABF20631C85116BFB`
-
-VB-CABLE 是捐赠软件，所有参与和捐赠都受到欢迎。VB-Audio 当前公开的分发规则允许在捐赠软件模式适用时，将标准 VB-CABLE 包随应用分发或嵌入安装包；Meno 会明确显示其来源，并始终提供官网与捐赠入口。最终用户可以通过上述官方页面捐赠或购买许可；不符合该模式的专业或批量部署应遵循 VB-Audio 当前许可规则并另行取得所需许可。
-
-VB-CABLE 及其文档按原样提供，不附带任何明示或暗示担保。Meno 对 VB-CABLE 的使用和分发不代表 VB-Audio 为 Meno 提供背书。
-
-## Windows: Rust 音频组件
-
-Meno Windows 的麦克风输出功能包含以下在 Windows Release 中实际使用且由 `Cargo.lock` 固定的组件：
-
-| 组件 | 版本 | 许可 | 来源 |
-| --- | --- | --- | --- |
-| CPAL | 0.18.1 | Apache-2.0 | https://github.com/RustAudio/cpal |
-| dasp_sample | 0.11.0 | Apache-2.0（上游提供 MIT OR Apache-2.0，本发行选择 Apache-2.0） | https://github.com/RustAudio/sample |
-
-CPAL 在 Windows 上还复用本项目原本已锁定的 `windows 0.62.2` 依赖族；它没有为 Windows Release 引入其他音频运行库。锁文件中为其他操作系统解析的依赖不包含在 Windows 可执行文件中。
-
-上述组件按原样提供，不附带任何明示或暗示担保。其适用的 Apache License 2.0 全文如下。
+DOMPurify 与 Open Sans 适用的 Apache License 2.0 全文如下。
 
                                  Apache License
                            Version 2.0, January 2004

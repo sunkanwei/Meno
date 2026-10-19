@@ -8,9 +8,6 @@ $buildRoot = Join-Path $repositoryRoot "build\windows"
 $manifest = Join-Path $projectRoot "MenoClipboard\Cargo.toml"
 $agentManifest = Join-Path $projectRoot "WindowsAgent\Cargo.toml"
 
-& (Join-Path $projectRoot "verify-vb-cable.ps1")
-if ($LASTEXITCODE -ne 0) { throw "VB-CABLE package verification failed" }
-
 $cargo = (Get-Command cargo.exe -ErrorAction Stop).Source
 $cargoTarget = Join-Path $buildRoot "cargo-target"
 New-Item -ItemType Directory -Force -Path $cargoTarget | Out-Null

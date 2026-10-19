@@ -47,10 +47,3 @@ impl MenuModel {
         self
     }
 }
-
-pub fn connected_status_text(main_status: &str, audio_status: Option<&str>) -> String {
-    audio_status.map_or_else(
-        || main_status.to_string(),
-        |audio_status| format!("{main_status} · {audio_status}"),
-    )
-}

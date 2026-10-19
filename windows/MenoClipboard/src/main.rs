@@ -1,7 +1,5 @@
 #![windows_subsystem = "windows"]
 
-mod audio_output;
-mod audio_session;
 mod clipboard_flow;
 mod connection;
 mod core_modules;
@@ -35,7 +33,6 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use arboard::Error as ClipboardError;
-use audio_session::AudioStatus;
 use connection::{NetworkCommand, NetworkEvent};
 use protocol::{Frame, MessageKind};
 use windows::Win32::Foundation::{
@@ -70,7 +67,6 @@ pub(crate) struct AppState {
     pub(crate) image_tasks: image_tasks::ImageTaskSender,
     agent: Option<windows_agent::EmbeddedAgent>,
     status: String,
-    audio_status: AudioStatus,
     connected: bool,
     pub(crate) paused: bool,
     pub(crate) suspended: bool,
@@ -96,7 +92,6 @@ fn main() -> WinResult<()> {
         return Ok(());
     }
     let portable = std::env::args().any(|argument| argument == "--portable");
-    let first_install = std::env::args().any(|argument| argument == "--first-install");
     let install_error = match install::install_if_needed(portable) {
         Ok(true) => {
             return Ok(());
@@ -182,7 +177,6 @@ fn main() -> WinResult<()> {
             image_tasks,
             agent,
             status: "正在查找 Mac".to_string(),
-            audio_status: AudioStatus::Disabled,
             connected: false,
             paused: false,
             suspended: false,
@@ -196,16 +190,6 @@ fn main() -> WinResult<()> {
             return Err(error);
         }
         tray::add(hwnd, "Meno Windows：正在查找 Mac");
-        if first_install {
-            match install::request_audio_driver_install_if_missing() {
-                Ok(true) => {}
-                Ok(false) => {}
-                Err(error) => logging::error(&format!(
-                    "First-run audio driver installation prompt failed: {error}"
-                )),
-            }
-        }
-
         let mut message = MSG::default();
         loop {
             let result = GetMessageW(&mut message, None, 0, 0);
@@ -251,7 +235,6 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
         NetworkEvent::Searching => {
             let _ = with_state(|state| {
                 state.connected = false;
-                state.audio_status = AudioStatus::Disabled;
             });
             update_status(hwnd, "正在查找 Mac".to_string());
         }
@@ -269,23 +252,10 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
             })
             .unwrap_or(false);
         }
-        NetworkEvent::AudioStatus(status) => {
-            let _ = with_state(|state| {
-                if state.paused || state.suspended {
-                    state.audio_status = AudioStatus::Disabled;
-                    return;
-                }
-                state.audio_status = status;
-                if state.connected {
-                    update_connected_tray(hwnd, state);
-                }
-            });
-        }
         NetworkEvent::Error(error) => {
             logging::error(&format!("Network error: {error}"));
             let _ = with_state(|state| {
                 state.connected = false;
-                state.audio_status = AudioStatus::Disabled;
             });
             update_status(hwnd, "局域网连接错误".to_string());
         }
@@ -347,7 +317,7 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if TASKBAR_CREATED.get().is_some_and(|value| *value == message) {
-        if let Some(status) = with_state(|state| display_status(state)) {
+        if let Some(status) = with_state(|state| state.status.clone()) {
             tray::add(hwnd, &format!("Meno Windows：{status}"));
         }
         return LRESULT(0);
@@ -378,7 +348,7 @@ unsafe extern "system" fn window_proc(
         {
             if let Some((status, connected, paused, suspended, startup)) = with_state(|state| {
                 (
-                    display_status(state),
+                    state.status.clone(),
                     state.connected,
                     state.paused,
                     state.suspended,
@@ -436,7 +406,6 @@ fn handle_command(hwnd: HWND, command: usize) {
             let _ = with_state(|state| {
                 state.paused = !state.paused;
                 state.connected = false;
-                state.audio_status = AudioStatus::Disabled;
                 state.status = if state.suspended {
                     "系统休眠".to_string()
                 } else if state.paused {
@@ -454,7 +423,6 @@ fn handle_command(hwnd: HWND, command: usize) {
             let _ = with_state(|state| {
                 if !state.paused && !state.suspended {
                     state.connected = false;
-                    state.audio_status = AudioStatus::Disabled;
                     state.status = "正在查找 Mac".to_string();
                     let _ = state.network.send(NetworkCommand::Rediscover);
                     tray::update(hwnd, "Meno Windows：正在查找 Mac");
@@ -474,18 +442,6 @@ fn handle_command(hwnd: HWND, command: usize) {
             Ok(false) => {}
             Err(error) => logging::error(&format!("Driver repair elevation failed: {error}")),
         },
-        tray::COMMAND_INSTALL_AUDIO_DRIVER => match install::request_audio_driver_install() {
-            Ok(true) => {}
-            Ok(false) => {}
-            Err(error) => logging::error(&format!(
-                "Audio driver installation elevation failed: {error}"
-            )),
-        },
-        tray::COMMAND_VB_CABLE_WEBSITE => {
-            if let Err(error) = install::open_vb_cable_website() {
-                logging::error(&format!("Could not open the VB-CABLE website: {error}"));
-            }
-        }
         tray::COMMAND_VIEW_LOG => {
             if let Err(error) = install::open_log() {
                 logging::error(&format!("Could not open log: {error}"));
@@ -516,7 +472,6 @@ fn handle_display_change(hwnd: HWND) {
     let _ = with_state(|state| {
         if !state.paused && !state.suspended {
             state.connected = false;
-            state.audio_status = AudioStatus::Disabled;
             state.status = "正在查找 Mac".to_string();
             let _ = state.network.send(NetworkCommand::Rediscover);
             tray::update(hwnd, "Meno Windows：正在查找 Mac");
@@ -530,7 +485,6 @@ fn handle_power_event(hwnd: HWND, event: u32) {
             let _ = with_state(|state| {
                 state.suspended = true;
                 state.connected = false;
-                state.audio_status = AudioStatus::Disabled;
                 let _ = state.network.send(NetworkCommand::Pause(true));
                 state.status = "系统休眠".to_string();
                 tray::update(hwnd, "Meno Windows：系统休眠");
@@ -541,7 +495,6 @@ fn handle_power_event(hwnd: HWND, event: u32) {
                 if state.suspended {
                     state.suspended = false;
                     state.connected = false;
-                    state.audio_status = AudioStatus::Disabled;
                     if !state.paused {
                         state.status = "正在查找 Mac".to_string();
                         let _ = state.network.send(NetworkCommand::Pause(false));
@@ -725,15 +678,7 @@ fn update_status(hwnd: HWND, status: String) {
 }
 
 fn update_connected_tray(hwnd: HWND, state: &AppState) {
-    tray::update(hwnd, &format!("Meno Windows：{}", display_status(state)));
-}
-
-fn display_status(state: &AppState) -> String {
-    if state.connected {
-        menu::connected_status_text(&state.status, state.audio_status.label())
-    } else {
-        state.status.clone()
-    }
+    tray::update(hwnd, &format!("Meno Windows：{}", state.status));
 }
 
 pub(crate) fn with_state<T>(action: impl FnOnce(&mut AppState) -> T) -> Option<T> {

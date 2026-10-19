@@ -38,7 +38,7 @@ use windows::core::{Error, PCWSTR, w};
 
 use crate::menu_items::wide;
 pub(crate) use crate::menu_items::{Item, ItemKind, build_items};
-pub use crate::menu_model::{MenuModel, StatusKind, connected_status_text};
+pub use crate::menu_model::{MenuModel, StatusKind};
 use crate::tray::ICON_ID;
 
 const CLASS_NAME: PCWSTR = w!("MenoTrayMenuWindow");

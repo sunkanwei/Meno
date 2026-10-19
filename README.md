@@ -29,7 +29,7 @@ Meno 是一个同时包含 Mac 与 Windows 源码的私有项目。两端共享�
 
 Mac 端支持与 Windows 切换键鼠、共享剪贴板，不再采集或传送麦克风音频，也不再提供麦克风共享设置或音频连接端口。Windows 使用自己的本地话筒。Mac 本地的“鼠标侧键语音输入”和粘贴提示音继续保留。
 
-MENO 已发布的麦克风能力编号 8、Hello 音频端口字段 6、音频消息编号 28 永久保留，禁止复用。Mac 忽略这些退役能力、字段和消息；其他能力、消息格式与未知字段的安全忽略规则不变。
+MENO 已发布的麦克风能力编号 8、Hello 音频端口字段 6、音频消息编号 28 永久保留，禁止复用。两端忽略这些退役能力、字段和消息；其他能力、消息格式与未知字段的安全忽略规则不变。
 
 ### Markdown 空格预览
 
@@ -83,7 +83,7 @@ Meno 菜单栏中的“快捷运行”用于手动执行一次性 zsh 脚本，�
 
 首次检出必须先运行完整 Release 构建；之后才能使用只重建托盘程序的快速构建。缓存、驱动包和最终程序统一位于 `build\windows\`，最终发布文件在 `build\windows\dist\`。
 
-首次运行 `build\windows\dist\MenoClipboard.exe` 时，程序会复制到 `%LOCALAPPDATA%\Meno\MenoClipboard.exe` 并从固定位置重新启动。构建不会自动安装驱动；鼠标驱动和 VB-CABLE 只有在用户从托盘明确选择并确认后才安装。
+首次运行 `build\windows\dist\MenoClipboard.exe` 时，程序会复制到 `%LOCALAPPDATA%\Meno\MenoClipboard.exe` 并从固定位置重新启动。构建不会自动安装驱动；鼠标驱动只有在用户从托盘明确选择并确认后才安装。Windows 使用本地话筒，Meno 不再接收 Mac 麦克风音频，也不携带音频驱动安装包。已安装的虚拟声卡不会随程序更新自动卸载。
 
 Windows Agent 的 Meno 项目路径应登记为共享仓库根目录，例如 `D:\APP\Meno`，不要只登记 `D:\APP\Meno\windows`；这样它才能读取共同规则并使用根目录的构建目录。
 
