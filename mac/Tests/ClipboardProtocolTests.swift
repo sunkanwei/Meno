@@ -42,25 +42,25 @@ final class ClipboardProtocolTests: XCTestCase {
         )
     }
 
-    func testMicrophoneIdentifiersAndFirstFrameHeaderAreStable() {
-        XCTAssertEqual(CompanionCapability.macMicrophone.rawValue, 8)
-        XCTAssertEqual(ClipboardMessageKind.microphonePCM.rawValue, 28)
+    func testRetiredMicrophoneNumbersRemainUnassignedAndFramesAreIgnored() throws {
+        XCTAssertNil(CompanionCapability(rawValue: 8))
+        XCTAssertNil(ClipboardMessageKind(rawValue: 28))
 
-        let frame = ClipboardFrame(
-            kind: .microphonePCM,
-            messageID: 1,
-            payload: Data(repeating: 0, count: 1_920)
-        )
-
-        XCTAssertEqual(
-            [UInt8](frame.encoded().prefix(20)),
-            [
-                0x4D, 0x45, 0x4E, 0x4F,
-                0x1C, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 1,
-                0, 0, 0x07, 0x80,
-            ]
-        )
+        // Keep the published PCM frame bytes as a retirement fixture.
+        var retired = Data([
+            0x4D, 0x45, 0x4E, 0x4F,
+            0x1C, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0x07, 0x80,
+        ])
+        retired.append(Data(repeating: 0, count: 1_920))
+        let known = ClipboardFrame(kind: .ping, messageID: 2, payload: Data()).encoded()
+        var decoder = ClipboardFrameDecoder()
+        XCTAssertTrue(try decoder.append(retired.prefix(21)).isEmpty)
+        let frames = try decoder.append(retired.dropFirst(21) + known)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames.first?.kind, .ping)
+        XCTAssertEqual(frames.first?.messageID, 2)
     }
 
     func testDecoderHandlesSplitAndConsecutiveFrames() throws {
@@ -211,29 +211,28 @@ final class ClipboardProtocolTests: XCTestCase {
         )
     }
 
-    func testAudioPortFieldIsBigEndianAndStrictlyValidated() throws {
-        let payload = CompanionHello(
-            name: "Mac",
-            capabilities: [.macMicrophone],
-            driverABI: nil,
-            screenWidth: nil,
-            screenHeight: nil,
-            audioPort: 0xBEEF
-        ).encoded()
-        XCTAssertEqual([UInt8](payload.suffix(5)), [6, 0, 2, 0xBE, 0xEF])
-        XCTAssertEqual(try XCTUnwrap(CompanionHello.decode(payload)).audioPort, 0xBEEF)
+    func testRetiredCapabilityAndAudioPortAreIgnoredAndNeverReencoded() throws {
+        // Existing Windows peers may still offer capability 8 and Hello TLV 6.
+        let published = Data([
+            1, 0, 3, 0x57, 0x69, 0x6E,
+            2, 0, 6, 0, 1, 0, 8, 0, 10,
+            6, 0, 2, 0xBE, 0xEF,
+        ])
+        let decoded = try XCTUnwrap(CompanionHello.decode(published))
+        XCTAssertEqual(decoded.name, "Win")
+        XCTAssertEqual(decoded.capabilities, [.textClipboard, .windowsOnline])
+        XCTAssertEqual(
+            [UInt8](decoded.encoded()),
+            [1, 0, 3, 0x57, 0x69, 0x6E, 2, 0, 4, 0, 1, 0, 10]
+        )
 
-        var duplicate = payload
-        duplicate.append(contentsOf: [6, 0, 2, 0x12, 0x34])
-        XCTAssertNil(CompanionHello.decode(duplicate))
-
-        var zero = payload.dropLast(2)
-        zero.append(contentsOf: [0, 0])
-        XCTAssertNil(CompanionHello.decode(Data(zero)))
-
-        var wrongLength = payload.dropLast(5)
-        wrongLength.append(contentsOf: [6, 0, 1, 1])
-        XCTAssertNil(CompanionHello.decode(Data(wrongLength)))
+        // Retired fields use the same envelope checks as other unknown TLVs.
+        var repeated = published
+        repeated.append(contentsOf: [6, 0, 1, 0])
+        XCTAssertEqual(CompanionHello.decode(repeated), decoded)
+        var truncated = published
+        truncated.append(contentsOf: [6, 0, 2, 0])
+        XCTAssertNil(CompanionHello.decode(truncated))
     }
 
     func testRemoteShutdownHelloCapabilityBytesAreStable() {

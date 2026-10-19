@@ -4,9 +4,22 @@ import Foundation
 /// It remains authoritative while the shared Philips display is disconnected.
 struct SoftKVMTopologyPlan: Codable, Equatable, Sendable {
   let sharedDisplaySide: HorizontalDisplaySide
+  // Captured from the complete baseline, independently of the system main screen.
+  let entryDisplayID: String?
+  let remainingDisplaySide: HorizontalDisplaySide?
+
+  init(
+    sharedDisplaySide: HorizontalDisplaySide,
+    entryDisplayID: String? = nil,
+    remainingDisplaySide: HorizontalDisplaySide? = nil
+  ) {
+    self.sharedDisplaySide = sharedDisplaySide
+    self.entryDisplayID = entryDisplayID
+    self.remainingDisplaySide = remainingDisplaySide
+  }
 
   var localDisplaySide: HorizontalDisplaySide {
-    sharedDisplaySide.opposite
+    remainingDisplaySide ?? sharedDisplaySide.opposite
   }
 
   var macEntryEdge: HorizontalDisplaySide {
@@ -138,15 +151,22 @@ struct SoftKVMMacBaseline: Sendable {
     let localDisplay = mainDisplay.role == .builtIn
       ? identities.viewSonic
       : identities.builtIn
+    let ordered = [identities.builtIn, identities.viewSonic, identities.philips]
+      .sorted { $0.originX < $1.originX }
+    guard let sharedIndex = ordered.firstIndex(where: { $0.role == .philips }),
+      sharedIndex == 0 || sharedIndex == 2,
+      HorizontalDisplayLayout.side(of: ordered[0], relativeTo: ordered[1]) == .left,
+      HorizontalDisplayLayout.side(of: ordered[2], relativeTo: ordered[1]) == .right
+    else {
+      return nil
+    }
+    let entryDisplay = ordered[1]
+    let sharedSide: HorizontalDisplaySide = sharedIndex == 0 ? .left : .right
     guard let localSide = HorizontalDisplayLayout.side(
       of: localDisplay,
       relativeTo: mainDisplay
     ),
-      let sharedSide = HorizontalDisplayLayout.side(
-        of: identities.philips,
-        relativeTo: mainDisplay
-      ),
-      localSide == sharedSide.opposite,
+      entryDisplay.uuid != nil,
       HorizontalDisplayLayout.bottomsAreAligned(
         [identities.builtIn, identities.viewSonic, identities.philips],
         with: mainDisplay
@@ -159,7 +179,11 @@ struct SoftKVMMacBaseline: Sendable {
       philips: identities.philips,
       mainDisplay: mainDisplay,
       localDisplay: localDisplay,
-      topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: sharedSide),
+      topologyPlan: SoftKVMTopologyPlan(
+        sharedDisplaySide: sharedSide,
+        entryDisplayID: entryDisplay.isMain ? nil : entryDisplay.uuid,
+        remainingDisplaySide: localSide == sharedSide.opposite ? nil : localSide
+      ),
       remainingMacDisplayPlacement: SoftKVMRemainingDisplayPlacement(
         mainDisplay: mainDisplay,
         localDisplay: localDisplay

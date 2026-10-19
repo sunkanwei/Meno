@@ -3,45 +3,32 @@ import Network
 
 final class WindowsCompanionServer: @unchecked Sendable {
     typealias ConnectionHandler = @Sendable (NWConnection) -> Void
-    typealias ClipboardConnectionHandler = @Sendable (NWConnection, UInt16?) -> Void
+    typealias ClipboardConnectionHandler = @Sendable (NWConnection) -> Void
     typealias MouseConnectionHandler = @Sendable (NWConnection) -> Void
     typealias StateHandler = @Sendable (Result<Void, Error>) -> Void
-    typealias AudioStateHandler = @Sendable (Result<UInt16, Error>) -> Void
 
     private let queue = DispatchQueue(label: "com.sunkanwei.Meno.WindowsCompanionDiscovery")
-    private let audioEnabled: Bool
     private let onClipboardConnection: ClipboardConnectionHandler
     private let onMouseConnection: MouseConnectionHandler
-    private let onAudioConnection: ConnectionHandler
     private let onState: StateHandler
-    private let onAudioState: AudioStateHandler
     private var clipboardListener: NWListener?
     private var mouseListener: NWListener?
-    private var audioListener: NWListener?
     private var udpListener: NWListener?
     private var clipboardPort: NWEndpoint.Port?
     private var mousePort: NWEndpoint.Port?
-    private var audioPort: NWEndpoint.Port?
     private var clipboardReady = false
     private var mouseReady = false
-    private var audioSettled = false
     private var udpReady = false
     private var discoveryConnections: [ObjectIdentifier: NWConnection] = [:]
 
     init(
-        audioEnabled: Bool,
         onClipboardConnection: @escaping ClipboardConnectionHandler,
         onMouseConnection: @escaping MouseConnectionHandler,
-        onAudioConnection: @escaping ConnectionHandler,
-        onState: @escaping StateHandler,
-        onAudioState: @escaping AudioStateHandler
+        onState: @escaping StateHandler
     ) {
-        self.audioEnabled = audioEnabled
         self.onClipboardConnection = onClipboardConnection
         self.onMouseConnection = onMouseConnection
-        self.onAudioConnection = onAudioConnection
         self.onState = onState
-        self.onAudioState = onAudioState
     }
 
     func start() {
@@ -58,16 +45,9 @@ final class WindowsCompanionServer: @unchecked Sendable {
 
     private func startListeners() {
         stopListeners()
-        audioSettled = !audioEnabled
         do {
             let clipboardListener = try makeTCPListener(
-                onConnection: { [weak self] connection in
-                    guard let self, audioSettled else {
-                        connection.cancel()
-                        return
-                    }
-                    onClipboardConnection(connection, audioPort?.rawValue)
-                },
+                onConnection: onClipboardConnection,
                 onReady: { [weak self] listener in
                     guard let self, let port = listener.port else {
                         self?.fail(CompanionDiscoveryError.missingClipboardPort)
@@ -93,32 +73,6 @@ final class WindowsCompanionServer: @unchecked Sendable {
                     reportReadyIfNeeded()
                 }
             )
-
-            if audioEnabled {
-                do {
-                    let audioListener = try makeTCPListener(
-                        noDelay: true,
-                        onConnection: onAudioConnection,
-                        onReady: { [weak self] listener in
-                            guard let self, let port = listener.port else {
-                                self?.audioFailed(CompanionDiscoveryError.missingAudioPort)
-                                return
-                            }
-                            audioPort = port
-                            audioSettled = true
-                            onAudioState(.success(port.rawValue))
-                            reportReadyIfNeeded()
-                        },
-                        onFailure: { [weak self] error in
-                            self?.audioFailed(error)
-                        }
-                    )
-                    self.audioListener = audioListener
-                    audioListener.start(queue: queue)
-                } catch {
-                    audioFailed(error)
-                }
-            }
 
             let udpParameters = NWParameters.udp
             udpParameters.allowLocalEndpointReuse = true
@@ -156,8 +110,7 @@ final class WindowsCompanionServer: @unchecked Sendable {
     private func makeTCPListener(
         noDelay: Bool = false,
         onConnection: @escaping ConnectionHandler,
-        onReady: @escaping @Sendable (NWListener) -> Void,
-        onFailure: (@Sendable (Error) -> Void)? = nil
+        onReady: @escaping @Sendable (NWListener) -> Void
     ) throws -> NWListener {
         let parameters: NWParameters
         if noDelay {
@@ -177,11 +130,7 @@ final class WindowsCompanionServer: @unchecked Sendable {
             case .ready:
                 onReady(listener)
             case let .failed(error):
-                if let onFailure {
-                    onFailure(error)
-                } else {
-                    fail(error)
-                }
+                fail(error)
             default:
                 break
             }
@@ -201,7 +150,6 @@ final class WindowsCompanionServer: @unchecked Sendable {
                     guard error == nil,
                           let data,
                           ClipboardWire.isDiscoverPacket(data),
-                          audioSettled,
                           let clipboardPort,
                           let mousePort else {
                         finishDiscovery(connection, identifier: identifier)
@@ -231,17 +179,8 @@ final class WindowsCompanionServer: @unchecked Sendable {
     }
 
     private func reportReadyIfNeeded() {
-        guard clipboardReady, mouseReady, audioSettled, udpReady else { return }
+        guard clipboardReady, mouseReady, udpReady else { return }
         onState(.success(()))
-    }
-
-    private func audioFailed(_ error: Error) {
-        audioListener?.cancel()
-        audioListener = nil
-        audioPort = nil
-        audioSettled = true
-        onAudioState(.failure(error))
-        reportReadyIfNeeded()
     }
 
     private func fail(_ error: Error) {
@@ -252,18 +191,14 @@ final class WindowsCompanionServer: @unchecked Sendable {
     private func stopListeners() {
         clipboardListener?.cancel()
         mouseListener?.cancel()
-        audioListener?.cancel()
         udpListener?.cancel()
         clipboardListener = nil
         mouseListener = nil
-        audioListener = nil
         udpListener = nil
         clipboardPort = nil
         mousePort = nil
-        audioPort = nil
         clipboardReady = false
         mouseReady = false
-        audioSettled = false
         udpReady = false
         for connection in discoveryConnections.values {
             connection.cancel()
@@ -276,7 +211,6 @@ private enum CompanionDiscoveryError: LocalizedError {
     case invalidDiscoveryPort
     case missingClipboardPort
     case missingMousePort
-    case missingAudioPort
 
     var errorDescription: String? {
         switch self {
@@ -286,8 +220,6 @@ private enum CompanionDiscoveryError: LocalizedError {
             return "系统没有分配剪贴板连接端口。"
         case .missingMousePort:
             return "系统没有分配跨屏鼠标连接端口。"
-        case .missingAudioPort:
-            return "系统没有分配麦克风连接端口。"
         }
     }
 }

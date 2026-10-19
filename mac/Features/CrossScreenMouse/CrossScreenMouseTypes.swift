@@ -14,7 +14,7 @@ enum CrossScreenMouseStatus: Equatable {
     var detail: String {
         switch self {
         case .off: "不会拦截任何 Mac 屏幕边缘。"
-        case .needsArrangement: "只支持三块已登记屏幕横向相邻、Mac 主屏居中且 Philips 位于左侧或右侧。"
+        case .needsArrangement: "需要三块已登记屏幕横向相邻、底边对齐，Philips 位于最左侧或最右侧。"
         case .waiting: "屏幕接缝已经配置，正在等待 Windows EXE。"
         case let .standby(_, instruction):
             "Windows 输入通道在线。切换到 Windows 后，\(instruction)"
@@ -55,13 +55,6 @@ struct CrossScreenMouseState {
     var softKVMShortcutCapture = SoftKVMShortcutCapture()
     var softKVMShortcutCaptureEnabled = true
     var localKeyboardCaptureRequired = false
-    var microphoneActivationKey = MicrophoneActivationKey.defaultValue
-    var microphonePushToTalkState = MicrophonePushToTalkState.idle
-
-    var microphoneActivationHeld: Bool {
-        microphonePushToTalkState.isHeld
-    }
-
     var status: CrossScreenMouseStatus {
         guard enabled else { return .off }
         guard windowsGeometry != nil else { return .needsArrangement }
@@ -168,43 +161,6 @@ struct CrossScreenMouseState {
         kvmRouteSnapshot = nil
         availableRoute = nil
     }
-
-    mutating func updateMicrophoneActivation() -> Bool {
-        microphonePushToTalkState.updateRemoteKey(
-            isPressed: microphoneActivationKey.isPressed(in: keyboard)
-        )
-    }
-
-    mutating func activateMicrophoneIfPhysicalKeyHeld() -> KeyboardReport? {
-        guard microphonePushToTalkState == .idle,
-              microphoneActivationKey.isPhysicallyPressed() else {
-            return nil
-        }
-        _ = microphoneActivationKey.setPressed(true, in: &keyboard)
-        guard microphonePushToTalkState.updateRemoteKey(isPressed: true) else {
-            return nil
-        }
-        return microphoneActivationKey.preservingPressed(in: keyboard.report)
-    }
-
-    mutating func preserveMicrophoneActivationWhileReturningToMac() -> Bool {
-        microphonePushToTalkState.preserveWhileReturningToMac(
-            physicalKeyIsPressed: microphoneActivationKey.isPhysicallyPressed()
-        )
-    }
-
-    mutating func observePendingMicrophonePhysicalRelease() -> Bool {
-        guard microphonePushToTalkState == .awaitingPhysicalRelease else {
-            return false
-        }
-        return microphonePushToTalkState.observePhysicalRelease(
-            physicalKeyIsPressed: microphoneActivationKey.isPhysicallyPressed()
-        )
-    }
-
-    mutating func releaseMicrophoneActivation() -> Bool {
-        microphonePushToTalkState.forceStop()
-    }
 }
 
 enum CrossScreenMouseNetworkAction {
@@ -247,12 +203,6 @@ enum CrossScreenMouseAction {
     case stabilizeDisplayHandoff(CGPoint)
     case displayHandoffWall(HorizontalDisplayHandoffWall)
     case send(CrossScreenMouseNetworkAction)
-    case sendAndActivateMicrophone(CrossScreenMouseNetworkAction)
-    case sendAndBeginMicrophoneReleaseTail(
-        CrossScreenMouseNetworkAction,
-        MouseConnection,
-        UInt64
-    )
     case swallow
     case emergencyRelease
     case toggleSoftKVM

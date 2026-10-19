@@ -33,8 +33,7 @@ extension CrossScreenMouseController {
             releaseRemote(
                 sendRelease: true,
                 normalizedY: nil,
-                reason: "feature disabled",
-                forceStopMicrophone: true
+                reason: "feature disabled"
             )
             cancelInputTapRestart()
             localDisplayRoutingTopology.reset()

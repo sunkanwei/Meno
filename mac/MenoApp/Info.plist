@@ -42,13 +42,11 @@
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Meno 使用 Finder 定位桌面新建文档，并在 KVM 切换后恢复仍由 Mac 使用的屏幕上的桌面图标位置。</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Meno 使用本地网络与您的 Windows 电脑同步剪贴板、共享麦克风、传输跨屏鼠标操作，并发现 Windows Agent。</string>
+	<string>Meno 使用本地网络与您的 Windows 电脑同步剪贴板、传输跨屏鼠标操作，并发现 Windows Agent。</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_meno-agent._tcp</string>
 	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Meno 使用这台 Mac 的麦克风，将声音实时传送到您的 Windows 电脑。</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

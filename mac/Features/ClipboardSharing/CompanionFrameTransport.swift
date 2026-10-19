@@ -1,8 +1,7 @@
 import Foundation
 import Network
 
-// Shared NWConnection frame plumbing for the three companion channels
-// (clipboard, mouse, microphone): state handling, the bounded receive loop,
+// Shared NWConnection frame plumbing for the clipboard and mouse channels: state handling, the bounded receive loop,
 // frame decoding and terminal failure reporting. Channel-specific state,
 // readiness and cleanup stay in the owning connection.
 final class CompanionFrameTransport: @unchecked Sendable {

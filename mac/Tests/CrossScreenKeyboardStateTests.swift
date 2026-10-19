@@ -57,8 +57,7 @@ final class CrossScreenKeyboardStateTests: XCTestCase {
         XCTAssertEqual(state.report, .released)
     }
 
-    func testPhysicalRightAltProducesRemoteMicrophonePayload() {
-        let activationKey = MicrophoneActivationKey.defaultValue
+    func testPhysicalRightAltProducesStandardPayloadAndReleasesImmediately() {
         let modifiers = MacKeyboardMapping.windowsModifiers(
             previous: 0,
             changedKeyCode: 61,
@@ -68,7 +67,6 @@ final class CrossScreenKeyboardStateTests: XCTestCase {
 
         XCTAssertEqual(modifiers, 1 << 6)
         XCTAssertTrue(state.setModifiers(modifiers))
-        XCTAssertTrue(activationKey.isPressed(in: state))
         XCTAssertEqual(
             [UInt8](state.report.payload),
             [0x40, 0, 0, 0, 0, 0, 0, 0]
@@ -81,7 +79,6 @@ final class CrossScreenKeyboardStateTests: XCTestCase {
         )
         XCTAssertEqual(releasedModifiers, 0)
         XCTAssertTrue(state.setModifiers(releasedModifiers))
-        XCTAssertFalse(activationKey.isPressed(in: state))
         XCTAssertEqual(state.report, .released)
     }
 
@@ -252,176 +249,4 @@ final class CrossScreenKeyboardStateTests: XCTestCase {
         XCTAssertEqual(state.report.usages, [0x04])
     }
 
-    func testMicrophoneActivationDefaultsToRightOptionOnly() {
-        let activationKey = MicrophoneActivationKey.defaultValue
-        var keyboard = HIDKeyboardState()
-
-        XCTAssertTrue(activationKey.isValid)
-        XCTAssertFalse(activationKey.isPressed(in: keyboard))
-        _ = keyboard.setModifiers(1 << 2)
-        XCTAssertFalse(activationKey.isPressed(in: keyboard))
-        _ = keyboard.setModifiers(1 << 6)
-        XCTAssertTrue(activationKey.isPressed(in: keyboard))
-    }
-
-    func testPersistedMicrophoneKeyLabelsUseExternalKeyboardNames() {
-        let cases: [(UInt16, String, String)] = [
-            (61, "右 Option（Windows 右 Alt）", "右 Alt"),
-            (36, "Return", "Enter"),
-            (51, "Delete", "Backspace"),
-            (117, "向前删除", "Delete"),
-            (6, "Z", "Z"),
-        ]
-
-        for (keyCode, persistedLabel, expectedTitle) in cases {
-            XCTAssertEqual(
-                MicrophoneActivationKey(
-                    keyCode: keyCode,
-                    keyLabel: persistedLabel
-                ).title,
-                expectedTitle
-            )
-        }
-    }
-
-    func testOrdinaryMicrophoneActivationKeyUsesFullKeyboardStateDuringRollover() {
-        let activationKey = MicrophoneActivationKey(keyCode: 6, keyLabel: "Z")
-        var keyboard = HIDKeyboardState()
-        for usage in UInt8(0x04)...UInt8(0x09) {
-            _ = keyboard.setUsage(usage, pressed: true)
-        }
-        _ = keyboard.setUsage(0x1D, pressed: true)
-
-        XCTAssertTrue(keyboard.report.overflowed)
-        XCTAssertFalse(keyboard.report.usages.contains(0x1D))
-        XCTAssertTrue(activationKey.isPressed(in: keyboard))
-    }
-
-    func testCapsLockCannotBeUsedAsHoldToShareKey() {
-        let activationKey = MicrophoneActivationKey(
-            keyCode: MacKeyboardMapping.capsLockKeyCode,
-            keyLabel: "Caps Lock"
-        )
-
-        XCTAssertFalse(activationKey.isValid)
-    }
-
-    func testPersistedSpecialFunctionUsageCanActivateMicrophone() throws {
-        let activationKey = MicrophoneActivationKey(
-            keyCode: 0,
-            keyLabel: "F21",
-            hidUsage: 0x70
-        )
-        let restored = try JSONDecoder().decode(
-            MicrophoneActivationKey.self,
-            from: JSONEncoder().encode(activationKey)
-        )
-        var keyboard = HIDKeyboardState()
-        _ = keyboard.setUsage(0x70, pressed: true)
-
-        XCTAssertEqual(restored, activationKey)
-        XCTAssertTrue(restored.isValid)
-        XCTAssertTrue(restored.isPressed(in: keyboard))
-    }
-
-    func testMicrophonePushToTalkSurvivesMouseReturnUntilPhysicalRelease() {
-        var state = MicrophonePushToTalkState.idle
-
-        XCTAssertTrue(state.updateRemoteKey(isPressed: true))
-        XCTAssertEqual(state, .remoteHeld)
-        XCTAssertTrue(state.isHeld)
-        XCTAssertFalse(state.preserveWhileReturningToMac(physicalKeyIsPressed: true))
-        XCTAssertEqual(state, .awaitingPhysicalRelease)
-        XCTAssertTrue(state.isHeld)
-        XCTAssertFalse(state.updateRemoteKey(isPressed: true))
-        XCTAssertTrue(state.observePhysicalRelease(physicalKeyIsPressed: false))
-        XCTAssertEqual(state, .idle)
-        XCTAssertFalse(state.isHeld)
-    }
-
-    func testMicrophonePushToTalkStopsWhenReleasedBeforeMouseReturnOrForced() {
-        var state = MicrophonePushToTalkState.idle
-
-        XCTAssertTrue(state.updateRemoteKey(isPressed: true))
-        XCTAssertTrue(state.preserveWhileReturningToMac(physicalKeyIsPressed: false))
-        XCTAssertEqual(state, .idle)
-        XCTAssertFalse(state.forceStop())
-        XCTAssertTrue(state.updateRemoteKey(isPressed: true))
-        XCTAssertFalse(state.preserveWhileReturningToMac(physicalKeyIsPressed: true))
-        XCTAssertEqual(state, .awaitingPhysicalRelease)
-        XCTAssertTrue(state.forceStop())
-        XCTAssertEqual(state, .idle)
-    }
-
-    func testMicrophoneReleaseTailGateRejectsCancelledAndStaleCompletions() {
-        var gate = MicrophoneReleaseTailGate()
-        let originalKey = MicrophoneActivationKey.defaultValue
-        let replacementKey = MicrophoneActivationKey(keyCode: 6, keyLabel: "Z")
-        let cancelled = gate.begin(activationKey: originalKey)
-        XCTAssertTrue(gate.isPending)
-        XCTAssertEqual(gate.activationKey, originalKey)
-        gate.cancel()
-        XCTAssertFalse(gate.isPending)
-        XCTAssertNil(gate.activationKey)
-        XCTAssertFalse(gate.complete(generation: cancelled))
-
-        let stale = gate.begin(activationKey: originalKey)
-        let current = gate.begin(activationKey: replacementKey)
-        XCTAssertEqual(gate.activationKey, replacementKey)
-        XCTAssertFalse(gate.complete(generation: stale))
-        XCTAssertTrue(gate.complete(generation: current))
-        XCTAssertFalse(gate.isPending)
-        XCTAssertNil(gate.activationKey)
-    }
-
-    func testMicrophoneReleaseTailPreservesModifierAndOrdinaryActivationKeys() {
-        let base = KeyboardReport(modifiers: 1 << 1, usages: [0x04])
-        let modifier = MicrophoneActivationKey.defaultValue.preservingPressed(in: base)
-        XCTAssertEqual(modifier.modifiers, base.modifiers | (1 << 6))
-        XCTAssertEqual(modifier.usages, base.usages)
-
-        let ordinary = MicrophoneActivationKey(
-            keyCode: 6,
-            keyLabel: "Z"
-        ).preservingPressed(in: base)
-        XCTAssertEqual(ordinary.modifiers, base.modifiers)
-        XCTAssertEqual(ordinary.usages, [0x04, 0x1D])
-
-        let rollover = KeyboardReport(
-            modifiers: 0,
-            usages: UInt8(0x04)...UInt8(0x09)
-        )
-        let prioritized = MicrophoneActivationKey(
-            keyCode: 6,
-            keyLabel: "Z"
-        ).preservingPressed(in: rollover)
-        XCTAssertTrue(prioritized.overflowed)
-        XCTAssertEqual(prioritized.usages, [0x04, 0x05, 0x06, 0x07, 0x08, 0x1D])
-
-        let alreadySelected = MicrophoneActivationKey(
-            keyCode: 0,
-            keyLabel: "A"
-        ).preservingPressed(in: KeyboardReport(
-            modifiers: 0,
-            usages: UInt8(0x04)...UInt8(0x0A)
-        ))
-        XCTAssertTrue(alreadySelected.overflowed)
-        XCTAssertEqual(alreadySelected.usages, [0x04, 0x05, 0x06, 0x07, 0x08, 0x09])
-
-        let modifierDuringRollover = MicrophoneActivationKey.defaultValue
-            .preservingPressed(in: alreadySelected)
-        XCTAssertTrue(modifierDuringRollover.overflowed)
-        XCTAssertEqual(modifierDuringRollover.modifiers, 1 << 6)
-        XCTAssertEqual(modifierDuringRollover.usages, alreadySelected.usages)
-    }
-
-    func testMicrophoneActivationKeyCanSynchronizeAKeyAlreadyHeldAtRemoteAcquire() {
-        let activationKey = MicrophoneActivationKey.defaultValue
-        var keyboard = HIDKeyboardState()
-
-        XCTAssertTrue(activationKey.setPressed(true, in: &keyboard))
-        XCTAssertEqual(keyboard.modifiers, 1 << 6)
-        XCTAssertTrue(activationKey.setPressed(false, in: &keyboard))
-        XCTAssertEqual(keyboard.report, .released)
-    }
 }

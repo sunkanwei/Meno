@@ -317,7 +317,6 @@ enum MousePayload {
 
     static func decodeHello(_ data: Data) -> MousePeer? {
         guard let hello = CompanionHello.decode(data),
-              hello.audioPort == nil,
               hello.capabilities.contains(.mouseControl),
               let driverABI = hello.driverABI,
               let width = hello.screenWidth,

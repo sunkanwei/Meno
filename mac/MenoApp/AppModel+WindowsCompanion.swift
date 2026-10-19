@@ -7,26 +7,6 @@ extension AppModel {
         defaults.set(enabled, forKey: AppPreferenceKey.clipboardSharingEnabled)
         windowsCompanion.setClipboardEnabled(enabled)
     }
-    func setMicrophoneSharingEnabled(_ enabled: Bool) {
-        microphoneSharingEnabled = enabled
-        defaults.set(enabled, forKey: AppPreferenceKey.microphoneSharingEnabled)
-        windowsCompanion.setMicrophoneEnabled(enabled)
-    }
-    func setMicrophoneActivationKey(_ activationKey: MicrophoneActivationKey) {
-        guard activationKey.isValid else { return }
-        microphoneActivationKey = activationKey
-        if let data = try? JSONEncoder().encode(activationKey) {
-            defaults.set(data, forKey: AppPreferenceKey.microphoneActivationKey)
-        }
-        crossScreenMouse.setMicrophoneActivationKey(activationKey)
-    }
-    func setMicrophoneActivationKeyRecording(_ recording: Bool) {
-        crossScreenMouse.setSoftKVMShortcutCaptureEnabled(!recording)
-        softKVMHotKey.setEnabled(!recording && crossScreenMouseEnabled)
-    }
-    func openMicrophoneSettings() {
-        windowsCompanion.openMicrophoneSettings()
-    }
     func restartWindowsCompanion() {
         windowsCompanion.restartListening()
     }

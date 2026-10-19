@@ -27,37 +27,19 @@ extension CrossScreenMouseController {
 
     @MainActor
     func remoteDidAcquire(connectionID: UUID, controlID: UInt64) {
-        let acquire = runtimeLock.withCriticalSection {
-            () -> (
-                identity: MouseControlIdentity?,
-                activation: (MouseConnection, KeyboardReport)?
-            ) in
+        let acquiredIdentity = runtimeLock.withCriticalSection { () -> MouseControlIdentity? in
             guard let identity = state.ownership.identity,
                   identity.connectionID == connectionID,
                   identity.controlID == controlID,
-                  state.ownership.apply(.remoteAcquired(identity)) else {
-                return (nil, nil)
-            }
-            let activation: (MouseConnection, KeyboardReport)?
-            if state.keyboardSupported,
-               let connection = state.connection,
-               let report = state.activateMicrophoneIfPhysicalKeyHeld() {
-                activation = (connection, report)
-            } else {
-                activation = nil
-            }
-            return (identity, activation)
+                  state.ownership.apply(.remoteAcquired(identity)) else { return nil }
+            return identity
         }
-        guard let identity = acquire.identity else { return }
-        if let activation = acquire.activation {
-            activation.0.sendKeyboardState(controlID: controlID, activation.1)
-        }
+        guard let identity = acquiredIdentity else { return }
         controlTimeoutWorkItem?.cancel()
         controlTimeoutWorkItem = nil
         Self.logger.notice(
             "Mouse control acquired connection=\(identity.connectionID.uuidString, privacy: .public) id=\(controlID, privacy: .public) route=\(identity.routeID, privacy: .public)"
         )
-        if acquire.activation != nil { publishMicrophoneActivation(true) }
         publishStatus()
     }
 
@@ -87,19 +69,17 @@ extension CrossScreenMouseController {
         completeRelease(
             identity: identity,
             normalizedY: normalizedY,
-            reason: "Windows left remote screen",
-            prepareMicrophoneForReturn: true
+            reason: "Windows left remote screen"
         )
     }
 
     @MainActor
-    func prepareForSystemTransition(forceStopMicrophone: Bool = false) {
+    func prepareForSystemTransition() {
         cancelMouseVoiceShortcut()
         disableRouteAndResetShortcutCapture()
         recoverLocalImmediately(
             sendRelease: true,
-            reason: "system transition",
-            forceStopMicrophone: forceStopMicrophone
+            reason: "system transition"
         )
     }
 
@@ -110,8 +90,7 @@ extension CrossScreenMouseController {
             sendRelease: true,
             normalizedY: nil,
             reason: "application exit",
-            restoreImmediately: true,
-            forceStopMicrophone: true
+            restoreImmediately: true
         )
         runtimeLock.withCriticalSection {
             state.enabled = false
@@ -128,15 +107,13 @@ extension CrossScreenMouseController {
     @MainActor
     func recoverLocalImmediately(
         sendRelease: Bool,
-        reason: String,
-        forceStopMicrophone: Bool = false
+        reason: String
     ) {
         releaseRemote(
             sendRelease: sendRelease,
             normalizedY: nil,
             reason: reason,
-            restoreImmediately: true,
-            forceStopMicrophone: forceStopMicrophone
+            restoreImmediately: true
         )
     }
 
@@ -145,19 +122,16 @@ extension CrossScreenMouseController {
         sendRelease: Bool,
         normalizedY: UInt16?,
         reason: String,
-        restoreImmediately: Bool = false,
-        forceStopMicrophone: Bool = false
+        restoreImmediately: Bool = false
     ) {
         guard runtimeLock.withCriticalSection({ state.ownership.capturesInput }) else {
-            prepareMicrophoneForRemoteRelease(forceStop: forceStopMicrophone)
             stopTapIfUnneededAndLocal()
             publishStatus()
             return
         }
         guard let release = beginRelease(
             normalizedY: normalizedY,
-            recovering: restoreImmediately,
-            forceStopMicrophone: forceStopMicrophone
+            recovering: restoreImmediately
         ) else {
             stopTapIfUnneededAndLocal()
             publishStatus()
@@ -189,43 +163,15 @@ extension CrossScreenMouseController {
     }
 
     @MainActor
-    private func prepareMicrophoneForRemoteRelease(forceStop: Bool) {
-        prepareMicrophoneForRemoteReleaseLocked(controlID: nil, forceStop: forceStop)
-    }
-
-    private func prepareMicrophoneForRemoteReleaseLocked(
-        controlID: UInt64?,
-        forceStop: Bool
-    ) {
-        guard runtimeLock.withCriticalSection({
-            controlID == nil || state.ownership.controlID == controlID
-        }) else { return }
-        let releaseTailStopped = cancelPendingMicrophoneReleaseTail(controlID: controlID)
-        let microphoneStopped = runtimeLock.withCriticalSection {
-            forceStop
-                ? state.releaseMicrophoneActivation()
-                : state.preserveMicrophoneActivationWhileReturningToMac()
-        }
-        if releaseTailStopped || microphoneStopped {
-            requestMicrophoneActivationUpdate()
-        }
-    }
-
-    @MainActor
     private func beginRelease(
         normalizedY: UInt16?,
-        recovering: Bool,
-        forceStopMicrophone: Bool
+        recovering: Bool
     ) -> ReleaseContext? {
         hidInputTap.performCursorTransition { [weak self] in
             guard let self else { return }
             guard let identity = runtimeLock.withCriticalSection({
                 state.ownership.identity
             }) else { return }
-            prepareMicrophoneForRemoteReleaseLocked(
-                controlID: identity.controlID,
-                forceStop: forceStopMicrophone
-            )
             runtimeLock.withCriticalSection {
                 guard state.ownership.identity == identity else { return }
                 let returnY = normalizedY ?? state.lastWindowsNormalizedY
@@ -251,20 +197,13 @@ extension CrossScreenMouseController {
     private func completeRelease(
         identity: MouseControlIdentity,
         normalizedY: UInt16?,
-        reason: String,
-        prepareMicrophoneForReturn: Bool = false
+        reason: String
     ) {
         guard runtimeLock.withCriticalSection({ state.ownership.identity == identity }) else { return }
         let currentDisplays = CrossScreenDisplay.currentDisplays()
         let completion = TransitionFlag()
         hidInputTap.performCursorTransition { [weak self] in
             guard let self else { return }
-            if prepareMicrophoneForReturn {
-                prepareMicrophoneForRemoteReleaseLocked(
-                    controlID: identity.controlID,
-                    forceStop: false
-                )
-            }
             let restore = transitionToLocalState(
                 identity: identity,
                 normalizedY: normalizedY,

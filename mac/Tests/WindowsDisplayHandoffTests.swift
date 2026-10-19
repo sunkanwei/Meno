@@ -5,6 +5,48 @@ final class WindowsDisplayHandoffGeometryTests: XCTestCase {
     private let rightSharedPlan = SoftKVMTopologyPlan(sharedDisplaySide: .right)
     private let leftSharedPlan = SoftKVMTopologyPlan(sharedDisplaySide: .left)
 
+    func testViewSonicEntryIsIndependentOfRightmostMacBookMain() throws {
+        let plan = SoftKVMTopologyPlan(
+            sharedDisplaySide: .left, entryDisplayID: "viewsonic", remainingDisplaySide: .left
+        )
+        let main = makeDisplayHandoffTestDisplay(
+            "internal", x: 0, width: 1496, height: 967, physicalHeightMM: 223, isMain: true
+        )
+        let source = makeDisplayHandoffTestDisplay(
+            "viewsonic", x: -2048, y: -185, width: 2048, height: 1152,
+            physicalHeightMM: 335.664
+        )
+        let shared = makeDisplayHandoffTestDisplay(
+            "philips", x: -4096, y: -185, width: 2048, height: 1152,
+            physicalHeightMM: 335.664
+        )
+        for displays in [[shared, source, main], [source, main]] {
+            let geometry = try XCTUnwrap(resolveGeometry(
+                sharedDisplayID: "philips", topologyPlan: plan, displays: displays
+            ))
+            XCTAssertEqual(geometry.macDisplay.id, "viewsonic")
+            XCTAssertFalse(geometry.macDisplay.isMain)
+            XCTAssertEqual(geometry.windowsSeamX, -2048)
+            XCTAssertEqual(geometry.windowsEntryEdge, .right)
+            let session = try XCTUnwrap(geometry.session(
+                screenMetrics: MouseScreenMetrics(width: 3840, height: 2160),
+                configuration: .defaultValue
+            ))
+            let returned = session.returnMapping(windowsNormalizedY: .max)
+            XCTAssertTrue(source.frame.contains(returned.point))
+            XCTAssertEqual(returned.point.x, -2047)
+        }
+        XCTAssertNil(resolveGeometry(
+            sharedDisplayID: "philips", topologyPlan: leftSharedPlan, displays: [source, main]
+        ))
+        XCTAssertNil(resolveGeometry(
+            sharedDisplayID: "philips",
+            topologyPlan: SoftKVMTopologyPlan(
+                sharedDisplaySide: .left, entryDisplayID: "missing", remainingDisplaySide: .left
+            ), displays: [source, main]
+        ))
+    }
+
     func testRightSharedDisplayUsesMainRightEdgeBeforeAndAfterDisconnect() throws {
         for displays in [
             currentLayoutDisplays(includePhilips: true),

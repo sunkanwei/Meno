@@ -404,7 +404,7 @@ final class MouseConnection: @unchecked Sendable {
              .mouseMove, .mouseButton, .mouseWheel,
              .mouseReleaseAll, .keyboardState, .mouseControlHeartbeat,
              .fileOffer, .fileAccept, .fileChunk, .fileComplete, .fileResult,
-             .fileCancel, .fileAck, .shutdownRequest, .microphonePCM, .windowsOnline,
+             .fileCancel, .fileAck, .shutdownRequest, .windowsOnline,
              .diagnosticEvent, .mouseEnterV2:
             throw ClipboardFrameDecoderError.invalidHeader
         }

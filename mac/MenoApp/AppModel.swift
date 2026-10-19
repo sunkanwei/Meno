@@ -32,7 +32,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var closedLidBehaviorStatus: ClosedLidBehaviorStatus = .followingSystem
     @Published private(set) var closedLidShutdownHelperStatus: ClosedLidShutdownHelperStatus = .missing
     @Published private(set) var clipboardSharingStatus: ClipboardSharingStatus = .off
-    @Published private(set) var microphoneSharingStatus: MicrophoneSharingStatus = .off
     @Published private(set) var crossScreenMouseStatus: CrossScreenMouseStatus = .off
     @Published private(set) var softKVMStatus: SoftKVMStatus = .disabled
     @Published private(set) var softKVMSwitchFailure: String?
@@ -49,8 +48,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var mouseVoiceShortcutStatus: MouseVoiceShortcutStatus = .off
     @Published var closedLidMode: ClosedLidMode = .keepRunning
     @Published var clipboardSharingEnabled: Bool
-    @Published var microphoneSharingEnabled: Bool
-    @Published var microphoneActivationKey: MicrophoneActivationKey
     @Published var crossScreenMouseEnabled: Bool
     @Published var displayHandoffEnabled: Bool
     @Published var displayHandoffAlignment: DisplayHandoffAlignment
@@ -135,9 +132,6 @@ final class AppModel: ObservableObject {
         onSoftKVMToggle: { [weak self] in
             self?.handleSoftKVMShortcut()
         },
-        onMicrophoneActivationChanged: { [weak self] active in
-            self?.setMicrophoneActivationHeld(active)
-        },
         onMouseVoiceStatusChanged: { [weak self] status in
             self?.mouseVoiceShortcutStatus = status
         }
@@ -147,9 +141,6 @@ final class AppModel: ObservableObject {
         crossScreenMouse: crossScreenMouse,
         onClipboardStatusChanged: { [weak self] status in
             self?.clipboardSharingStatus = status
-        },
-        onMicrophoneStatusChanged: { [weak self] status in
-            self?.microphoneSharingStatus = status
         },
         onMouseReadinessChanged: { [weak self] in self?.setWindowsMouseReadiness($0) },
         onWindowsOnline: { [weak self] in self?.notifications.sendWindowsOnline() }
@@ -188,8 +179,6 @@ final class AppModel: ObservableObject {
     }
 
     private func applyMouseServiceEnabled(_ enabled: Bool) { windowsCompanion.setMouseServiceEnabled(enabled) }
-
-    private func setMicrophoneActivationHeld(_ held: Bool) { windowsCompanion.setMicrophoneActivationHeld(held) }
 
     init() {
         mouseVoiceShortcutEnabled = defaults.bool(forKey: AppPreferenceKey.mouseVoiceShortcutEnabled)
@@ -233,14 +222,6 @@ final class AppModel: ObservableObject {
             forKey: AppPreferenceKey.clipboardSharingEnabled,
             default: true
         )
-        microphoneSharingEnabled = defaults.bool(forKey: AppPreferenceKey.microphoneSharingEnabled)
-        if let data = defaults.data(forKey: AppPreferenceKey.microphoneActivationKey),
-           let savedKey = try? JSONDecoder().decode(MicrophoneActivationKey.self, from: data),
-           savedKey.isValid {
-            microphoneActivationKey = savedKey
-        } else {
-            microphoneActivationKey = .defaultValue
-        }
         crossScreenMouseEnabled = defaults.bool(forKey: AppPreferenceKey.crossScreenMouseEnabled)
         displayHandoffEnabled = defaults.boolValue(
             forKey: AppPreferenceKey.displayHandoffEnabled,
@@ -300,8 +281,6 @@ final class AppModel: ObservableObject {
         closedLidBehavior.setMode(closedLidMode)
         applyDisplayHandoffConfiguration()
         crossScreenMouse.setMouseVoiceShortcutEnabled(mouseVoiceShortcutEnabled)
-        crossScreenMouse.setMicrophoneActivationKey(microphoneActivationKey)
-        windowsCompanion.setMicrophoneEnabled(microphoneSharingEnabled)
         windowsCompanion.setClipboardEnabled(clipboardSharingEnabled)
         if !softKVMStarted {
             softKVMStarted = true

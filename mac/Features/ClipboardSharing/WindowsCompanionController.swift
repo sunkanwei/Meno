@@ -27,11 +27,9 @@ final class WindowsCompanionController {
     private let logger = Logger(subsystem: "com.sunkanwei.Meno", category: "WindowsCompanion")
     private let crossScreenMouse: CrossScreenMouseController
     private let onClipboardStatusChanged: (ClipboardSharingStatus) -> Void
-    private let onMicrophoneStatusChanged: (MicrophoneSharingStatus) -> Void
     private let onMouseReadinessChanged: (WindowsMouseReadiness?) -> Void
     private let onWindowsOnline: () -> Void
     private var clipboardEnabled = false
-    private var microphoneEnabled = false
     private var mouseServiceEnabled = false
     private var systemIsSleeping = false
     private var server: WindowsCompanionServer?
@@ -42,15 +40,6 @@ final class WindowsCompanionController {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var wakeWorkItem: DispatchWorkItem?
 
-    private lazy var microphoneSharing = MicrophoneSharingController(
-        onStatusChanged: { [weak self] status in
-            self?.onMicrophoneStatusChanged(status)
-        },
-        onAvailabilityChanged: { [weak self] _ in
-            self?.microphoneAvailabilityChanged()
-        }
-    )
-
     private lazy var monitor = ClipboardMonitor { [weak self] content in
         guard let self, clipboardEnabled else { return }
         clipboardConnection?.send(content)
@@ -59,13 +48,11 @@ final class WindowsCompanionController {
     init(
         crossScreenMouse: CrossScreenMouseController,
         onClipboardStatusChanged: @escaping (ClipboardSharingStatus) -> Void,
-        onMicrophoneStatusChanged: @escaping (MicrophoneSharingStatus) -> Void,
         onMouseReadinessChanged: @escaping (WindowsMouseReadiness?) -> Void,
         onWindowsOnline: @escaping () -> Void
     ) {
         self.crossScreenMouse = crossScreenMouse
         self.onClipboardStatusChanged = onClipboardStatusChanged
-        self.onMicrophoneStatusChanged = onMicrophoneStatusChanged
         self.onMouseReadinessChanged = onMouseReadinessChanged
         self.onWindowsOnline = onWindowsOnline
         FileClipboardCache.refreshProtectedPathsAndCleanup()
@@ -79,48 +66,16 @@ final class WindowsCompanionController {
         }
         clipboardEnabled = enabled
         if enabled {
-            if let connection = clipboardConnection {
-                microphoneSharing.stopRuntime()
-                connection.stop()
-                clipboardConnection = nil
-                clipboardPeer = nil
-            }
             startIfNeeded()
             onClipboardStatusChanged(.listening)
         } else {
             monitor.stop()
-            microphoneSharing.stopRuntime()
             clipboardConnection?.stop()
             clipboardConnection = nil
             clipboardPeer = nil
             onClipboardStatusChanged(.off)
             stopIfUnused()
         }
-    }
-
-    func setMicrophoneEnabled(_ enabled: Bool) {
-        if !enabled {
-            crossScreenMouse.releaseMicrophoneActivationIfNeeded()
-        }
-        guard microphoneEnabled != enabled else {
-            if enabled { microphoneSharing.refreshAuthorization() }
-            return
-        }
-        microphoneEnabled = enabled
-        microphoneSharing.setEnabled(enabled)
-        if enabled, microphoneSharing.canNegotiate {
-            startIfNeeded()
-        } else if !enabled {
-            stopIfUnused()
-        }
-    }
-
-    func setMicrophoneActivationHeld(_ held: Bool) {
-        microphoneSharing.setActivationHeld(held)
-    }
-
-    func openMicrophoneSettings() {
-        microphoneSharing.openSystemSettings()
     }
 
     func setMouseServiceEnabled(_ enabled: Bool) {
@@ -143,16 +98,14 @@ final class WindowsCompanionController {
     func stopForApplicationExit() {
         clipboardEnabled = false
         mouseServiceEnabled = false
-        microphoneEnabled = false
         wakeWorkItem?.cancel()
         wakeWorkItem = nil
         crossScreenMouse.stopForApplicationExit()
-        microphoneSharing.stopForApplicationExit()
         stopRuntime()
     }
 
     private var hasEnabledFeature: Bool {
-        clipboardEnabled || mouseServiceEnabled || microphoneSharing.canNegotiate
+        clipboardEnabled || mouseServiceEnabled
     }
 
     private func startIfNeeded() {
@@ -165,12 +118,10 @@ final class WindowsCompanionController {
         }
         let serverID = UUID()
         let server = WindowsCompanionServer(
-            audioEnabled: microphoneSharing.canNegotiate,
-            onClipboardConnection: { [weak self] networkConnection, audioPort in
+            onClipboardConnection: { [weak self] networkConnection in
                 Task { @MainActor [weak self] in
                     self?.acceptClipboard(
                         networkConnection,
-                        audioPort: audioPort,
                         from: serverID
                     )
                 }
@@ -183,19 +134,9 @@ final class WindowsCompanionController {
                     )
                 }
             },
-            onAudioConnection: { [weak self] networkConnection in
-                Task { @MainActor [weak self] in
-                    self?.acceptAudio(networkConnection, from: serverID)
-                }
-            },
             onState: { [weak self] result in
                 Task { @MainActor [weak self] in
                     self?.serverStateChanged(result, from: serverID)
-                }
-            },
-            onAudioState: { [weak self] result in
-                Task { @MainActor [weak self] in
-                    self?.audioListenerStateChanged(result, from: serverID)
                 }
             }
         )
@@ -215,7 +156,6 @@ final class WindowsCompanionController {
         clipboardConnection?.stop()
         clipboardConnection = nil
         clipboardPeer = nil
-        microphoneSharing.stopRuntime()
         stopMouseRuntime()
         serverID = nil
         server?.stop()
@@ -232,11 +172,10 @@ final class WindowsCompanionController {
 
     private func acceptClipboard(
         _ networkConnection: NWConnection,
-        audioPort: UInt16?,
         from serverID: UUID
     ) {
         guard IncomingConnectionAdmission.allows(
-            serviceEnabled: clipboardEnabled || microphoneSharing.canNegotiate,
+            serviceEnabled: clipboardEnabled,
             systemIsSleeping: systemIsSleeping,
             serverMatches: self.serverID == serverID,
             slotIsOccupied: clipboardConnection != nil
@@ -245,20 +184,12 @@ final class WindowsCompanionController {
             return
         }
         let connectionID = UUID()
-        var supportedCapabilities: Set<CompanionCapability> = [.windowsOnline]
-        if clipboardEnabled {
-            supportedCapabilities.formUnion([.textClipboard, .pngClipboard, .fileClipboard])
-        }
-        if microphoneSharing.canNegotiate, audioPort != nil {
-            supportedCapabilities.insert(.macMicrophone)
-        }
         let connection = ClipboardConnection(
             id: connectionID,
             connection: networkConnection,
             localName: localName,
-            supportedCapabilities: supportedCapabilities,
-            audioPort: supportedCapabilities.contains(.macMicrophone) ? audioPort : nil,
-            onReady: { [weak self] name, capabilities in
+            supportedCapabilities: [.windowsOnline, .textClipboard, .pngClipboard, .fileClipboard],
+            onReady: { [weak self] name in
                 Task { @MainActor [weak self] in
                     guard let self,
                           clipboardConnection?.id == connectionID else { return }
@@ -275,10 +206,6 @@ final class WindowsCompanionController {
                             )
                         )
                     }
-                    microphoneSharing.controlReady(
-                        connectionID: connectionID,
-                        microphoneNegotiated: capabilities.contains(.macMicrophone)
-                    )
                 }
             },
             onContent: { [weak self] content in
@@ -312,7 +239,6 @@ final class WindowsCompanionController {
                     guard let self,
                           clipboardConnection?.id == connectionID else { return }
                     monitor.stop()
-                    microphoneSharing.controlDisconnected(connectionID: connectionID)
                     clipboardConnection = nil
                     clipboardPeer = nil
                     if clipboardEnabled, !systemIsSleeping {
@@ -326,15 +252,6 @@ final class WindowsCompanionController {
         )
         clipboardConnection = connection
         connection.start()
-    }
-
-    private func acceptAudio(_ networkConnection: NWConnection, from serverID: UUID) {
-        guard self.serverID == serverID, !systemIsSleeping,
-              microphoneSharing.canNegotiate else {
-            networkConnection.cancel()
-            return
-        }
-        microphoneSharing.acceptAudio(networkConnection, localName: localName)
     }
 
     private func acceptMouse(
@@ -460,7 +377,6 @@ final class WindowsCompanionController {
             clipboardConnection?.stop()
             clipboardConnection = nil
             clipboardPeer = nil
-            microphoneSharing.serverFailed(error.localizedDescription)
             stopMouseRuntime()
             monitor.stop()
             if clipboardEnabled {
@@ -471,27 +387,6 @@ final class WindowsCompanionController {
             }
             logger.error("Windows companion discovery failed: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    private func audioListenerStateChanged(
-        _ result: Result<UInt16, Error>,
-        from serverID: UUID
-    ) {
-        guard self.serverID == serverID, microphoneSharing.canNegotiate else { return }
-        switch result {
-        case .success:
-            microphoneSharing.listenerReady()
-        case let .failure(error):
-            microphoneSharing.listenerFailed(error.localizedDescription)
-            logger.error("Microphone listener failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func microphoneAvailabilityChanged() {
-        if server != nil {
-            stopRuntime()
-        }
-        startIfNeeded()
     }
 
     private func observePowerState() {
@@ -518,7 +413,7 @@ final class WindowsCompanionController {
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.crossScreenMouse.prepareForSystemTransition(forceStopMicrophone: true)
+                    self?.crossScreenMouse.prepareForSystemTransition()
                 }
             }
         )
@@ -541,9 +436,6 @@ final class WindowsCompanionController {
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !systemIsSleeping else { return }
-                if microphoneEnabled {
-                    microphoneSharing.refreshAuthorization()
-                }
                 guard hasEnabledFeature else { return }
                 startIfNeeded()
             }

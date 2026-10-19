@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 final class ClipboardConnection: @unchecked Sendable {
-    typealias ReadyHandler = @Sendable (String, Set<CompanionCapability>) -> Void
+    typealias ReadyHandler = @Sendable (String) -> Void
     typealias ContentHandler = @Sendable (SharedClipboardContent) -> Void
     typealias FilesHandler = @Sendable ([URL], @escaping @Sendable (Bool) -> Void) -> Void
     typealias WindowsOnlineHandler = @Sendable () -> Void
@@ -15,7 +15,6 @@ final class ClipboardConnection: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.sunkanwei.Meno.ClipboardConnection")
     private let localName: String
     private let supportedCapabilities: Set<CompanionCapability>
-    private let audioPort: UInt16?
     private let onReady: ReadyHandler
     private let onContent: ContentHandler
     private let onFiles: FilesHandler
@@ -72,7 +71,6 @@ final class ClipboardConnection: @unchecked Sendable {
         connection: NWConnection,
         localName: String,
         supportedCapabilities: Set<CompanionCapability>,
-        audioPort: UInt16?,
         onReady: @escaping ReadyHandler,
         onContent: @escaping ContentHandler,
         onFiles: @escaping FilesHandler,
@@ -84,7 +82,6 @@ final class ClipboardConnection: @unchecked Sendable {
         remoteAddress = String(describing: connection.endpoint)
         self.localName = localName
         self.supportedCapabilities = supportedCapabilities
-        self.audioPort = audioPort
         self.onReady = onReady
         self.onContent = onContent
         self.onFiles = onFiles
@@ -132,7 +129,6 @@ final class ClipboardConnection: @unchecked Sendable {
         switch frame.kind {
         case .hello:
             guard let hello = CompanionHello.decode(frame.payload),
-                  hello.audioPort == nil,
                   readiness.beginHello() else {
                 throw ClipboardFrameDecoderError.invalidHeader
             }
@@ -140,18 +136,12 @@ final class ClipboardConnection: @unchecked Sendable {
             guard !negotiatedCapabilities.isEmpty else {
                 throw ClipboardFrameDecoderError.invalidHeader
             }
-            let negotiatedAudioPort = negotiatedCapabilities.contains(.macMicrophone)
-                ? audioPort : nil
-            guard negotiatedCapabilities.contains(.macMicrophone) == (negotiatedAudioPort != nil) else {
-                throw ClipboardFrameDecoderError.invalidHeader
-            }
             let ready = CompanionHello(
                 name: localName,
                 capabilities: negotiatedCapabilities,
                 driverABI: nil,
                 screenWidth: nil,
-                screenHeight: nil,
-                audioPort: negotiatedAudioPort
+                screenHeight: nil
             )
             sendFrame(kind: .ready, payload: ready.encoded()) { [weak self] sent in
                 guard let self, sent, !didDisconnect,
@@ -161,10 +151,7 @@ final class ClipboardConnection: @unchecked Sendable {
                 handshakeTimer = nil
                 _ = fileTransfer
                 recordActivity()
-                onReady(
-                    hello.name.isEmpty ? "Windows" : hello.name,
-                    negotiatedCapabilities
-                )
+                onReady(hello.name.isEmpty ? "Windows" : hello.name)
                 if shouldNotifyWindowsOnline {
                     onWindowsOnline()
                 }
@@ -220,7 +207,7 @@ final class ClipboardConnection: @unchecked Sendable {
         case .ready, .mouseEnter, .directionalMouseEnter, .mouseMove, .mouseButton, .mouseWheel,
              .mouseReleaseAll, .mouseLeave, .mouseDriverUnavailable, .keyboardState,
              .mouseAcquired, .mouseReleased, .mouseControlHeartbeat, .shutdownRequest,
-             .microphonePCM, .diagnosticEvent, .mouseEnterV2:
+             .diagnosticEvent, .mouseEnterV2:
             throw ClipboardFrameDecoderError.invalidHeader
         }
     }

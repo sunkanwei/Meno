@@ -134,7 +134,7 @@ struct SoftKVMStateMachine {
             return handleMouseUnavailable(reason: "正在等待 Windows 输入通道。")
         case .needsArrangement:
             return handleMouseUnavailable(
-                reason: "只支持三块已登记屏幕横向相邻、Mac 主屏居中且 Philips 位于左侧或右侧。"
+                reason: "需要三块已登记屏幕横向相邻、底边对齐，Philips 位于最左侧或最右侧。"
             )
         case .off:
             return handleMouseUnavailable(reason: "Windows 输入服务已关闭。")

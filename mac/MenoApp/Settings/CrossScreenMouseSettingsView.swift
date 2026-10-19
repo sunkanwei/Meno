@@ -8,7 +8,7 @@ struct CrossScreenMouseSettingsView: View {
         SettingsPage {
             SettingsPageHeader(
                 title: "KVM",
-                subtitle: "切换 Philips 画面与键鼠路由，共享剪贴板和麦克风。"
+                subtitle: "切换 Philips 画面与键鼠路由，共享剪贴板。"
             )
             featureSection
             switchSection
@@ -22,7 +22,7 @@ struct CrossScreenMouseSettingsView: View {
             VStack(spacing: 0) {
                 featureToggleRow(
                     title: "启用 KVM",
-                    info: "硬件要求：Philips 的 HDMI2 接 Mac、DP1 接 Windows，可放在 Mac 主屏任一侧；Windows 须把 Philips 设为主显示器。",
+                    info: "硬件要求：Philips 的 HDMI2 接 Mac、DP1 接 Windows，位于三屏最左侧或最右侧；主屏可为 MacBook 或优派。Windows 须把 Philips 设为主显示器。",
                     isOn: Binding(
                         get: { model.crossScreenMouseEnabled },
                         set: { model.setCrossScreenMouseEnabled($0) }
@@ -36,15 +36,6 @@ struct CrossScreenMouseSettingsView: View {
                     isOn: Binding(
                         get: { model.clipboardSharingEnabled },
                         set: { model.setClipboardSharingEnabled($0) }
-                    )
-                )
-                Divider()
-                featureToggleRow(
-                    title: "麦克风",
-                    info: "把这台 Mac 的默认麦克风提供给 Windows；仅在鼠标位于 Windows 且按住共享按键时使用。",
-                    isOn: Binding(
-                        get: { model.microphoneSharingEnabled },
-                        set: { model.setMicrophoneSharingEnabled($0) }
                     )
                 )
             }
@@ -71,21 +62,6 @@ struct CrossScreenMouseSettingsView: View {
                     .disabled(
                         !model.crossScreenMouseEnabled || !model.softKVMStatus.actionEnabled
                     )
-                }
-                .padding(14)
-
-                Divider()
-
-                HStack(spacing: 8) {
-                    Text("麦克风共享按键")
-                    InfoHint("按住说话，松开停止；这个按键仍会正常发送到 Windows。")
-                    Spacer()
-                    MicrophoneActivationKeyRecorder(
-                        activationKey: model.microphoneActivationKey,
-                        onChange: { model.setMicrophoneActivationKey($0) },
-                        onRecordingChanged: { model.setMicrophoneActivationKeyRecording($0) }
-                    )
-                    .fixedSize()
                 }
                 .padding(14)
 
@@ -146,12 +122,6 @@ struct CrossScreenMouseSettingsView: View {
                         color: clipboardStatusColor,
                         detail: model.clipboardSharingStatus.detail
                     )
-                    statusItem(
-                        name: "麦克风",
-                        symbol: "mic",
-                        color: microphoneStatusColor,
-                        detail: model.microphoneSharingStatus.detail
-                    )
                     Spacer()
                     Button("重新监听") {
                         model.restartWindowsCompanion()
@@ -160,20 +130,6 @@ struct CrossScreenMouseSettingsView: View {
                     .disabled(!model.crossScreenMouseEnabled && !model.clipboardSharingEnabled)
                 }
                 .padding(14)
-
-                if model.microphoneSharingStatus == .permissionDenied {
-                    Divider()
-                    HStack {
-                        Text("允许权限后返回 Meno，状态会自动刷新。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("打开麦克风设置") {
-                            model.openMicrophoneSettings()
-                        }
-                    }
-                    .padding(14)
-                }
             }
             .settingsPanel()
         }
@@ -241,14 +197,6 @@ struct CrossScreenMouseSettingsView: View {
         case .connected: .green
         case .failed: .red
         case .off, .listening: .secondary
-        }
-    }
-
-    private var microphoneStatusColor: Color {
-        switch model.microphoneSharingStatus {
-        case .ready, .sharing: .green
-        case .permissionDenied, .unavailable, .failed: .red
-        case .off, .waitingForPermission, .waitingForWindows, .starting: .secondary
         }
     }
 }

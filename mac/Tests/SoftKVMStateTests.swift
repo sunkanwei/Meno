@@ -187,6 +187,43 @@ final class SoftKVMStateTests: XCTestCase {
         XCTAssertEqual(baseline.topologyPlan.sharedDisplaySide, .right)
     }
 
+    func testRightmostMacBookKeepsMainIdentityAndCapturesViewSonicEntry() throws {
+        let main = display(.builtIn, id: 1, isMain: true, x: 0, width: 1496, height: 967)
+        let local = display(.viewSonic, id: 2, x: -2048, y: -185, width: 2048, height: 1152)
+        let baseline = try XCTUnwrap(SoftKVMMacBaseline.resolve([
+            display(.philips, id: 4, x: -4096, y: -185, width: 2048, height: 1152),
+            local, main,
+        ]))
+        let plan = baseline.topologyPlan
+        XCTAssertEqual(baseline.mainDisplay.role, .builtIn)
+        XCTAssertEqual(plan.entryDisplayID, FixedDisplayConfiguration.viewSonicUUID)
+        XCTAssertEqual(plan.sharedDisplaySide, .left)
+        XCTAssertEqual(plan.localDisplaySide, .left)
+        XCTAssertEqual(plan.windowsEntryEdge, .right)
+        XCTAssertEqual(try JSONDecoder().decode(
+            SoftKVMTopologyPlan.self, from: JSONEncoder().encode(plan)
+        ), plan)
+
+        // macOS may move the remaining external screen while disconnecting Philips.
+        let movedLocal = display(.viewSonic, id: 2, x: 1496, y: 0, width: 2048, height: 1152)
+        let target = try XCTUnwrap(baseline.remainingMacDisplayPlacement.targetOrigin(
+            mainDisplay: main, localDisplay: movedLocal, topologyPlan: plan
+        ))
+        XCTAssertEqual(target.x, -2048)
+        XCTAssertEqual(target.y, -185)
+        XCTAssertTrue(baseline.remainingMacDisplayPlacement.matches(
+            mainDisplay: main, localDisplay: local, topologyPlan: plan
+        ))
+    }
+
+    func testSharedDisplayCannotBeInMiddleOfMacBaseline() {
+        XCTAssertNil(SoftKVMMacBaseline.resolve([
+            display(.viewSonic, id: 2, x: -280, width: 120),
+            display(.philips, id: 3, x: -160, width: 160),
+            display(.builtIn, id: 1, isMain: true, x: 0, width: 100),
+        ]))
+    }
+
     func testWindowsTopologyValidatesLocalPairWithoutInferringSharedSide() throws {
         let leftLocal = try XCTUnwrap(SoftKVMWindowsTopology.resolve([
             display(.viewSonic, id: 2, x: -120, width: 120),

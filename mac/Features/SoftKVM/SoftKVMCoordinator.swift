@@ -199,7 +199,7 @@ final class SoftKVMCoordinator {
                 )
             }
             applyRouteEnabled(false)
-            crossScreenMouse.prepareForSystemTransition(forceStopMicrophone: true)
+            crossScreenMouse.prepareForSystemTransition()
 
         case let .systemResumed(systemWoke, sessionBecameActive):
             updateState {
@@ -269,7 +269,7 @@ final class SoftKVMCoordinator {
             $0.forceSafeRecovery(reason: "检测到不一致状态，已关闭穿屏路由并恢复到安全状态。")
         }
         _ = crossScreenMouse.setRouteEnabled(false)
-        crossScreenMouse.prepareForSystemTransition(forceStopMicrophone: true)
+        crossScreenMouse.prepareForSystemTransition()
     }
 
     private func observeSystemState() {

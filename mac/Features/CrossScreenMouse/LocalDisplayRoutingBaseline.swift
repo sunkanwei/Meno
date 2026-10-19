@@ -23,11 +23,12 @@ struct LocalDisplayRoutingBaseline: Codable, Equatable, Sendable {
         guard schemaVersion == Self.currentSchemaVersion,
               routingOrderIDs.count == 3,
               Set(routingOrderIDs).count == routingOrderIDs.count,
-              routingOrderIDs[1] == mainDisplayID else {
+              routingOrderIDs.contains(mainDisplayID),
+              mainDisplayID != FixedDisplayConfiguration.philipsUUID else {
             return false
         }
         let externalIDs = Set(routingOrderIDs.filter { $0 != mainDisplayID })
-        return externalIDs == Set([
+        return Set(routingOrderIDs).isSuperset(of: [
             FixedDisplayConfiguration.philipsUUID,
             FixedDisplayConfiguration.viewSonicUUID,
         ])
@@ -49,11 +50,13 @@ struct LocalDisplayRoutingBaseline: Codable, Equatable, Sendable {
             return nil
         }
         let ordered = displays.sorted { $0.frame.minX < $1.frame.minX }
-        guard ordered[1].id == main.id,
-              Set([ordered[0].id, ordered[2].id]) == Set([
+        guard main.id != FixedDisplayConfiguration.philipsUUID,
+              Set(ordered.map(\.id)).isSuperset(of: [
                   FixedDisplayConfiguration.philipsUUID,
                   FixedDisplayConfiguration.viewSonicUUID,
               ]),
+              ordered.first?.id == FixedDisplayConfiguration.philipsUUID
+                || ordered.last?.id == FixedDisplayConfiguration.philipsUUID,
               ordered[0].isImmediatelyLeft(of: ordered[1]),
               ordered[1].isImmediatelyLeft(of: ordered[2]),
               displays.allSatisfy({
@@ -85,7 +88,11 @@ struct LocalDisplayRoutingBaseline: Codable, Equatable, Sendable {
         let order = routingOrderIDs.filter(activeIDs.contains)
         guard order.count == displays.count,
               Set(displays.map(\.id)).count == displays.count,
-              activeIDs.contains(mainDisplayID) else {
+              displays.filter(\.isMain).map(\.id) == [mainDisplayID],
+              activeIDs == Set(routingOrderIDs)
+                || activeIDs == Set(routingOrderIDs.filter {
+                    $0 != FixedDisplayConfiguration.philipsUUID
+                }) else {
             return nil
         }
         return order

@@ -105,6 +105,9 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
               localDisplays.count == 2,
               let main = localDisplays.only(where: \.isMain),
               let other = localDisplays.only(where: { $0.id != main.id }),
+              let source = localDisplays.only(where: {
+                  $0.id == (topologyPlan.entryDisplayID ?? main.id)
+              }),
               main.supportsHorizontalHandoff,
               other.supportsHorizontalHandoff,
               side(
@@ -114,12 +117,20 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
               ) == topologyPlan.localDisplaySide else {
             return nil
         }
+        // The source must be the outer Mac display facing Philips, even when
+        // the saved order is used after a temporary macOS coordinate change.
+        let otherSideFromSource = source.id == main.id
+            ? topologyPlan.localDisplaySide
+            : topologyPlan.localDisplaySide.opposite
+        guard otherSideFromSource == topologyPlan.sharedDisplaySide.opposite else {
+            return nil
+        }
         if let shared {
             guard !shared.isMain,
                   shared.supportsHorizontalHandoff,
                   side(
                       of: shared,
-                      relativeTo: main,
+                      relativeTo: source,
                       routingOrderIDs: nil
                   ) == topologyPlan.sharedDisplaySide else {
                 return nil
@@ -127,7 +138,7 @@ struct WindowsDisplayHandoffGeometry: Equatable, Sendable {
         }
 
         return WindowsDisplayHandoffGeometry(
-            macDisplay: main,
+            macDisplay: source,
             macEdge: topologyPlan.macEntryEdge,
             windowsEntryEdge: topologyPlan.windowsEntryEdge,
             activeDisplays: displays.sorted { $0.id < $1.id }

@@ -3,15 +3,8 @@ import Foundation
 import OSLog
 
 final class CrossScreenMouseController: @unchecked Sendable {
-    private struct MicrophoneReleaseTailContext {
-        let generation: UInt64
-        let connection: MouseConnection
-        let controlID: UInt64
-    }
-
     typealias StatusHandler = @MainActor (CrossScreenMouseStatus) -> Void
     typealias SoftKVMToggleHandler = @MainActor @Sendable () -> Void
-    typealias MicrophoneActivationHandler = @MainActor @Sendable (Bool) -> Void
 
     static let logger = Logger(
         subsystem: "com.sunkanwei.Meno",
@@ -22,7 +15,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
     let onMouseVoiceStatusChanged: @MainActor (MouseVoiceShortcutStatus) -> Void
     private let onStatusChanged: StatusHandler
     private let onSoftKVMToggle: SoftKVMToggleHandler
-    private let onMicrophoneActivationChanged: MicrophoneActivationHandler
     let localDisplayRoutingTopology: LocalDisplayRoutingTopology
     var state = CrossScreenMouseState()
     private var lastPublishedStatus: CrossScreenMouseStatus?
@@ -30,13 +22,8 @@ final class CrossScreenMouseController: @unchecked Sendable {
     private var screenObserver: NSObjectProtocol?
     private var inputTapRestartWorkItem: DispatchWorkItem?
     private var inputTapRestartGeneration: UInt64 = 0
-    private let microphoneReleaseTailLock = NSLock()
-    private var microphoneReleaseTailGate = MicrophoneReleaseTailGate()
-    private var microphoneReleaseTailContext: MicrophoneReleaseTailContext?
     var controlTimeoutWorkItem: DispatchWorkItem?
     var lastKeyboardOverflowLog: ContinuousClock.Instant?
-
-    private static let microphoneReleaseTailMilliseconds = 200
 
     lazy var hidInputTap = makeInputTap(kind: .hidInput)
     lazy var sessionKeyboardInputTap = makeInputTap(kind: .sessionKeyboard)
@@ -65,14 +52,12 @@ final class CrossScreenMouseController: @unchecked Sendable {
         sharedDisplayID: String?,
         onStatusChanged: @escaping StatusHandler,
         onSoftKVMToggle: @escaping SoftKVMToggleHandler,
-        onMicrophoneActivationChanged: @escaping MicrophoneActivationHandler,
         onMouseVoiceStatusChanged: @escaping @MainActor (MouseVoiceShortcutStatus) -> Void
     ) {
         self.sharedDisplayID = sharedDisplayID
         localDisplayRoutingTopology = LocalDisplayRoutingTopology()
         self.onStatusChanged = onStatusChanged
         self.onSoftKVMToggle = onSoftKVMToggle
-        self.onMicrophoneActivationChanged = onMicrophoneActivationChanged
         self.onMouseVoiceStatusChanged = onMouseVoiceStatusChanged
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -92,136 +77,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
         }
     }
 
-    func requestMicrophoneActivationUpdate() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let held = runtimeLock.withCriticalSection {
-                state.microphoneActivationHeld
-            }
-            publishMicrophoneActivation(held)
-        }
-    }
-
-    @MainActor
-    func publishMicrophoneActivation(_ held: Bool) {
-        if !held { cancelPendingMicrophoneReleaseTail() }
-        onMicrophoneActivationChanged(held)
-    }
-
-    func beginMicrophoneReleaseTail(
-        preserving networkAction: CrossScreenMouseNetworkAction,
-        connection: MouseConnection,
-        controlID: UInt64
-    ) {
-        let activationKey = runtimeLock.withCriticalSection {
-            state.microphoneActivationKey
-        }
-        let generation = microphoneReleaseTailLock.withCriticalSection {
-            let generation = microphoneReleaseTailGate.begin(activationKey: activationKey)
-            microphoneReleaseTailContext = MicrophoneReleaseTailContext(
-                generation: generation,
-                connection: connection,
-                controlID: controlID
-            )
-            return generation
-        }
-        sendNetworkAction(networkAction)
-        DispatchQueue.global(qos: .userInteractive).asyncAfter(
-            deadline: .now() + .milliseconds(Self.microphoneReleaseTailMilliseconds)
-        ) { [weak self] in
-            guard let self else { return }
-            finishMicrophoneReleaseTail(generation: generation)
-        }
-    }
-
-    @discardableResult
-    func cancelPendingMicrophoneReleaseTail(controlID: UInt64? = nil) -> Bool {
-        microphoneReleaseTailLock.withCriticalSection { () -> Bool in
-            guard let context = microphoneReleaseTailContext,
-                  controlID == nil || context.controlID == controlID else {
-                return false
-            }
-            microphoneReleaseTailGate.cancel()
-            microphoneReleaseTailContext = nil
-            return true
-        }
-    }
-
-    func microphoneReleaseTailActivationKey() -> MicrophoneActivationKey? {
-        microphoneReleaseTailLock.withCriticalSection {
-            microphoneReleaseTailGate.activationKey
-        }
-    }
-
-    @discardableResult
-    private func finishPendingMicrophoneReleaseTailImmediately() -> Bool {
-        let pending: (MicrophoneReleaseTailContext, KeyboardReport)? =
-            runtimeLock.withCriticalSection {
-                guard let context = microphoneReleaseTailLock.withCriticalSection({
-                    () -> MicrophoneReleaseTailContext? in
-                    guard let context = microphoneReleaseTailContext else { return nil }
-                    microphoneReleaseTailGate.cancel()
-                    microphoneReleaseTailContext = nil
-                    return context
-                }) else { return nil }
-                return (context, state.keyboard.report)
-            }
-        guard let (context, report) = pending else { return false }
-        context.connection.sendKeyboardState(controlID: context.controlID, report)
-        return true
-    }
-
-    private func finishMicrophoneReleaseTail(generation: UInt64) {
-        let pending: (MicrophoneReleaseTailContext, KeyboardReport)? =
-            runtimeLock.withCriticalSection {
-                guard let context = microphoneReleaseTailLock.withCriticalSection({
-                    () -> MicrophoneReleaseTailContext? in
-                    guard let context = microphoneReleaseTailContext,
-                          context.generation == generation,
-                          microphoneReleaseTailGate.complete(generation: generation) else {
-                        return nil
-                    }
-                    microphoneReleaseTailContext = nil
-                    return context
-                }) else { return nil }
-                return (context, state.keyboard.report)
-            }
-        guard let (context, report) = pending else { return }
-        context.connection.sendKeyboardState(controlID: context.controlID, report)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let held = runtimeLock.withCriticalSection {
-                state.microphoneActivationHeld
-            }
-            if !held { publishMicrophoneActivation(false) }
-        }
-    }
-
-    @MainActor
-    func setMicrophoneActivationKey(_ activationKey: MicrophoneActivationKey) {
-        guard activationKey.isValid else { return }
-        let tailFinished = finishPendingMicrophoneReleaseTailImmediately()
-        let released = runtimeLock.withCriticalSection {
-            let released = state.releaseMicrophoneActivation()
-            state.microphoneActivationKey = activationKey
-            return released
-        }
-        if tailFinished || released {
-            publishMicrophoneActivation(false)
-        }
-    }
-
-    @MainActor
-    func releaseMicrophoneActivationIfNeeded() {
-        let tailFinished = finishPendingMicrophoneReleaseTailImmediately()
-        let released = runtimeLock.withCriticalSection {
-            state.releaseMicrophoneActivation()
-        }
-        if tailFinished || released {
-            publishMicrophoneActivation(false)
-        }
-    }
-
     @MainActor
     func setConnection(
         _ connection: MouseConnection?,
@@ -234,8 +89,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         if shouldRelease {
             recoverLocalImmediately(
                 sendRelease: false,
-                reason: "connection changed",
-                forceStopMicrophone: true
+                reason: "connection changed"
             )
         }
         runtimeLock.withCriticalSection {
@@ -266,8 +120,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         }
         recoverLocalImmediately(
             sendRelease: false,
-            reason: "driver unavailable",
-            forceStopMicrophone: true
+            reason: "driver unavailable"
         )
         publishStatus()
     }
@@ -353,8 +206,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
         }
         recoverLocalImmediately(
             sendRelease: true,
-            reason: kind.startupFailureReason,
-            forceStopMicrophone: true
+            reason: kind.startupFailureReason
         )
         stopInputTaps()
         publishStatus()
@@ -405,8 +257,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
                 sendRelease: true,
                 normalizedY: nil,
                 reason: "event tap disabled",
-                restoreImmediately: true,
-                forceStopMicrophone: true
+                restoreImmediately: true
             )
         case let .needsRestart(reason):
             disableRouteAndResetShortcutCapture()
@@ -414,8 +265,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
                 sendRelease: true,
                 normalizedY: nil,
                 reason: "event tap restart",
-                restoreImmediately: true,
-                forceStopMicrophone: true
+                restoreImmediately: true
             )
             runtimeLock.withCriticalSection {
                 state.tapFailure = "跨屏\(kind.logName)监听已失效，正在尝试恢复：\(reason)"

@@ -26,22 +26,10 @@ extension CrossScreenMouseController {
         case let .wheel(connection, controlID, inputLines):
             connection.sendWheel(controlID: controlID, inputLines)
         case let .keyboard(connection, controlID, reports, overflowed):
-            let activationKey = microphoneReleaseTailActivationKey()
-                ?? runtimeLock.withCriticalSection {
-                    state.microphoneActivationHeld ? state.microphoneActivationKey : nil
-                }
-            let outboundReports: [KeyboardReport]
-            if let activationKey {
-                outboundReports = reports.map { report in
-                    activationKey.preservingPressed(in: report)
-                }
-            } else {
-                outboundReports = reports
-            }
-            if overflowed || outboundReports.contains(where: \.overflowed) {
+            if overflowed || reports.contains(where: \.overflowed) {
                 logKeyboardOverflowIfNeeded()
             }
-            for report in outboundReports {
+            for report in reports {
                 connection.sendKeyboardState(controlID: controlID, report)
             }
         }

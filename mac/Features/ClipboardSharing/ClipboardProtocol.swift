@@ -1,8 +1,8 @@
 import Foundation
 
 // MENO wire numbering is append-only: never reorder, reuse, or reinterpret
-// published values, and never fill numbering gaps (7). Peers must safely
-// ignore capabilities they do not know.
+// published values. Capability 7 and retired Mac microphone capability 8
+// are permanently reserved. Peers must safely ignore unknown capabilities.
 enum CompanionCapability: UInt16, Sendable {
     case textClipboard = 1
     case pngClipboard = 2
@@ -10,35 +10,32 @@ enum CompanionCapability: UInt16, Sendable {
     case keyboardState = 4
     case fileClipboard = 5
     case remoteShutdown = 6
-    case macMicrophone = 8
     case directionalMouseHandoff = 9
     case windowsOnline = 10
     case remoteDiagnostics = 11
     case mouseRouteContract = 12
 }
 
+// Hello TLV field 6 (retired audio port) is permanently reserved and ignored.
 struct CompanionHello: Equatable, Sendable {
     let name: String
     let capabilities: Set<CompanionCapability>
     let driverABI: UInt16?
     let screenWidth: UInt32?
     let screenHeight: UInt32?
-    let audioPort: UInt16?
 
     init(
         name: String,
         capabilities: Set<CompanionCapability>,
         driverABI: UInt16?,
         screenWidth: UInt32?,
-        screenHeight: UInt32?,
-        audioPort: UInt16? = nil
+        screenHeight: UInt32?
     ) {
         self.name = name
         self.capabilities = capabilities
         self.driverABI = driverABI
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
-        self.audioPort = audioPort
     }
 
     func encoded() -> Data {
@@ -67,12 +64,6 @@ struct CompanionHello: Equatable, Sendable {
             value.appendBigEndian(screenHeight)
             data.appendField(id: 5, value: value)
         }
-        if let audioPort {
-            precondition(audioPort != 0)
-            var value = Data()
-            value.appendBigEndian(audioPort)
-            data.appendField(id: 6, value: value)
-        }
         return data
     }
 
@@ -86,7 +77,6 @@ struct CompanionHello: Equatable, Sendable {
         var driverABI: UInt16?
         var screenWidth: UInt32?
         var screenHeight: UInt32?
-        var audioPort: UInt16?
 
         while offset < bytes.count {
             guard bytes.count - offset >= 3 else { return nil }
@@ -95,7 +85,7 @@ struct CompanionHello: Equatable, Sendable {
             let valueStart = offset + 3
             let valueEnd = valueStart + length
             guard valueEnd <= bytes.count else { return nil }
-            if (1...6).contains(fieldID), !knownFields.insert(fieldID).inserted {
+            if (1...5).contains(fieldID), !knownFields.insert(fieldID).inserted {
                 return nil
             }
             let value = Array(bytes[valueStart..<valueEnd])
@@ -122,11 +112,6 @@ struct CompanionHello: Equatable, Sendable {
             case 5:
                 guard value.count == 4 else { return nil }
                 screenHeight = value.readUInt32(at: 0)
-            case 6:
-                guard value.count == 2 else { return nil }
-                let port = value.readUInt16(at: 0)
-                guard port != 0 else { return nil }
-                audioPort = port
             default:
                 break
             }
@@ -138,14 +123,14 @@ struct CompanionHello: Equatable, Sendable {
             capabilities: capabilities,
             driverABI: driverABI,
             screenWidth: screenWidth,
-            screenHeight: screenHeight,
-            audioPort: audioPort
+            screenHeight: screenHeight
         )
     }
 }
 
-// Append-only wire numbering; gaps (26, 27) must never be filled. New
-// features take fresh numbers, and receivers ignore unknown kinds.
+// Append-only wire numbering; gaps 26, 27 and retired microphone PCM kind 28
+// are permanently reserved. New features take fresh numbers, and receivers
+// ignore unknown kinds.
 enum ClipboardMessageKind: UInt8, Sendable {
     case hello = 1
     case ready = 2
@@ -172,7 +157,6 @@ enum ClipboardMessageKind: UInt8, Sendable {
     case fileCancel = 23
     case fileAck = 24
     case shutdownRequest = 25
-    case microphonePCM = 28
     case directionalMouseEnter = 29
     case windowsOnline = 30
     case diagnosticEvent = 31

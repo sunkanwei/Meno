@@ -3,6 +3,41 @@ import Foundation
 import XCTest
 
 final class LocalDisplayRoutingBaselineTests: XCTestCase {
+    func testCapturesPhilipsViewSonicMacBookOrderWithRightmostMain() throws {
+        let displays = [
+            display(id: FixedDisplayConfiguration.philipsUUID, runtimeID: 4,
+                    x: -4096, y: -185, width: 2048, height: 1152),
+            display(id: FixedDisplayConfiguration.viewSonicUUID, runtimeID: 2,
+                    x: -2048, y: -185, width: 2048, height: 1152),
+            display(id: "internal", runtimeID: 1,
+                    x: 0, y: 0, width: 1496, height: 967, isMain: true),
+        ]
+        let baseline = try XCTUnwrap(LocalDisplayRoutingBaseline.resolveNative(displays: displays))
+        let restored = try JSONDecoder().decode(
+            LocalDisplayRoutingBaseline.self, from: JSONEncoder().encode(baseline)
+        )
+        XCTAssertTrue(restored.isValid)
+        XCTAssertEqual(restored.mainDisplayID, "internal")
+        XCTAssertEqual(restored.routingOrderIDs, displays.map(\.id))
+        XCTAssertEqual(restored.activeRoutingOrderIDs(for: Array(displays.dropFirst())), [
+            FixedDisplayConfiguration.viewSonicUUID, "internal",
+        ])
+        XCTAssertNil(restored.activeRoutingOrderIDs(for: [displays[0], displays[2]]))
+    }
+
+    func testSupportsViewSonicMainWithoutTreatingItAsBuiltIn() throws {
+        let displays = [
+            display(id: FixedDisplayConfiguration.philipsUUID, runtimeID: 4,
+                    x: -2048, y: 0, width: 2048, height: 1152),
+            display(id: FixedDisplayConfiguration.viewSonicUUID, runtimeID: 2,
+                    x: 0, y: 0, width: 2048, height: 1152, isMain: true),
+            display(id: "internal", runtimeID: 1,
+                    x: 2048, y: 185, width: 1496, height: 967),
+        ]
+        let baseline = try XCTUnwrap(LocalDisplayRoutingBaseline.resolveNative(displays: displays))
+        XCTAssertTrue(baseline.isValid)
+    }
+
     func testCapturesVerifiedNativeRoutingAndRoundTripsThroughStorage() throws {
         let displays = makeNativeDisplays()
 

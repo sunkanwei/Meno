@@ -465,18 +465,6 @@ final class CrossScreenMouseControlProtocolTests: XCTestCase {
                 CompanionHello(
                     name: "Windows",
                     capabilities: [.mouseControl],
-                    driverABI: 4,
-                    screenWidth: 3_840,
-                    screenHeight: 2_160,
-                    audioPort: 48_000
-                ).encoded()
-            )
-        )
-        XCTAssertNil(
-            MousePayload.decodeHello(
-                CompanionHello(
-                    name: "Windows",
-                    capabilities: [.mouseControl],
                     driverABI: nil,
                     screenWidth: 3_840,
                     screenHeight: 2_160

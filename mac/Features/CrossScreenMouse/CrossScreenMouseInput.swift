@@ -24,12 +24,6 @@ extension CrossScreenMouseController {
             }
             return false
         }
-        let microphoneActivationChanged = runtimeLock.withCriticalSection {
-            state.observePendingMicrophonePhysicalRelease()
-        }
-        if microphoneActivationChanged {
-            requestMicrophoneActivationUpdate()
-        }
         let location = event.location
         let action = runtimeLock.withCriticalSection {
             Self.decideInputAction(
@@ -341,18 +335,6 @@ extension CrossScreenMouseController {
         case let .send(networkAction):
             sendNetworkAction(networkAction)
             return true
-        case let .sendAndActivateMicrophone(networkAction):
-            cancelPendingMicrophoneReleaseTail()
-            requestMicrophoneActivationUpdate()
-            sendNetworkAction(networkAction)
-            return true
-        case let .sendAndBeginMicrophoneReleaseTail(networkAction, connection, controlID):
-            beginMicrophoneReleaseTail(
-                preserving: networkAction,
-                connection: connection,
-                controlID: controlID
-            )
-            return true
         case .emergencyRelease:
             Task { @MainActor [weak self] in
                 self?.releaseRemote(
@@ -411,7 +393,6 @@ extension CrossScreenMouseController {
             }
         }
         guard changed else { return .swallow }
-        let microphoneActivationChanged = state.updateMicrophoneActivation()
         let report = state.keyboard.report
         let networkAction = CrossScreenMouseNetworkAction.keyboard(
             connection: connection,
@@ -419,16 +400,6 @@ extension CrossScreenMouseController {
             reports: [report],
             overflowed: report.overflowed
         )
-        if microphoneActivationChanged {
-            if state.microphoneActivationHeld {
-                return .sendAndActivateMicrophone(networkAction)
-            }
-            return .sendAndBeginMicrophoneReleaseTail(
-                networkAction,
-                connection,
-                controlID
-            )
-        }
         return .send(networkAction)
     }
 }

@@ -51,7 +51,6 @@ targets:
       - path: Features/ClosedLidBehavior
       - path: Features/LidFold
       - path: Features/ClipboardSharing
-      - path: Features/MicrophoneSharing
       - path: Features/CrossScreenMouse
       - path: Features/SoftKVM
       - path: Features/WakeOnLAN
@@ -73,7 +72,6 @@ targets:
       - target: M1DDCBridge
       - sdk: ApplicationServices.framework
       - sdk: AVFoundation.framework
-      - sdk: CoreAudio.framework
       - sdk: IOKit.framework
     postCompileScripts:
       - name: Embed Power Helper
@@ -206,8 +204,6 @@ targets:
       - path: Features/ClipboardSharing/FileClipboardTransfer.swift
       - path: Features/ClipboardSharing/FileClipboardTransfer+Outgoing.swift
       - path: Features/ClipboardSharing/FileClipboardTransfer+Incoming.swift
-      - path: Features/MicrophoneSharing/MicrophoneActivationKey.swift
-      - path: Features/MicrophoneSharing/MicrophonePCM.swift
       - path: Features/CrossScreenMouse/CrossScreenDisplay.swift
       - path: Features/CrossScreenMouse/CrossScreenEntryGate.swift
       - path: Features/CrossScreenMouse/CrossScreenInputRouting.swift
