@@ -12,9 +12,9 @@ struct WindowsAgentMCPClient: Sendable {
 
     func health(at endpoint: WindowsAgentEndpoint) async throws -> WindowsAgentHealth {
         guard let url = endpoint.url else { throw WindowsAgentMCPError.invalidEndpoint }
+        // Windows Agent uses stateless MCP requests and does not issue session IDs.
         let initialize = try await post(
             url: url,
-            sessionID: nil,
             body: [
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -26,20 +26,14 @@ struct WindowsAgentMCPClient: Sendable {
                 ],
             ]
         )
-        guard let sessionID = initialize.response.value(forHTTPHeaderField: "mcp-session-id"),
-              !sessionID.isEmpty else {
-            throw WindowsAgentMCPError.missingSession
-        }
-        _ = try extractResult(from: initialize.data, id: 1)
+        _ = try extractResult(from: initialize, id: 1)
 
         _ = try await post(
             url: url,
-            sessionID: sessionID,
             body: ["jsonrpc": "2.0", "method": "notifications/initialized"]
         )
         let health = try await post(
             url: url,
-            sessionID: sessionID,
             body: [
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -47,28 +41,22 @@ struct WindowsAgentMCPClient: Sendable {
                 "params": ["name": "health", "arguments": [:]],
             ]
         )
-        let result = try extractResult(from: health.data, id: 2)
+        let result = try extractResult(from: health, id: 2)
         guard let structured = result["structuredContent"] else {
             throw WindowsAgentMCPError.missingHealth
         }
         let data = try JSONSerialization.data(withJSONObject: structured)
-        let decoded = try JSONDecoder().decode(WindowsAgentHealth.self, from: data)
-        await terminate(url: url, sessionID: sessionID)
-        return decoded
+        return try JSONDecoder().decode(WindowsAgentHealth.self, from: data)
     }
 
     private func post(
         url: URL,
-        sessionID: String?,
         body: [String: Any]
-    ) async throws -> (data: Data, response: HTTPURLResponse) {
+    ) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
-        if let sessionID {
-            request.setValue(sessionID, forHTTPHeaderField: "Mcp-Session-Id")
-        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -78,7 +66,7 @@ struct WindowsAgentMCPClient: Sendable {
             let message = String(data: data, encoding: .utf8) ?? ""
             throw WindowsAgentMCPError.http(http.statusCode, message)
         }
-        return (data, http)
+        return data
     }
 
     private func extractResult(from data: Data, id: Int) throws -> [String: Any] {
@@ -111,19 +99,11 @@ struct WindowsAgentMCPClient: Sendable {
             return try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any]
         }
     }
-
-    private func terminate(url: URL, sessionID: String) async {
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue(sessionID, forHTTPHeaderField: "Mcp-Session-Id")
-        _ = try? await session.data(for: request)
-    }
 }
 
 private enum WindowsAgentMCPError: LocalizedError {
     case invalidEndpoint
     case invalidResponse
-    case missingSession
     case missingHealth
     case http(Int, String)
     case remote(String)
@@ -132,7 +112,6 @@ private enum WindowsAgentMCPError: LocalizedError {
         switch self {
         case .invalidEndpoint: "连接地址无效。"
         case .invalidResponse: "Windows Agent 返回了无法识别的数据。"
-        case .missingSession: "Windows Agent 没有建立 MCP 会话。"
         case .missingHealth: "Windows Agent 没有返回健康状态。"
         case let .http(code, message): "Windows Agent 返回 \(code)：\(message)"
         case let .remote(message): "Windows Agent 返回错误：\(message)"
