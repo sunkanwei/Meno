@@ -26,17 +26,17 @@ enum SoftKVMStatus: Equatable, Sendable {
         case .checking:
             "正在只读核对显示拓扑和恢复状态。"
         case let .macReady(remoteName):
-            "Mac 三屏基线正常，Windows \(remoteName) 已连接；物理画面未程序确认。"
+            "Mac 三屏基线正常，Windows \(remoteName) 已连接。画面由显示器按钮手动切换。"
         case let .macWaiting(reason):
             "Mac 三屏基线正常。\(reason)"
         case .switchingToWindows:
-            "正在迁移窗口、请求 DP1 并软断开 Philips。"
+            "正在迁移窗口并准备 Windows 穿屏；完成后请手动选择 DP 输入源。"
         case let .windowsReady(remoteName):
-            "DP1 已请求，当前连接 \(remoteName) 的输入路由已开放；物理画面未程序确认。"
+            "Windows \(remoteName) 的输入路由已开放；请手动选择 DP 输入源。"
         case let .windowsWaiting(reason):
-            "DP1 已请求且 Philips 已从 macOS 软断开。\(reason)"
+            "Philips 已从 Mac 屏幕布局中停用，画面请手动选择 DP 输入源。\(reason)"
         case .switchingToMac:
-            "正在收回输入、恢复 Philips 和窗口。"
+            "正在收回键鼠并恢复 Mac 三屏和窗口；完成后请手动选择 HDMI2 输入源。"
         case let .recoveryNeeded(reason):
             "穿越路由已关闭。\(reason)"
         }
@@ -45,15 +45,15 @@ enum SoftKVMStatus: Equatable, Sendable {
     var actionTitle: String {
         switch self {
         case .disabled, .macReady, .macWaiting:
-            "切到 Windows"
+            "启用 Windows 穿屏"
         case .windowsReady, .windowsWaiting:
-            "切回 Mac"
+            "恢复 Mac 屏幕"
         case .checking:
             "正在检查…"
         case .switchingToWindows, .switchingToMac:
             "正在切换…"
         case .recoveryNeeded:
-            "恢复到 Mac"
+            "恢复 Mac 屏幕"
         }
     }
 
@@ -81,21 +81,21 @@ enum SoftKVMStatus: Equatable, Sendable {
     var shortcutAcknowledgement: String {
         switch self {
         case .macReady:
-            "正在切到 Windows，请稍候。"
+            "正在准备 Windows 穿屏，完成后请手动选择 DP。"
         case .windowsReady, .windowsWaiting:
-            "正在切回 Mac，请稍候。"
+            "正在恢复 Mac 屏幕，完成后请手动选择 HDMI2。"
         case .recoveryNeeded:
-            "正在恢复到 Mac，请稍候。"
+            "正在恢复 Mac 屏幕，完成后请手动选择 HDMI2。"
         case .switchingToWindows:
-            "切到 Windows 的操作正在进行，请稍候。"
+            "正在准备 Windows 穿屏，请稍候。"
         case .switchingToMac:
-            "切回 Mac 的操作正在进行，请稍候。"
+            "正在恢复 Mac 屏幕，请稍候。"
         case .checking:
             "正在检查显示状态，请稍候。"
         case .disabled:
             "KVM 当前已关闭。"
         case let .macWaiting(reason):
-            "当前暂不能切到 Windows：\(reason)"
+            "当前暂不能启用 Windows 穿屏：\(reason)"
         }
     }
 }
@@ -127,7 +127,7 @@ enum SoftKVMCoordinatorError: LocalizedError {
         case .remoteShutdownSendFailed:
             "关机信号未能发送到 Windows。"
         case let .remoteShutdownReturnToMacFailed(reason):
-            "关机信号已经发出，但飞利浦未能切回 Mac：\(reason)"
+            "关机信号已经发出，但 Mac 屏幕布局未恢复：\(reason)"
         }
     }
 }

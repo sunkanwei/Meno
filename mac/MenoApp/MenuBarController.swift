@@ -170,7 +170,7 @@ final class MenuBarController: NSObject {
             .compactMap { $0 }
             .sink { [weak self] message in
                 guard let self else { return }
-                self.presentError(title: "无法切换画面与键鼠", message: message)
+                self.presentError(title: "无法切换键鼠与屏幕布局", message: message)
                 self.model.clearSoftKVMSwitchFailure()
             }
 

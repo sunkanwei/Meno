@@ -582,15 +582,15 @@ final class SoftKVMStateTests: XCTestCase {
         XCTAssertTrue(SoftKVMStatus.macReady(remoteName: "Windows").actionEnabled)
         XCTAssertEqual(
             SoftKVMStatus.macReady(remoteName: "Windows").shortcutAcknowledgement,
-            "正在切到 Windows，请稍候。"
+            "正在准备 Windows 穿屏，完成后请手动选择 DP。"
         )
         XCTAssertEqual(
             SoftKVMStatus.windowsReady(remoteName: "Windows").shortcutAcknowledgement,
-            "正在切回 Mac，请稍候。"
+            "正在恢复 Mac 屏幕，完成后请手动选择 HDMI2。"
         )
         XCTAssertEqual(
             SoftKVMStatus.windowsWaiting(reason: "连接断开").actionTitle,
-            "切回 Mac"
+            "恢复 Mac 屏幕"
         )
     }
 
