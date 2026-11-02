@@ -42,7 +42,6 @@ final class SoftKVMCoordinator {
     private var delayedRefreshGeneration: UInt64 = 0
     var remoteShutdownInProgress = false
     private var observers: [NSObjectProtocol] = []
-    var preparedState = false
 
     var status: SoftKVMStatus {
         stateMachine.status

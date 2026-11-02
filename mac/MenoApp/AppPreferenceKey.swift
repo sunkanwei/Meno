@@ -11,7 +11,6 @@ enum AppPreferenceKey {
     static let scrollingEnabled = "ScrollingEnabled"
     static let activityMonitorShortcutEnabled = "ActivityMonitorShortcutEnabled"
     static let pasteSoundEnabled = "ClipboardPasteSoundEnabled"
-    static let lidFoldEnabled = "LidFoldEnabled"
     static let closedLidMode = "ClosedLidMode"
     static let clipboardSharingEnabled = "ClipboardSharingEnabled"
     static let crossScreenMouseEnabled = "CrossScreenMouseEnabled"

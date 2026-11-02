@@ -39,11 +39,6 @@ extension SoftKVMCoordinator {
             let displaySwitchDeadline = clock.now.advanced(by: .seconds(3))
             crossScreenMouse.prepareForSystemTransition()
             do {
-                if !preparedState {
-                    try await displaySwitch.prepareState()
-                    try requireCurrentOperation(operationID)
-                    preparedState = true
-                }
                 try await clock.sleep(until: displaySwitchDeadline)
                 try requireCurrentOperation(operationID)
                 try await displaySwitch.toMac()
@@ -139,7 +134,7 @@ extension SoftKVMCoordinator {
     func refresh(allowAutomaticRecovery: Bool) {
         perform(status: .checking) { [weak self] operationID in
             guard let self else { return }
-            var inspection = try await inspectPreparedState(operationID: operationID)
+            var inspection = try await inspectDisplayState(operationID: operationID)
             if inspection.hasTransaction
                 || (inspection.report.topology == .mac && inspection.hasRecoveryState) {
                 guard allowAutomaticRecovery else {
@@ -169,7 +164,7 @@ extension SoftKVMCoordinator {
             throw SoftKVMCoordinatorError.inputStillHeld
         }
         try requireCurrentOperation(operationID)
-        let inspection = try await inspectPreparedState(operationID: operationID)
+        let inspection = try await inspectDisplayState(operationID: operationID)
         if inspection.report.topology == .mac, !inspection.hasRecoveryState {
             return
         }
@@ -177,15 +172,10 @@ extension SoftKVMCoordinator {
         try requireCurrentOperation(operationID)
     }
 
-    private func inspectPreparedState(
+    private func inspectDisplayState(
         operationID: UInt64
     ) async throws -> DisplaySwitchInspection {
         try requireCurrentOperation(operationID)
-        if !preparedState {
-            try await displaySwitch.prepareState()
-            try requireCurrentOperation(operationID)
-            preparedState = true
-        }
         try await displaySwitch.stabilizeWindowsTopology()
         try requireCurrentOperation(operationID)
         let inspection = try await displaySwitch.inspect()
@@ -365,7 +355,7 @@ extension SoftKVMCoordinator {
     ) async {
         guard stateMachine.isCurrentOperation(operationID) else { return }
         do {
-            let inspection = try await inspectPreparedState(operationID: operationID)
+            let inspection = try await inspectDisplayState(operationID: operationID)
             switch inspection.report.topology {
             case .mac where inspection.report.passed && !inspection.hasRecoveryState:
                 setStatus(stableMacStatus(), operationID: operationID)

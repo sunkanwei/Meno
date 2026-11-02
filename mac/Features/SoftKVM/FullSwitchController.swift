@@ -15,8 +15,6 @@ func makeFullSwitchController() -> FullSwitchController {
   let desktopIconController = DesktopIconLayoutController()
   return FullSwitchController(
     displayController: displayController,
-    // Input selection is manual; display topology and input ownership still switch.
-    ddcController: nil,
     softController: softController,
     windowController: windowController,
     desktopIconController: desktopIconController,
@@ -26,7 +24,6 @@ func makeFullSwitchController() -> FullSwitchController {
 
 actor FullSwitchController {
   private let displayController: DisplayHardwareController
-  private let ddcController: PhilipsDDCController?
   private let softController: SoftDisconnectController
   private let windowController: WindowMigrationController
   private let desktopIconController: DesktopIconLayoutController
@@ -37,22 +34,16 @@ actor FullSwitchController {
 
   init(
     displayController: DisplayHardwareController,
-    ddcController: PhilipsDDCController?,
     softController: SoftDisconnectController,
     windowController: WindowMigrationController,
     desktopIconController: DesktopIconLayoutController,
     stateStore: DisplayStateStore
   ) {
     self.displayController = displayController
-    self.ddcController = ddcController
     self.softController = softController
     self.windowController = windowController
     self.desktopIconController = desktopIconController
     self.stateStore = stateStore
-  }
-
-  func prepareState() async throws {
-    try await stateStore.importLegacyStateIfNeeded()
   }
 
   func stabilizeWindowsTopology() async throws {
@@ -167,12 +158,6 @@ actor FullSwitchController {
       transaction.phase = .windowsMoved
       try await stateStore.save(transaction: transaction)
 
-      if let ddcController {
-        try await ddcController.setInput(PhilipsDDCController.displayPortInput)
-        try validate(operationID)
-        transaction.phase = .inputChanged
-        try await stateStore.save(transaction: transaction)
-      }
       _ = try await waitForMacBaseline(operationID: operationID)
       try validate(operationID)
       try await windowController.requireNoVisiblePhilipsWindows()
@@ -209,7 +194,6 @@ actor FullSwitchController {
     try validate(operationID)
     let initial = await displayController.snapshot()
     if initial.topology == .mac {
-      try await ddcController?.setInput(PhilipsDDCController.hdmi2Input)
       var final = try await waitForMacBaseline(operationID: operationID)
       if try await stateStore.softDisconnectState() != nil {
         try await softController.reconnectPhilips()
@@ -249,7 +233,6 @@ actor FullSwitchController {
       try validate(operationID)
       transaction.phase = .philipsReconnected
       try await stateStore.save(transaction: transaction)
-      try await ddcController?.setInput(PhilipsDDCController.hdmi2Input)
       let final = try await waitForMacBaseline(operationID: operationID)
       try await restoreDesktopIconsIfNeeded(report: final)
       transaction.phase = .desktopIconsRestored
@@ -288,7 +271,6 @@ actor FullSwitchController {
     let report = await displayController.snapshot()
     switch report.topology {
     case .mac:
-      try await ddcController?.setInput(PhilipsDDCController.hdmi2Input)
       var final = try await waitForMacBaseline(operationID: operationID)
       if try await stateStore.softDisconnectState() != nil {
         try await softController.reconnectPhilips()
@@ -315,7 +297,6 @@ actor FullSwitchController {
     if try await stateStore.softDisconnectState() != nil {
       try await softController.reconnectPhilips()
     }
-    try await ddcController?.setInput(PhilipsDDCController.hdmi2Input)
     let final = try await waitForMacBaseline(operationID: operationID)
     try await restoreDesktopIconsIfNeeded(report: final)
     try await windowController.restoreWindowsIfNeeded()
@@ -324,15 +305,14 @@ actor FullSwitchController {
 
   private func rollbackToWindows(operationID: UUID) async throws {
     try validate(operationID)
-    var ddcError: Error?
+    var baselineError: Error?
     let report = await displayController.snapshot()
     switch report.topology {
     case .mac:
       do {
-        try await ddcController?.setInput(PhilipsDDCController.displayPortInput)
         _ = try await waitForMacBaseline(operationID: operationID)
       } catch {
-        ddcError = error
+        baselineError = error
       }
       if try await stateStore.softDisconnectState() == nil {
         try await softController.disconnectPhilips()
@@ -348,8 +328,8 @@ actor FullSwitchController {
     }
     try await restoreDesktopIconsIfNeeded(report: final)
     try await stateStore.clearDesktopIconLayoutState()
-    if let ddcError {
-      throw ddcError
+    if let baselineError {
+      throw baselineError
     }
   }
 

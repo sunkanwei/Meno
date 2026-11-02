@@ -49,7 +49,6 @@ targets:
       - path: Features/Scrolling
       - path: Features/SystemShortcuts
       - path: Features/ClosedLidBehavior
-      - path: Features/LidFold
       - path: Features/ClipboardSharing
       - path: Features/CrossScreenMouse
       - path: Features/SoftKVM
@@ -67,7 +66,6 @@ targets:
         embed: true
       - target: MenoPowerHelper
         embed: false
-      - target: M1DDCBridge
       - sdk: ApplicationServices.framework
       - sdk: AVFoundation.framework
       - sdk: IOKit.framework
@@ -93,27 +91,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sunkanwei.Meno
         PRODUCT_MODULE_NAME: MenoApp
         PRODUCT_NAME: Meno
-
-  M1DDCBridge:
-    type: library.static
-    platform: macOS
-    sources:
-      - path: Platform/M1DDCBridge/M1DDCBridge.m
-      - path: Platform/M1DDCBridge/include
-        buildPhase: headers
-        headerVisibility: public
-    dependencies:
-      - sdk: CoreGraphics.framework
-      - sdk: Foundation.framework
-      - sdk: IOKit.framework
-    settings:
-      base:
-        CLANG_ENABLE_MODULES: YES
-        DEFINES_MODULE: YES
-        MODULEMAP_FILE: Platform/M1DDCBridge/include/module.modulemap
-        PRODUCT_MODULE_NAME: M1DDCBridge
-        PUBLIC_HEADERS_FOLDER_PATH: include
-        SKIP_INSTALL: YES
 
   MenoFinderExtension:
     type: app-extension
@@ -182,11 +159,6 @@ targets:
     platform: macOS
     sources:
       - path: Tests
-      - path: Features/LidFold/LidFoldExternalPolicy.swift
-      - path: Features/LidFold/LidFoldSensor.swift
-      - path: Features/LidFold/LidFoldCapture.swift
-      - path: Features/LidFold/LidFoldRenderer.swift
-      - path: Features/LidFold/LidFoldShader.swift
       - path: Features/FinderShortcuts/CutStateMachine.swift
       - path: Features/FinderShortcuts/KeyboardShortcut.swift
       - path: Features/FinderShortcuts/PasteboardCopyPoller.swift

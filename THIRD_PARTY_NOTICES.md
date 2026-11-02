@@ -2,13 +2,7 @@
 
 本文件集中保存 Meno Mac 与 Windows 发行所需的第三方来源、版权和许可证信息；对外发布时不得省略适用内容。
 
-## Mac: m1ddc
-
-Meno 的 `mac/Platform/M1DDCBridge/` 包含从 [waydabber/m1ddc](https://github.com/waydabber/m1ddc) 派生的代码，用于向 Apple Silicon Mac 连接的 Philips 显示器发送 DDC/CI 输入源命令。
-
-Copyright (c) 2021 waydabber
-
-MIT License
+## MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -388,37 +382,3 @@ DOMPurify 与 Open Sans 适用的 Apache License 2.0 全文如下。
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
-
-## Mac Duo
-
-翻盖动效参考并改编其默认效果、模糊渲染及角度读取方式。
-
-- 来源：https://github.com/DhananjayBhosale/MacDuo
-- 固定版本：3800b0220ea2314377bc25dc273239d1fb24dd79
-- 许可证：MIT
-- 原始着色器 SHA-256：ab1d53734002bf3e51afd74a948f6e87bff32449f835acc4a10ce8a83c9c1b53
-
-```text
-MIT License
-
-Copyright (c) 2026 Mac Duo contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```

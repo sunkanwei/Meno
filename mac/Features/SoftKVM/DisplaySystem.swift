@@ -5,7 +5,6 @@ enum DisplayControlError: Error, CustomStringConvertible, LocalizedError, Sendab
   case busy
   case preflight(String)
   case state(String)
-  case ddc(String)
   case privateAPI(String)
   case verification(String)
   case staleOperation
@@ -21,8 +20,6 @@ enum DisplayControlError: Error, CustomStringConvertible, LocalizedError, Sendab
       return "预检失败：\(message)"
     case .state(let message):
       return "恢复状态错误：\(message)"
-    case .ddc(let message):
-      return "DDC 失败：\(message)"
     case .privateAPI(let message):
       return "显示器接口失败：\(message)"
     case .verification(let message):

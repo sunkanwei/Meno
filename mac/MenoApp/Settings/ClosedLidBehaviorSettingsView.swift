@@ -11,8 +11,6 @@ struct ClosedLidBehaviorSettingsView: View {
                 subtitle: "选择合上 MacBook 后，电脑如何处理。"
             )
 
-            LidFoldSettingsSection(controller: model.lidFold)
-
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     SettingsSectionTitle("模式")

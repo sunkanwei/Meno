@@ -477,6 +477,39 @@ final class SoftKVMStateTests: XCTestCase {
         XCTAssertNil(cleared)
     }
 
+    func testOperationLeaseExcludesOtherProcessesAndReleasesOnDeinit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MenoOperationLeaseTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lockURL = root.appendingPathComponent("operation.lock")
+        func probeLock() throws -> Int32 {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = ["-c", """
+            import errno, fcntl, os, sys
+            fd = os.open(sys.argv[1], os.O_RDWR)
+            try:
+                fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as error:
+                sys.exit(1 if error.errno in (errno.EACCES, errno.EAGAIN) else 2)
+            finally:
+                os.close(fd)
+            """, lockURL.path]
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+
+        var lease: DisplayOperationLease? = try DisplayOperationLease(directory: root)
+        try withExtendedLifetime(lease) {
+            XCTAssertEqual(try posixPermissions(at: root) & 0o777, 0o700)
+            XCTAssertEqual(try posixPermissions(at: lockURL) & 0o777, 0o600)
+            XCTAssertEqual(try probeLock(), 1)
+        }
+        lease = nil
+        XCTAssertEqual(try probeLock(), 0)
+    }
+
     func testDefaultShortcutTriggersOnceAndConsumesReleaseSequence() throws {
         let shortcut = SoftKVMShortcut.defaultValue
         var capture = SoftKVMShortcutCapture()

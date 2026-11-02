@@ -2,7 +2,6 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
-import M1DDCBridge
 
 @MainActor
 final class DisplayHardwareController {
@@ -157,27 +156,5 @@ final class DisplayHardwareController {
       return false
     }
     return true
-  }
-}
-
-actor PhilipsDDCController {
-  static let displayPortInput: UInt16 = 15
-  static let hdmi2Input: UInt16 = 18
-
-  func setInput(_ value: UInt16) throws {
-    guard [Self.displayPortInput, Self.hdmi2Input].contains(value) else {
-      throw DisplayControlError.ddc("拒绝未白名单的输入源值 \(value)")
-    }
-    var errorBuffer = [CChar](repeating: 0, count: 512)
-    let result = errorBuffer.withUnsafeMutableBufferPointer { buffer in
-      ds_ddc_set_philips_input(value, buffer.baseAddress, buffer.count)
-    }
-    guard result == 0 else {
-      let bytes = errorBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-      let detail = String(bytes: bytes, encoding: .utf8) ?? "未知底层错误"
-      throw DisplayControlError.ddc(
-        "内置 DDC 写入 \(value) 失败（\(String(format: "0x%08x", result))）：\(detail)"
-      )
-    }
   }
 }
