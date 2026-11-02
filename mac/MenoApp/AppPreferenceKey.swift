@@ -9,14 +9,12 @@ enum AppPreferenceKey {
     static let finderMoveToTrashEnabled = "FinderMoveToTrashEnabled"
     static let menuBarGlassEnabled = "MenuBarGlassEnabled"
     static let scrollingEnabled = "ScrollingEnabled"
-    static let mouseVoiceShortcutEnabled = "MouseVoiceShortcutEnabled"
     static let activityMonitorShortcutEnabled = "ActivityMonitorShortcutEnabled"
     static let pasteSoundEnabled = "ClipboardPasteSoundEnabled"
     static let lidFoldEnabled = "LidFoldEnabled"
     static let closedLidMode = "ClosedLidMode"
     static let clipboardSharingEnabled = "ClipboardSharingEnabled"
     static let crossScreenMouseEnabled = "CrossScreenMouseEnabled"
-    static let quickRunDirectoryPath = "QuickRunDirectoryPath"
 
     // These legacy strings are a persistent settings compatibility boundary.
     static let displayHandoffEnabled = "LocalDisplayHandoffEnabled"

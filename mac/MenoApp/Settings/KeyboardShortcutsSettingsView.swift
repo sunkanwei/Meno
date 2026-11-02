@@ -13,7 +13,6 @@ struct KeyboardShortcutsSettingsView: View {
             finderFeatureSection
             finderShortcutsSection
             systemShortcutsSection
-            mouseVoiceSection
         }
     }
 
@@ -153,33 +152,6 @@ struct KeyboardShortcutsSettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .settingsPanel()
-        }
-    }
-
-    private var mouseVoiceSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SettingsSectionTitle("鼠标语音")
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle(
-                    "鼠标侧键语音输入",
-                    isOn: Binding(
-                        get: { model.mouseVoiceShortcutEnabled },
-                        set: { model.setMouseVoiceShortcutEnabled($0) }
-                    )
-                )
-                .toggleStyle(.switch)
-                Text("将 G HUB 中需要使用的按钮设为鼠标侧键 4。按住模拟右 Alt，松开结束；豆包保持原来的右 Alt 语音设置。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("仅在 Mac 本地生效，启用时替代该侧键的原有操作。键盘右 Alt 不变。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text(model.mouseVoiceShortcutStatus.title)
-                    .font(.callout)
-                    .foregroundStyle(model.mouseVoiceShortcutStatus == .ready ? Color.green : Color.secondary)
-            }
-            .padding(14)
             .settingsPanel()
         }
     }

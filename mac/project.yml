@@ -54,7 +54,6 @@ targets:
       - path: Features/CrossScreenMouse
       - path: Features/SoftKVM
       - path: Features/WakeOnLAN
-      - path: Features/QuickRun
       - path: Platform/Accessibility
       - path: Platform/EventTap
       - path: Platform/Finder
@@ -192,7 +191,6 @@ targets:
       - path: Features/FinderShortcuts/KeyboardShortcut.swift
       - path: Features/FinderShortcuts/PasteboardCopyPoller.swift
       - path: Features/ClosedLidBehavior/ClosedLidBehaviorPolicy.swift
-      - path: Features/SystemShortcuts/MouseVoiceShortcut.swift
       - path: Features/Scrolling/ScrollDirectionPolicy.swift
       - path: Features/ClipboardSharing/ClipboardProtocol.swift
       - path: Features/ClipboardSharing/ConnectionReadinessGate.swift
@@ -226,9 +224,6 @@ targets:
       - path: Features/SoftKVM/WindowModels.swift
       - path: Features/WakeOnLAN/WakeOnLAN.swift
       - path: MenoApp/AppPreferenceKey.swift
-      - path: Features/QuickRun/QuickRunController.swift
-      - path: Features/QuickRun/QuickScript.swift
-      - path: Features/QuickRun/QuickScriptRunner.swift
       - path: Platform/Power/ClosedLidShutdownContract.swift
       - path: Platform/Power/ClosedLidShutdownValidation.swift
       - path: Helpers/MenoPowerHelper/PowerModeConfiguration.swift

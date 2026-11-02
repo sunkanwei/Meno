@@ -11,8 +11,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
         category: "CrossScreenMouse"
     )
     let runtimeLock = NSLock()
-    var mouseVoiceShortcutRequested = false
-    let onMouseVoiceStatusChanged: @MainActor (MouseVoiceShortcutStatus) -> Void
     private let onStatusChanged: StatusHandler
     private let onSoftKVMToggle: SoftKVMToggleHandler
     let localDisplayRoutingTopology: LocalDisplayRoutingTopology
@@ -39,7 +37,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
             threadName: kind.threadName,
             listenerName: kind.listenerName,
             eventHandler: { [weak self] type, event in
-                self?.handle(type: type, event: event, kind: kind) ?? false
+                self?.handle(type: type, event: event) ?? false
             },
             stateHandler: { [weak self] tapState in
                 self?.inputTapChanged(tapState, kind: kind)
@@ -51,14 +49,12 @@ final class CrossScreenMouseController: @unchecked Sendable {
     init(
         sharedDisplayID: String?,
         onStatusChanged: @escaping StatusHandler,
-        onSoftKVMToggle: @escaping SoftKVMToggleHandler,
-        onMouseVoiceStatusChanged: @escaping @MainActor (MouseVoiceShortcutStatus) -> Void
+        onSoftKVMToggle: @escaping SoftKVMToggleHandler
     ) {
         self.sharedDisplayID = sharedDisplayID
         localDisplayRoutingTopology = LocalDisplayRoutingTopology()
         self.onStatusChanged = onStatusChanged
         self.onSoftKVMToggle = onSoftKVMToggle
-        self.onMouseVoiceStatusChanged = onMouseVoiceStatusChanged
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -139,7 +135,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
     @MainActor
     func startTapIfNeeded() {
         let shouldStart = runtimeLock.withCriticalSection {
-            state.enabled || state.mouseVoiceShortcut.requiresInputTap
+            state.enabled
         }
         guard shouldStart else {
             stopTapIfUnneededAndLocal()
@@ -187,7 +183,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
         let pointerLocation = MacCursorOwnership.currentLocation()
         runtimeLock.withCriticalSection {
             state.tapFailure = nil
-            synchronizeMouseVoiceInputLocked()
             state.localButtons = localButtons
             state.displayHandoff.resetTracking(
                 at: state.ownership.capturesInput ? nil : pointerLocation
@@ -216,7 +211,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
     func stopInputTaps() {
         hidInputTap.stop()
         sessionKeyboardInputTap.stop()
-        cancelMouseVoiceShortcut()
     }
 
     @MainActor
@@ -244,8 +238,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
     ) {
         let pointerLocation = MacCursorOwnership.currentLocation()
         runtimeLock.withCriticalSection {
-            cancelMouseVoiceShortcutLocked()
-            synchronizeMouseVoiceInputLocked()
             state.displayHandoff.resetTracking(
                 at: state.ownership.capturesInput ? nil : pointerLocation
             )
@@ -293,7 +285,7 @@ final class CrossScreenMouseController: @unchecked Sendable {
     @MainActor
     func stopTapIfUnneededAndLocal() {
         let shouldStop = runtimeLock.withCriticalSection {
-            !state.ownership.capturesInput && !state.enabled && !state.mouseVoiceShortcut.requiresInputTap
+            !state.ownership.capturesInput && !state.enabled
         }
         if shouldStop {
             cancelInputTapRestart()
@@ -303,7 +295,6 @@ final class CrossScreenMouseController: @unchecked Sendable {
 
     @MainActor
     func publishStatus() {
-        publishMouseVoiceShortcutStatus()
         let status = runtimeLock.withCriticalSection { state.status }
         guard status != lastPublishedStatus else { return }
         lastPublishedStatus = status

@@ -9,7 +9,6 @@ final class AppModel: ObservableObject {
     let markdownPreviewWindowPreferences = MarkdownPreviewWindowPreferences()
     let notifications = AppNotifications()
     let finderFeedback = FinderFeedbackPresenter()
-    let quickRun = QuickRunController()
     let lidFold = LidFoldController()
 
     @Published private(set) var finderShortcutsStatus: FinderShortcutsStatus = .off
@@ -43,8 +42,6 @@ final class AppModel: ObservableObject {
     @Published var menuBarGlassEnabled: Bool
     @Published var scrollingEnabled: Bool
     @Published var activityMonitorShortcutEnabled: Bool
-    @Published var mouseVoiceShortcutEnabled: Bool
-    @Published private(set) var mouseVoiceShortcutStatus: MouseVoiceShortcutStatus = .off
     @Published var closedLidMode: ClosedLidMode = .keepRunning
     @Published var clipboardSharingEnabled: Bool
     @Published var crossScreenMouseEnabled: Bool
@@ -130,9 +127,6 @@ final class AppModel: ObservableObject {
         onStatusChanged: { [weak self] status in self?.setCrossScreenMouseStatus(status) },
         onSoftKVMToggle: { [weak self] in
             self?.handleSoftKVMShortcut()
-        },
-        onMouseVoiceStatusChanged: { [weak self] status in
-            self?.mouseVoiceShortcutStatus = status
         }
     )
 
@@ -180,7 +174,6 @@ final class AppModel: ObservableObject {
     private func applyMouseServiceEnabled(_ enabled: Bool) { windowsCompanion.setMouseServiceEnabled(enabled) }
 
     init() {
-        mouseVoiceShortcutEnabled = defaults.bool(forKey: AppPreferenceKey.mouseVoiceShortcutEnabled)
         finderShortcutsEnabled = defaults.boolValue(
             forKey: AppPreferenceKey.finderShortcutsEnabled,
             default: true
@@ -278,7 +271,6 @@ final class AppModel: ObservableObject {
         closedLidShutdown.refreshHelperStatus()
         closedLidBehavior.setMode(closedLidMode)
         applyDisplayHandoffConfiguration()
-        crossScreenMouse.setMouseVoiceShortcutEnabled(mouseVoiceShortcutEnabled)
         windowsCompanion.setClipboardEnabled(clipboardSharingEnabled)
         if !softKVMStarted {
             softKVMStarted = true
@@ -287,7 +279,6 @@ final class AppModel: ObservableObject {
     }
     func stopForApplicationExit() {
         cancelSoftKVMShortcutTest()
-        quickRun.stopForApplicationExit()
         lidFold.stopForApplicationExit()
         finderFeedback.stop()
         finderAutomationPermissionGeneration &+= 1
