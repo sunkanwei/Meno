@@ -54,7 +54,6 @@ targets:
       - path: Features/CrossScreenMouse
       - path: Features/SoftKVM
       - path: Features/WakeOnLAN
-      - path: Features/WindowsAgent
       - path: Features/QuickRun
       - path: Platform/Accessibility
       - path: Platform/EventTap
@@ -226,8 +225,6 @@ targets:
       - path: Features/SoftKVM/SoftKVMTypes.swift
       - path: Features/SoftKVM/WindowModels.swift
       - path: Features/WakeOnLAN/WakeOnLAN.swift
-      - path: Features/WindowsAgent/CodexMCPConfig.swift
-      - path: Features/WindowsAgent/WindowsAgentModels.swift
       - path: MenoApp/AppPreferenceKey.swift
       - path: Features/QuickRun/QuickRunController.swift
       - path: Features/QuickRun/QuickScript.swift

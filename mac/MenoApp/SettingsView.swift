@@ -25,8 +25,6 @@ struct SettingsView: View {
                         .tag(SettingsDestination.closedLidBehavior)
                 }
                 Section("Windows") {
-                    Label("Windows Agent", systemImage: "server.rack")
-                        .tag(SettingsDestination.windowsAgent)
                     Label("KVM", systemImage: "display.2")
                         .tag(SettingsDestination.kvm)
                 }
@@ -50,8 +48,6 @@ struct SettingsView: View {
                 QuickRunSettingsView(controller: model.quickRun)
             case .closedLidBehavior:
                 ClosedLidBehaviorSettingsView(model: model)
-            case .windowsAgent:
-                WindowsAgentSettingsView(controller: model.windowsAgent)
             case .kvm:
                 CrossScreenMouseSettingsView(model: model)
             case .displayHandoff:
@@ -84,7 +80,6 @@ private enum SettingsDestination: Hashable {
     case menuBarGlass
     case quickRun
     case closedLidBehavior
-    case windowsAgent
     case kvm
     case displayHandoff
     case keyboardShortcuts

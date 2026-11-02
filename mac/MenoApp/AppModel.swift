@@ -9,7 +9,6 @@ final class AppModel: ObservableObject {
     let markdownPreviewWindowPreferences = MarkdownPreviewWindowPreferences()
     let notifications = AppNotifications()
     let finderFeedback = FinderFeedbackPresenter()
-    let windowsAgent = WindowsAgentController()
     let quickRun = QuickRunController()
     let lidFold = LidFoldController()
 
@@ -261,7 +260,6 @@ final class AppModel: ObservableObject {
         closedLidShutdownHelperStatus = closedLidShutdown.helperStatus
         softKVMHotKey.onKeyboardFallbackNeededChanged = { [weak self] in self?.crossScreenMouse.setLocalKeyboardCaptureRequired($0) }
         closedLidShutdown.synchronizeConfiguration()
-        windowsAgent.start()
         refreshPermissionsAndRuntime()
     }
 
@@ -303,7 +301,6 @@ final class AppModel: ObservableObject {
         closedLidBehavior.stopForApplicationExit()
         softKVM.stopForApplicationExit()
         windowsCompanion.stopForApplicationExit()
-        windowsAgent.stopForApplicationExit()
     }
 
     func refreshFinderAutomationPermission(askUserIfNeeded: Bool = false) {

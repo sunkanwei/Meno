@@ -207,14 +207,6 @@ final class MenuBarController: NSObject {
         remoteShutdownItem.isEnabled = model.canForceShutdownWindows
         menu.addItem(remoteShutdownItem)
 
-        let windowsAgentItem = menuItem(
-            title: "Windows Agent：\(model.windowsAgent.menuTitle)",
-            symbolName: "server.rack",
-            action: #selector(refreshWindowsAgent)
-        )
-        windowsAgentItem.toolTip = model.windowsAgent.phase.detail
-        menu.addItem(windowsAgentItem)
-
         let quickRunItem = menuItem(
             title: "快捷运行",
             symbolName: "play.circle",
@@ -480,10 +472,6 @@ final class MenuBarController: NSObject {
         model.forceShutdownWindows { [weak self] message in
             self?.presentError(title: "远程关机未完全完成", message: message)
         }
-    }
-
-    @objc private func refreshWindowsAgent() {
-        model.windowsAgent.refresh()
     }
 
     @objc private func selectClosedLidMode(_ sender: NSMenuItem) {

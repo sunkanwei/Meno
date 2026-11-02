@@ -19,7 +19,6 @@
 		0AF780A2E0534938CA74AFC9 /* NSLockCriticalSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52F535939B8AEDBE7B1A6C2E /* NSLockCriticalSection.swift */; };
 		0BDB788CCC26AA608C46770A /* WindowProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCCA57E050C23CD814E2C44 /* WindowProbe.swift */; };
 		0C4BEB710B4E1D9764060109 /* ClosedLidShutdownValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB4D1AE1E958A78EAAF610C /* ClosedLidShutdownValidation.swift */; };
-		0CA09BA66421E177946C447B /* WindowsAgentSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3324B436F06702BB9B3D6EF4 /* WindowsAgentSettingsView.swift */; };
 		0D2C1B8D537D6BAA31506C53 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66CBB393D17C8889C0F7AEF /* AppDelegate.swift */; };
 		0F13B6432F0FCDCA70B0FAE2 /* HIDScrollEventResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BCC4A55D525AD933CB7CC7 /* HIDScrollEventResolver.swift */; };
 		0FBE19F60CC05B4072E9F844 /* AppPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 754D300A3144292E34987090 /* AppPreferenceKey.swift */; };
@@ -69,7 +68,6 @@
 		2F88F1C90F1D0B20A4A4586B /* MarkdownPreviewError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83790B886F404277BC564526 /* MarkdownPreviewError.swift */; };
 		30E261DF402250E7A01EC9A7 /* LidFoldExternalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B515296BD7C6B85FBF2353B /* LidFoldExternalPolicy.swift */; };
 		32965348CD9779A33F79A1D0 /* AccessibilityPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC43E6B8AFD1CB89036B611 /* AccessibilityPermission.swift */; };
-		3308B4BA1B7D04821AEE901B /* WindowsAgentHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0666C3EDE2B51885969E671E /* WindowsAgentHealthTests.swift */; };
 		33C2894C66A6EAFA6310F9D7 /* LocalDisplayRoutingBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 608F63CBFB8D413033798979 /* LocalDisplayRoutingBaseline.swift */; };
 		345B96579802A80C3F32B319 /* CutStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BECC1C8C6976A15909FF82 /* CutStateMachine.swift */; };
 		348569420EF7EC96662A34B5 /* MarkdownDocumentMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CEF95C3B52B18DC2FE8E7D8 /* MarkdownDocumentMonitorTests.swift */; };
@@ -116,7 +114,6 @@
 		60227999EA7EA9434477A66D /* FileURLUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FC7A61FE0C8D7E737EA98B7 /* FileURLUtilities.swift */; };
 		61939723BD6B510D1903FB70 /* WindowsDisplayHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9EF87637D9FA20CD117FAA /* WindowsDisplayHandoff.swift */; };
 		64BAE4BE80CE92C9983FF8B1 /* ClosedLidShutdownConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425065794A7489CDF047B546 /* ClosedLidShutdownConfiguration.swift */; };
-		6552534B9573F22797576913 /* CodexMCPConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26FFDF5B3B048B278EFB14F /* CodexMCPConfigTests.swift */; };
 		65621316F832E1E54D4E73C2 /* KeyboardState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3260E14FBAAC6D7346E053 /* KeyboardState.swift */; };
 		660208CFD031C5EFF5F34D1A /* FinderExtensionCommandBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277BDC738377B5FF392A59AE /* FinderExtensionCommandBridge.swift */; };
 		673F5D661507535F82DB39A6 /* ScrollDirectionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E242E9EEB8EB445EDD1E288 /* ScrollDirectionPolicyTests.swift */; };
@@ -142,7 +139,6 @@
 		79DF393E9C1BABA73269985C /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E74C4913850AC4BC43D50BC4 /* AVFoundation.framework */; };
 		7D0787A11FAA1A709785B547 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B253495EFEC9B3199E72E5B0 /* WebKit.framework */; };
 		7DA5F6C3AB0215A656F3139D /* FinderContextInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A7A92A11D8CAB77AA154715 /* FinderContextInspector.swift */; };
-		7E4C87BAE100DA0D68358720 /* WindowsAgentMCPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B52A8C7A038F1F85BE8E9E1F /* WindowsAgentMCPClient.swift */; };
 		7EAAAE780D6A42353D3F2C29 /* PowerHelperInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C88618A2A059F791817E31 /* PowerHelperInstaller.swift */; };
 		7EE1D87283D4F6810A111A5B /* ClipboardProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */; };
 		7F15A92AEA024BB676EAB648 /* QuickScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10397787EE1475D399924A7 /* QuickScript.swift */; };
@@ -156,14 +152,12 @@
 		82632B32DE0AECB54A122C75 /* SourceFileLineLimitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EBEB99B892D150914CBCEA /* SourceFileLineLimitTests.swift */; };
 		82C7D99650EC1B7DEE334445 /* AppPreferenceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 754D300A3144292E34987090 /* AppPreferenceKey.swift */; };
 		834E811F45F211126666FD08 /* QuickScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10397787EE1475D399924A7 /* QuickScript.swift */; };
-		858D66878071A474CED3DEA4 /* CodexMCPConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 379E21720285236497FB27EC /* CodexMCPConfig.swift */; };
 		85C1E6808F389466F210B5DA /* MarkdownPreviewError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83790B886F404277BC564526 /* MarkdownPreviewError.swift */; };
 		85C216D39ACBC78A1B457214 /* FinderContextMenuSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A4002F1484A86B6A2DCCA2 /* FinderContextMenuSettingsView.swift */; };
 		8663D94516E2F6CC5F646096 /* WindowMigrationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A97CD84B7CE87725572BC3 /* WindowMigrationController.swift */; };
 		871D75E9582A8726A50CA0C1 /* FullSwitchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4F2E27A89BCB68F17A70C8 /* FullSwitchController.swift */; };
 		87E239099717532ADC7AB8E9 /* MarkdownPreviewWindowPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789A953ACE070914AC03B02B /* MarkdownPreviewWindowPreferences.swift */; };
 		885286B67F0262B6263774A3 /* ActivityMonitorShortcutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E35BE4DA29498378FC648B /* ActivityMonitorShortcutController.swift */; };
-		8895BFDDB2A94C9DBF0B8D10 /* WindowsAgentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F03DB50C09870F2B41807F3 /* WindowsAgentController.swift */; };
 		8A3CF4C932181D3B9F447A77 /* AppModel+WakeOnLAN.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D1856DDDED2EBA9AC05E1C2 /* AppModel+WakeOnLAN.swift */; };
 		8BCD1C1D8AC8F899A2F05A41 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF2C9162155B12CD38F0AE02 /* CoreGraphics.framework */; };
 		8C3FEA59EBA0C1425AD820A4 /* PasteboardCopyPoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EB18D94088D3E2205F5727 /* PasteboardCopyPoller.swift */; };
@@ -183,7 +177,6 @@
 		98229319D21409DB2276BFDC /* clipboard-copy-cut.png in Resources */ = {isa = PBXBuildFile; fileRef = 09B2CE92CEF279B3F1518423 /* clipboard-copy-cut.png */; };
 		98C11FC5E419A28083EBB3AB /* clipboard-paste.png in Resources */ = {isa = PBXBuildFile; fileRef = 72342AC1B2E7812B1CFD5B8E /* clipboard-paste.png */; };
 		995457588A458621085222C5 /* FinderDesktopCoordinateSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B698953018749BA3A48F63 /* FinderDesktopCoordinateSpace.swift */; };
-		995A441C07BE77B27AEEFA49 /* WindowsAgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E950B749BC6C4D2ACFECC97F /* WindowsAgentModels.swift */; };
 		99FE86CEEB060EB0FE3FAECE /* ConnectionReadinessGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD01036AF3BBCCFC8A502ABD /* ConnectionReadinessGate.swift */; };
 		9AF9F5E4030A27209C9687F0 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7BE09DCED7375C43555B4DD6 /* IOKit.framework */; };
 		9B4D63A4F6CB8E59E5FA8DD8 /* ClipboardProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6E15394AD44BAA0FD6584C /* ClipboardProtocol.swift */; };
@@ -258,7 +251,6 @@
 		E0B0897C764A8A340ABF21F6 /* HorizontalDisplayHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903B8FDDB9C4B12F87607954 /* HorizontalDisplayHandoffTests.swift */; };
 		E1053E2D4279B0BD90278121 /* ClosedLidShutdownContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7D234F0700114A5C1200679 /* ClosedLidShutdownContractTests.swift */; };
 		E12C1B2F1A9ECD61031E9EA2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37B71226C9B3470512D82740 /* SettingsView.swift */; };
-		E2AA574416E03EACEC16B30F /* WindowsAgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E950B749BC6C4D2ACFECC97F /* WindowsAgentModels.swift */; };
 		E2D2FEAC8958CE3A9EDC6770 /* FileClipboardTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3862C65B5FA2A9365828E4A9 /* FileClipboardTransfer.swift */; };
 		E443A352D54071C64BF32312 /* PhysicalDisplayHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A7A191A996D44814A2EA8E2 /* PhysicalDisplayHandoff.swift */; };
 		E47498E07C3A96924D06159A /* LidFoldExternalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B515296BD7C6B85FBF2353B /* LidFoldExternalPolicy.swift */; };
@@ -290,7 +282,6 @@
 		F8BE1ABF020D148DE2AD97DD /* ClipboardConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C2E9A49038E151006052D0 /* ClipboardConnection.swift */; };
 		F9A115965CB20563CBA62C39 /* ClipboardImageCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E04C8F5DAEA050DB6BF8E87 /* ClipboardImageCodec.swift */; };
 		FA70D937F52A903CDDB9E149 /* DisplayStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D704EBB1EE75EA8B801587 /* DisplayStateStore.swift */; };
-		FAEC50EA96C239F067D00E2B /* CodexMCPConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 379E21720285236497FB27EC /* CodexMCPConfig.swift */; };
 		FCDC8F88A422F02C844E5776 /* PasteboardCopyPollerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62EFF1E8B6D74FE75FAAD077 /* PasteboardCopyPollerTests.swift */; };
 		FDC67539B15F56EED0E46B0C /* DesktopIconLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5611FFCAD5ABD6AC5E1DC4E /* DesktopIconLayoutTests.swift */; };
 		FF968AF8C884B54A0870EAAA /* MouseTransportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E559C430DB5D30C098F4D3 /* MouseTransportQueue.swift */; };
@@ -362,12 +353,10 @@
 		0527CD4431AF1272803B3120 /* RemediationBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemediationBoundaryTests.swift; sourceTree = "<group>"; };
 		059AE7A0C7E5EBB57D176008 /* LidStateMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidStateMonitor.swift; sourceTree = "<group>"; };
 		06210692D68042E041F50C04 /* KeyboardShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTests.swift; sourceTree = "<group>"; };
-		0666C3EDE2B51885969E671E /* WindowsAgentHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentHealthTests.swift; sourceTree = "<group>"; };
 		098053787D49262579EB33A9 /* CrossScreenMouseVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenMouseVoice.swift; sourceTree = "<group>"; };
 		09B2CE92CEF279B3F1518423 /* clipboard-copy-cut.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "clipboard-copy-cut.png"; sourceTree = "<group>"; };
 		0C6440B93E80C26619826B22 /* AppModel+WindowsCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+WindowsCompanion.swift"; sourceTree = "<group>"; };
 		0DF471045EE1A098E2A90383 /* IdleSleepAssertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleSleepAssertion.swift; sourceTree = "<group>"; };
-		0F03DB50C09870F2B41807F3 /* WindowsAgentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentController.swift; sourceTree = "<group>"; };
 		10DEE6CFDB35FACFB7EBAA75 /* LidFoldCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidFoldCapture.swift; sourceTree = "<group>"; };
 		14F4CAFA33A289B511FFD70A /* CrossScreenDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenDisplay.swift; sourceTree = "<group>"; };
 		15873A74DEFB06367798A2B7 /* paste.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = paste.json; sourceTree = "<group>"; };
@@ -402,11 +391,9 @@
 		31C2E9A49038E151006052D0 /* ClipboardConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardConnection.swift; sourceTree = "<group>"; };
 		322FA468E18662EFE188F65C /* SoftKVMCoordinatorOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMCoordinatorOperations.swift; sourceTree = "<group>"; };
 		328D2CCAEB42EE892C1117C6 /* QuickScriptCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickScriptCatalogTests.swift; sourceTree = "<group>"; };
-		3324B436F06702BB9B3D6EF4 /* WindowsAgentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentSettingsView.swift; sourceTree = "<group>"; };
 		340BB501C4EA88E06FB566E1 /* CrossScreenMouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenMouseController.swift; sourceTree = "<group>"; };
 		34FE4D5CF5D893298A527727 /* PhysicalDisplayHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhysicalDisplayHandoffTests.swift; sourceTree = "<group>"; };
 		35D704EBB1EE75EA8B801587 /* DisplayStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayStateStore.swift; sourceTree = "<group>"; };
-		379E21720285236497FB27EC /* CodexMCPConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMCPConfig.swift; sourceTree = "<group>"; };
 		37B71226C9B3470512D82740 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		383606D34F1E3BB4394E7975 /* LidFoldOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LidFoldOverlay.swift; sourceTree = "<group>"; };
 		3862C65B5FA2A9365828E4A9 /* FileClipboardTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileClipboardTransfer.swift; sourceTree = "<group>"; };
@@ -521,7 +508,6 @@
 		B3845C5D306E361E92C6C66B /* FileClipboardProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileClipboardProtocolTests.swift; sourceTree = "<group>"; };
 		B397347781FE6024C95B307D /* SoftKVMStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMStateMachine.swift; sourceTree = "<group>"; };
 		B3A30E33D97B860476DEA60D /* FinderContextMenuPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderContextMenuPreferences.swift; sourceTree = "<group>"; };
-		B52A8C7A038F1F85BE8E9E1F /* WindowsAgentMCPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentMCPClient.swift; sourceTree = "<group>"; };
 		B656EB5F282F243ECCF612B7 /* FinderDesktopItemURLResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderDesktopItemURLResolver.swift; sourceTree = "<group>"; };
 		B93125C1B055CCC2F31F9998 /* FileClipboardTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileClipboardTransferTests.swift; sourceTree = "<group>"; };
 		BA54AE9804AA8FCA4A92BD35 /* LocalDisplayRoutingBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDisplayRoutingBaselineTests.swift; sourceTree = "<group>"; };
@@ -556,13 +542,11 @@
 		E74C4913850AC4BC43D50BC4 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		E7D234F0700114A5C1200679 /* ClosedLidShutdownContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidShutdownContractTests.swift; sourceTree = "<group>"; };
 		E87A87AC3B0389A7153E30F5 /* WakeOnLAN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeOnLAN.swift; sourceTree = "<group>"; };
-		E950B749BC6C4D2ACFECC97F /* WindowsAgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowsAgentModels.swift; sourceTree = "<group>"; };
 		EBA92F9B89341B424D40358E /* MenoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MenoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F03FCFCA851856B4F4D53BB6 /* MarkdownRenderer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MarkdownRenderer; path = Features/MarkdownPreviewRenderer/dist; sourceTree = SOURCE_ROOT; };
 		F0771C52F75D1127DB4B2ECE /* FinderShortcutsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderShortcutsController.swift; sourceTree = "<group>"; };
 		F08C2FD5FE8D701D7EFAD71A /* FinderProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderProcess.swift; sourceTree = "<group>"; };
 		F160ACB0A0CEB16A9251A3A0 /* copy-cut.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "copy-cut.json"; sourceTree = "<group>"; };
-		F26FFDF5B3B048B278EFB14F /* CodexMCPConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMCPConfigTests.swift; sourceTree = "<group>"; };
 		F3D6857CE97ED5C91D133CEC /* DisplayControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayControl.swift; sourceTree = "<group>"; };
 		F3E7FFF7599FFF550BC365F1 /* SoftKVMShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMShortcut.swift; sourceTree = "<group>"; };
 		F48BE7B9CA696CFBA7442524 /* CrossScreenMouseInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenMouseInput.swift; sourceTree = "<group>"; };
@@ -742,20 +726,8 @@
 				444AF90D46D8D2E14EEF62BB /* ScrollingSettingsView.swift */,
 				59A43E127B5DB5BF43CDB6D4 /* SettingsComponents.swift */,
 				D2E206D1FE4091DA208FED84 /* SoftKVMShortcutRecorder.swift */,
-				3324B436F06702BB9B3D6EF4 /* WindowsAgentSettingsView.swift */,
 			);
 			path = Settings;
-			sourceTree = "<group>";
-		};
-		3D1B9EC9684C4BE8A7E79810 /* WindowsAgent */ = {
-			isa = PBXGroup;
-			children = (
-				379E21720285236497FB27EC /* CodexMCPConfig.swift */,
-				0F03DB50C09870F2B41807F3 /* WindowsAgentController.swift */,
-				B52A8C7A038F1F85BE8E9E1F /* WindowsAgentMCPClient.swift */,
-				E950B749BC6C4D2ACFECC97F /* WindowsAgentModels.swift */,
-			);
-			path = WindowsAgent;
 			sourceTree = "<group>";
 		};
 		4085B36C10B373F3672B1F5B /* QuickRun */ = {
@@ -883,7 +855,6 @@
 				7F65A7281B5CCC78EA5327FB /* SoftKVM */,
 				8B74F8A2A58D08060426B571 /* SystemShortcuts */,
 				C9E60AE6B9DFF4C26B7830ED /* WakeOnLAN */,
-				3D1B9EC9684C4BE8A7E79810 /* WindowsAgent */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -1080,7 +1051,6 @@
 				6C478EB9E74D0CB7287469AB /* ClipboardProtocolTests.swift */,
 				C1D73C740644CFD53788125D /* ClosedLidBehaviorPolicyTests.swift */,
 				E7D234F0700114A5C1200679 /* ClosedLidShutdownContractTests.swift */,
-				F26FFDF5B3B048B278EFB14F /* CodexMCPConfigTests.swift */,
 				F84894669EF86707BF34AA94 /* CrossScreenDisplayTests.swift */,
 				417F3AABB3A03B4BEB9126F6 /* CrossScreenEntryGateTests.swift */,
 				8FF9E6B5BABE3D17BEE867B6 /* CrossScreenInputRoutingTests.swift */,
@@ -1119,7 +1089,6 @@
 				A7EBEB99B892D150914CBCEA /* SourceFileLineLimitTests.swift */,
 				E03838267B9540DE60AC81DB /* TerminalApplicationDetectorTests.swift */,
 				D191096CFD9F4D0FC2AB9848 /* WakeOnLANTests.swift */,
-				0666C3EDE2B51885969E671E /* WindowsAgentHealthTests.swift */,
 				29A3E1698041298B642EC349 /* WindowsDisplayHandoffTests.swift */,
 			);
 			path = Tests;
@@ -1380,8 +1349,6 @@
 				B4F0B60C9FE3D021E6F47173 /* ClosedLidShutdownContract.swift in Sources */,
 				E1053E2D4279B0BD90278121 /* ClosedLidShutdownContractTests.swift in Sources */,
 				40F2B09ACD67B4A61522F116 /* ClosedLidShutdownValidation.swift in Sources */,
-				FAEC50EA96C239F067D00E2B /* CodexMCPConfig.swift in Sources */,
-				6552534B9573F22797576913 /* CodexMCPConfigTests.swift in Sources */,
 				99FE86CEEB060EB0FE3FAECE /* ConnectionReadinessGate.swift in Sources */,
 				96439D46670144674739E186 /* CrossScreenDisplay.swift in Sources */,
 				4F1FF1B9233785D5B13B3DDA /* CrossScreenDisplayTests.swift in Sources */,
@@ -1476,8 +1443,6 @@
 				EF83B5A48C5DC2C4457009E1 /* WakeOnLAN.swift in Sources */,
 				4D060C4435911FEC6D728C86 /* WakeOnLANTests.swift in Sources */,
 				DC23A2AA13201C7B46A65504 /* WindowModels.swift in Sources */,
-				3308B4BA1B7D04821AEE901B /* WindowsAgentHealthTests.swift in Sources */,
-				E2AA574416E03EACEC16B30F /* WindowsAgentModels.swift in Sources */,
 				61939723BD6B510D1903FB70 /* WindowsDisplayHandoff.swift in Sources */,
 				CDBE46DD3EC0688AD2A4C9A0 /* WindowsDisplayHandoffTests.swift in Sources */,
 			);
@@ -1550,7 +1515,6 @@
 				B78CC1D4685A1C926817551D /* ClosedLidShutdownCoordinator.swift in Sources */,
 				D57D62E13C34B975CA88CAB7 /* ClosedLidShutdownHelperManager.swift in Sources */,
 				BD98E0A276435827C4CA4DBF /* ClosedLidShutdownValidation.swift in Sources */,
-				858D66878071A474CED3DEA4 /* CodexMCPConfig.swift in Sources */,
 				CA38BA54100732BFBB816146 /* CompanionFrameTransport.swift in Sources */,
 				19D0AFE68F70A72F2AE5B76F /* ConnectionReadinessGate.swift in Sources */,
 				2915C1E138DC5EBDBAF9F424 /* CrossScreenDisplay.swift in Sources */,
@@ -1659,10 +1623,6 @@
 				8663D94516E2F6CC5F646096 /* WindowMigrationController.swift in Sources */,
 				DF3745B0914BA6D0CB9F7C29 /* WindowModels.swift in Sources */,
 				0BDB788CCC26AA608C46770A /* WindowProbe.swift in Sources */,
-				8895BFDDB2A94C9DBF0B8D10 /* WindowsAgentController.swift in Sources */,
-				7E4C87BAE100DA0D68358720 /* WindowsAgentMCPClient.swift in Sources */,
-				995A441C07BE77B27AEEFA49 /* WindowsAgentModels.swift in Sources */,
-				0CA09BA66421E177946C447B /* WindowsAgentSettingsView.swift in Sources */,
 				70F97E5F77BA34B40B439D77 /* WindowsCompanionController.swift in Sources */,
 				7384F1A1FCBC1444C1018C67 /* WindowsCompanionServer.swift in Sources */,
 				0241C488D7182DA8B93212FA /* WindowsDisplayHandoff.swift in Sources */,
