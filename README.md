@@ -6,7 +6,7 @@ Meno 是一个同时包含 Mac 与 Windows 源码的私有项目。两端共享�
 
 - `build/`：两端本地缓存和编译产物，不进入 Git。
 - `mac/`：Mac 应用、系统扩展、测试和构建脚本。
-- `windows/`：Windows 托盘程序、内置 Windows Agent、虚拟 HID 驱动、测试和构建脚本。
+- `windows/`：Windows 托盘程序、虚拟 HID 驱动、测试和构建脚本。
 - `AGENTS.md`：两端 AI 共同遵守的项目规则。
 - `THIRD_PARTY_NOTICES.md`：第三方来源、版权和许可证。
 
@@ -89,7 +89,7 @@ Meno 菜单栏中的“快捷运行”用于手动执行一次性 zsh 脚本，�
 
 首次运行 `build\windows\dist\MenoClipboard.exe` 时，程序会复制到 `%LOCALAPPDATA%\Meno\MenoClipboard.exe` 并从固定位置重新启动。构建不会自动安装驱动；鼠标驱动只有在用户从托盘明确选择并确认后才安装。Windows 使用本地话筒，Meno 不再接收 Mac 麦克风音频，也不携带音频驱动安装包。已安装的虚拟声卡不会随程序更新自动卸载。
 
-Windows Agent 的 Meno 项目路径应登记为共享仓库根目录，例如 `D:\APP\Meno`，不要只登记 `D:\APP\Meno\windows`；这样它才能读取共同规则并使用根目录的构建目录。
+Windows 端不再内置 Windows Agent：托盘只保留连接状态、暂停、重新发现、开机启动、光标主题、驱动修复和日志等项，程序不再监听固定端口，也不提供 MCP 工具、截图或 Codex 连接配置。跨屏键鼠、双向剪贴板和远程开关机使用 MENO 独立通道，不受影响。
 
 ## 日常维护
 

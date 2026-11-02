@@ -65,7 +65,6 @@ pub(crate) struct AppState {
     pub(crate) network: SyncSender<NetworkCommand>,
     file_events: SyncSender<file_transfer::WorkerEvent>,
     pub(crate) image_tasks: image_tasks::ImageTaskSender,
-    agent: Option<windows_agent::EmbeddedAgent>,
     status: String,
     connected: bool,
     pub(crate) paused: bool,
@@ -80,9 +79,6 @@ fn main() -> WinResult<()> {
         return Ok(());
     }
     if cursor_hider::run_guard_command() {
-        return Ok(());
-    }
-    if windows_agent::handle_process_command() {
         return Ok(());
     }
     if let Ok(path) = install::log_path() {
@@ -117,17 +113,6 @@ fn main() -> WinResult<()> {
     }
     cursor_hider::force_show();
     cursor_theme::ensure_applied();
-    let agent = match windows_agent::EmbeddedAgent::start(|level, message| {
-        if level == "error" {
-            logging::error(message);
-        }
-    }) {
-        Ok(agent) => Some(agent),
-        Err(error) => {
-            logging::error(&format!("Windows Agent could not start: {error}"));
-            None
-        }
-    };
 
     unsafe {
         let instance = GetModuleHandleW(None)?;
@@ -175,7 +160,6 @@ fn main() -> WinResult<()> {
             network,
             file_events,
             image_tasks,
-            agent,
             status: "正在查找 Mac".to_string(),
             connected: false,
             paused: false,
@@ -364,8 +348,7 @@ unsafe extern "system" fn window_proc(
                         suspended,
                         startup,
                         cursor_theme::enabled(),
-                    )
-                    .with_agent_status(windows_agent::status_label().to_owned()),
+                    ),
                 );
             }
             LRESULT(0)
@@ -386,12 +369,7 @@ unsafe extern "system" fn window_proc(
             let _ = unsafe { RemoveClipboardFormatListener(hwnd) };
             tray::remove(hwnd);
             cursor_hider::force_show();
-            let _ = with_state(|state| {
-                let _ = state.network.send(NetworkCommand::Stop);
-                if let Some(agent) = state.agent.as_ref() {
-                    agent.shutdown();
-                }
-            });
+            let _ = with_state(|state| state.network.send(NetworkCommand::Stop));
             clear_ui_queues();
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
@@ -454,11 +432,6 @@ fn handle_command(hwnd: HWND, command: usize) {
             let desired = !cursor_theme::enabled();
             if let Err(error) = cursor_theme::set_enabled(desired) {
                 logging::error(&format!("Cursor theme toggle failed: {error}"));
-            }
-        }
-        tray::COMMAND_AGENT_SETTINGS => {
-            if let Err(error) = windows_agent::open_settings() {
-                logging::error(&format!("Windows Agent settings could not open: {error}"));
             }
         }
         tray::COMMAND_EXIT => unsafe {

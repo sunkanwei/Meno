@@ -11,7 +11,6 @@ pub struct MenuModel {
     pub paused: bool,
     pub startup: bool,
     pub macos_cursor: bool,
-    pub agent_status: String,
 }
 
 impl MenuModel {
@@ -38,12 +37,6 @@ impl MenuModel {
             paused,
             startup,
             macos_cursor,
-            agent_status: "已停止".to_owned(),
         }
-    }
-
-    pub fn with_agent_status(mut self, agent_status: String) -> Self {
-        self.agent_status = agent_status;
-        self
     }
 }

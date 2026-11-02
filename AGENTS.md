@@ -37,28 +37,19 @@
 - 软 KVM 横向拓扑只以断开 Philips 前的完整三屏基线为真源；Philips 断开后的两屏坐标不得反推缺失屏幕位置。本机屏幕物理高度换算与 Mac/Windows 路由是独立机制，不得顺带改变。
 - `mac/Features/MarkdownPreviewRenderer/` 是 Meno 自有的 Markdown Quick Look 渲染层，以固定版本的 MarkText 静态解析行为和视觉规则为基线。修改源码后必须通过该目录的类型检查、单元测试和构建，提交源码、锁文件及 `dist/`，不提交 `node_modules/`。验收时必须确认实际生效的是 Meno 扩展，而不是本机其他 Markdown 预览扩展。
 - Meno 自有界面优先使用系统 SF Symbols；不得混入其他应用图标。采用新符号前确认系统版本和小尺寸可读性。
-- 涉及 Windows 运行事实时主动使用 `windows_agent` 核对。系统范围只读；修改只限登记项目。安装驱动、修改关键注册表、启动或磁盘设置、批量删除等可能损坏 Windows 的操作必须禁止或先征得用户同意。
+- 涉及 Windows 运行事实时主动核对。系统范围保持只读；修改只限用户明确指定的路径。安装驱动、修改关键注册表、启动或磁盘设置、批量删除等可能损坏 Windows 的操作必须禁止或先征得用户同意。
 
 ## Windows 端
 
-- `windows/MenoClipboard/` 是唯一托盘程序；`windows/WindowsAgent/` 作为内部库编译进同一 EXE；`windows/MenoVirtualMouse/` 是 UMDF 2 虚拟 HID 驱动。
+- `windows/MenoClipboard/` 是唯一托盘程序；`windows/MenoVirtualMouse/` 是 UMDF 2 虚拟 HID 驱动。
 - Windows 统一使用 `verify-windows.ps1`、`build-release.ps1`、`build-user-release.ps1` 和 `MenoVirtualMouse/build-driver.ps1`。Cargo、WDK、驱动中间文件、驱动包和最终 `dist` 全部写入 `build/windows/`，不得写回源码目录。
 - 驱动编译、签名、安装和实机验证必须分开报告。构建脚本不得安装驱动、启用全局 Driver Verifier、切换 TESTSIGNING、修改启动设置或重启 Windows。
 - 删除驱动前必须精确确认硬件 ID、服务名和 `oemXX.inf`；不得批量删除 HID 或系统驱动。日常整理和用户态构建不得操作已安装驱动。
 - 任何 Windows 相关修改，包括源码、资源、配置、测试、构建脚本以及 Windows 规则或说明文档，交付前都必须运行相应验证并重新生成 Release `MenoClipboard.exe`；首次构建或驱动相关修改使用完整 Release 构建，其他修改可使用用户态 Release 构建，但不得沿用修改前的 EXE 作为交付结果。
-- 新 EXE 生成后，必须先正常关闭当前 `MenoClipboard.exe`，确认未退出时再结束该进程；随后用 `build\windows\dist\MenoClipboard.exe` 更新 `%LOCALAPPDATA%\Meno\MenoClipboard.exe`，从固定位置重新启动，并确认新进程运行路径正确、两处 EXE 的 SHA-256 一致、Windows Agent 健康且工具可用。任何一步失败都不得声称 Windows 修改已经交付完成。
+- 新 EXE 生成后，必须先正常关闭当前 `MenoClipboard.exe`，确认未退出时再结束该进程；随后用 `build\windows\dist\MenoClipboard.exe` 更新 `%LOCALAPPDATA%\Meno\MenoClipboard.exe`，从固定位置重新启动，并确认新进程运行路径正确、两处 EXE 的 SHA-256 一致。任何一步失败都不得声称 Windows 修改已经交付完成。
 - 桌面必须保留名为 `Meno` 的快捷方式，目标固定为 `%LOCALAPPDATA%\Meno\MenoClipboard.exe`；每次 Windows 交付都要确认快捷方式存在且目标正确，使用户无需进入源码或构建目录即可启动正式程序。快捷方式只指向固定安装位置，不指向可能被清理的构建产物。
 - Windows 诊断日志位于 `%LOCALAPPDATA%\Meno\MenoClipboard.log`，上一代为 `.log.old`。排查优先核对协商结果、鼠标接管与释放、剪贴板错误、启动时驱动 ABI 和驱动内嵌状态；不得记录用户输入内容。详细日志模式只对本次排错有效，重启自动恢复安静模式，不持久化。
 - Meno 驱动是 UMDF 2 DLL，不应生成自己的 `.sys`。固定驱动 ABI、最低驱动版本、控制权租约、幂等释放、断线全状态清理和不可重复输入语义不得回退。
-
-## 内置 Windows Agent
-
-- Windows Agent 必须编译进 `MenoClipboard.exe`，保持一个正式 EXE、一个托盘和既有 17 项 MCP 工具；不得恢复旧远程参考 MCP、独立 Agent EXE、独立托盘或独立启动任务。
-- Windows Agent 中的 Meno 项目必须登记共享仓库根目录，而不是单独登记 `windows/`；否则无法安全读取根规则、第三方声明或写入 `build/windows/`。平台规则仍限制 Windows AI 默认只修改 `windows/` 源码。
-- 端口 45900、`_meno-agent._tcp.local.`、MCP 路径、配置目录、任务数据和 Windows 凭据名称属于兼容边界。
-- Agent 在与鼠标、剪贴板和 MENO 主路径隔离的后台运行时中工作；任何 Agent、模型、截图或项目任务故障只能降级 Agent 自身。
-- 截图工作进程只能复用同一个 `MenoClipboard.exe`。系统范围保持只读；项目写入和命令必须受登记根目录、哈希校验、程序白名单和自修改保护约束。
-- Agent 通过 Windows 根验证与 Release 入口交付，不单独安装、启动或发布。
 
 ## 第三方边界
 

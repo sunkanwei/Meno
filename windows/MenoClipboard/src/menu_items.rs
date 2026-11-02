@@ -1,7 +1,7 @@
 use crate::menu_model::MenuModel;
 use crate::tray::{
-    COMMAND_AGENT_SETTINGS, COMMAND_CLEAR_LOG, COMMAND_CURSOR_THEME, COMMAND_EXIT, COMMAND_PAUSE,
-    COMMAND_REDISCOVER, COMMAND_REPAIR_DRIVER, COMMAND_STARTUP, COMMAND_VIEW_LOG,
+    COMMAND_CLEAR_LOG, COMMAND_CURSOR_THEME, COMMAND_EXIT, COMMAND_PAUSE, COMMAND_REDISCOVER,
+    COMMAND_REPAIR_DRIVER, COMMAND_STARTUP, COMMAND_VIEW_LOG,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -74,11 +74,6 @@ pub(crate) fn build_items(model: &MenuModel) -> Vec<Item> {
         if model.paused { 0xE768 } else { 0xE769 },
     ));
     items.push(Item::action(COMMAND_REDISCOVER, "重新发现", 0xE72C));
-    items.push(Item::action(
-        COMMAND_AGENT_SETTINGS,
-        &format!("Windows Agent：{}", model.agent_status),
-        0xE713,
-    ));
     items.push(Item::separator());
     items.push(Item::toggle(COMMAND_STARTUP, "开机启动", model.startup));
     items.push(Item::toggle(

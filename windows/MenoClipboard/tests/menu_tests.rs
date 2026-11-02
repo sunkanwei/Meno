@@ -11,7 +11,6 @@ mod tray {
     pub const COMMAND_EXIT: usize = 1006;
     pub const COMMAND_CLEAR_LOG: usize = 1007;
     pub const COMMAND_CURSOR_THEME: usize = 1008;
-    pub const COMMAND_AGENT_SETTINGS: usize = 1012;
     pub const ICON_ID: u32 = 1;
 }
 
@@ -39,7 +38,6 @@ fn model(connected: bool, paused: bool, suspended: bool) -> menu::MenuModel {
         false,
         false,
     )
-    .with_agent_status("运行中".to_owned())
 }
 
 #[test]
@@ -88,20 +86,12 @@ fn keyboard_navigation_wraps_and_skips_inert_rows() {
 }
 
 #[test]
-fn menu_omits_retired_audio_commands() {
+fn menu_omits_retired_commands() {
     let items = menu::build_items(&model(false, false, false));
-    // Retired audio installer and website commands must stay absent.
-    assert!(items.iter().all(|item| !matches!(item.id, 1010 | 1011)));
-}
-
-#[test]
-fn menu_exposes_the_embedded_agent_without_a_second_tray() {
-    let items = menu::build_items(&model(false, false, false));
-    assert!(
-        items
-            .iter()
-            .any(|item| item.id == tray::COMMAND_AGENT_SETTINGS)
-    );
+    // Retired audio installer and website commands, plus the removed Windows
+    // Agent settings entry, must stay absent from the single tray menu.
+    const RETIRED: [usize; 3] = [1010, 1011, 1012];
+    assert!(items.iter().all(|item| !RETIRED.contains(&item.id)));
 }
 
 #[test]
