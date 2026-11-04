@@ -285,6 +285,25 @@ final class FileClipboardProtocolTests: XCTestCase {
         XCTAssertEqual(names.last, "a (19999).txt")
     }
 
+    func testDestinationMappingReservesCacheMetadataNameAtRootOnly() throws {
+        let root = FileManager.default.temporaryDirectory
+        let name = ".MENO-TRANSFER.PLIST"
+        let offer = FileClipboardOffer(
+            transferID: transferID,
+            entries: [
+                FileClipboardEntry(kind: .regularFile, flags: 0, parentIndex: nil, name: name, size: 0, modifiedMillis: .min),
+                FileClipboardEntry(kind: .directory, flags: 0, parentIndex: nil, name: "folder", size: 0, modifiedMillis: .min),
+                FileClipboardEntry(kind: .regularFile, flags: 0, parentIndex: 1, name: name, size: 0, modifiedMillis: .min),
+            ],
+            totalFileBytes: 0
+        )
+
+        let layout = try FileClipboardDestinationMapper.makeLayout(for: offer, rootURL: root)
+
+        XCTAssertEqual(layout.itemURLs[0].lastPathComponent, ".MENO-TRANSFER (2).PLIST")
+        XCTAssertEqual(layout.itemURLs[2].lastPathComponent, name)
+    }
+
     func testManifestPreservesRootOrderAndSortsOnlyChildren() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

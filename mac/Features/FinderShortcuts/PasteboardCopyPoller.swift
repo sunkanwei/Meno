@@ -70,7 +70,7 @@ enum PasteboardCopyPoller {
             return
         }
         onResult(.confirmed(ConfirmedChange(
-            changeCount: pasteboard.changeCount,
+            changeCount: countBeforeRead,
             fileURLs: fileURLs
         )))
     }

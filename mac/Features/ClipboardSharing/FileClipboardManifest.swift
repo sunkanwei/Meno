@@ -194,7 +194,9 @@ enum FileClipboardDestinationMapper {
         var itemURLs: [URL] = []
         itemURLs.reserveCapacity(offer.entries.count)
         var topLevelURLs: [URL] = []
-        var usedNames: [UInt32: Set<String>] = [:]
+        var usedNames: [UInt32: Set<String>] = [
+            UInt32.max: [collisionKey(FileClipboardCache.metadataFileName)],
+        ]
         var nextSuffixes: [UInt32: [String: Int]] = [:]
 
         for (index, entry) in offer.entries.enumerated() {

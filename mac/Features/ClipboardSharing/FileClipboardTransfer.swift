@@ -4,7 +4,7 @@ final class FileClipboardTransfer: @unchecked Sendable {
     typealias FilePublisher = @Sendable ([URL], @escaping @Sendable (Bool) -> Void) -> Void
     typealias ProtocolViolationHandler = @Sendable (String) -> Void
 
-    enum OutgoingPhase {
+    enum OutgoingPhase: Equatable {
         case waitingAccept
         case waitingAck(FileClipboardAck)
         case waitingResult
@@ -21,7 +21,8 @@ final class FileClipboardTransfer: @unchecked Sendable {
     struct IncomingTransfer {
         let offer: FileClipboardOffer
         let layout: FileClipboardReceiveLayout
-        var receivedBytes: [UInt64]
+        var nextFileIndex: Int?
+        var currentOffset: UInt64 = 0
         var fileHandle: FileHandle?
         var isPublishing = false
     }

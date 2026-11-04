@@ -26,7 +26,7 @@ extension FileClipboardTransfer {
             incoming = IncomingTransfer(
                 offer: offer,
                 layout: layout,
-                receivedBytes: Array(repeating: 0, count: offer.entries.count),
+                nextFileIndex: nextDataEntry(in: offer, from: 0),
                 fileHandle: nil
             )
             scheduleIncomingTimeout(transferID: offer.transferID, delay: Self.chunkTimeout)
@@ -44,23 +44,19 @@ extension FileClipboardTransfer {
 
     func receiveChunk(_ payload: Data) throws {
         let chunk = try FileClipboardWire.decodeChunk(payload)
-        guard var transfer = incoming else {
+        guard var transfer = incoming, transfer.offer.transferID == chunk.transferID else {
             try ignoreFinishedOrThrow(chunk.transferID)
             return
         }
-        guard transfer.offer.transferID == chunk.transferID,
-              !transfer.isPublishing,
-              Int(chunk.entryIndex) < transfer.offer.entries.count else {
+        guard !transfer.isPublishing,
+              let index = transfer.nextFileIndex,
+              Int(chunk.entryIndex) == index else {
             throw FileClipboardProtocolError.malformedPayload
         }
-        let index = Int(chunk.entryIndex)
         let entry = transfer.offer.entries[index]
-        guard entry.kind == .regularFile,
-              entry.size > 0,
-              transfer.receivedBytes[index] == chunk.offset,
+        guard transfer.currentOffset == chunk.offset,
               chunk.offset <= entry.size,
-              UInt64(chunk.data.count) <= entry.size - chunk.offset,
-              nextIncompleteFile(in: transfer) == index else {
+              UInt64(chunk.data.count) <= entry.size - chunk.offset else {
             throw FileClipboardProtocolError.malformedPayload
         }
 
@@ -71,10 +67,12 @@ extension FileClipboardTransfer {
             try transfer.fileHandle?.seek(toOffset: chunk.offset)
             try transfer.fileHandle?.write(contentsOf: chunk.data)
             let nextOffset = chunk.offset + UInt64(chunk.data.count)
-            transfer.receivedBytes[index] = nextOffset
+            transfer.currentOffset = nextOffset
             if nextOffset == entry.size {
                 try transfer.fileHandle?.close()
                 transfer.fileHandle = nil
+                transfer.nextFileIndex = nextDataEntry(in: transfer.offer, from: index + 1)
+                transfer.currentOffset = 0
             }
             incoming = transfer
             scheduleIncomingTimeout(transferID: chunk.transferID, delay: Self.chunkTimeout)
@@ -96,15 +94,12 @@ extension FileClipboardTransfer {
 
     func receiveComplete(_ payload: Data) throws {
         let transferID = try FileClipboardWire.decodeTransferID(payload)
-        guard var transfer = incoming else {
+        guard var transfer = incoming, transfer.offer.transferID == transferID else {
             try ignoreFinishedOrThrow(transferID)
             return
         }
-        guard transfer.offer.transferID == transferID,
-              !transfer.isPublishing,
-              zip(transfer.offer.entries, transfer.receivedBytes).allSatisfy({ entry, count in
-                  entry.kind == .directory ? count == 0 : count == entry.size
-              }) else {
+        guard !transfer.isPublishing,
+              transfer.nextFileIndex == nil else {
             throw FileClipboardProtocolError.malformedPayload
         }
         transfer.fileHandle?.closeFile()
@@ -122,7 +117,9 @@ extension FileClipboardTransfer {
         transfer.isPublishing = true
         incoming = transfer
         scheduleIncomingTimeout(transferID: transferID, delay: Self.responseTimeout)
-        publishFiles(transfer.layout.topLevelURLs) { [weak self] wrote in
+        publishFiles(transfer.layout.topLevelURLs) { [weak self, root = transfer.layout.rootURL] wrote in
+            // The publisher updates clipboard protection before reporting success.
+            FileClipboardCache.finishPublication(at: root)
             self?.queue.async { [weak self] in
                 guard let self,
                       let current = incoming,
@@ -142,12 +139,8 @@ extension FileClipboardTransfer {
         }
     }
 
-    private func nextIncompleteFile(in transfer: IncomingTransfer) -> Int? {
-        for (index, entry) in transfer.offer.entries.enumerated()
-        where entry.kind == .regularFile && transfer.receivedBytes[index] < entry.size {
-            return index
-        }
-        return nil
+    private func nextDataEntry(in offer: FileClipboardOffer, from index: Int) -> Int? {
+        offer.entries[index...].firstIndex { $0.kind == .regularFile && $0.size > 0 }
     }
 
     private func scheduleIncomingTimeout(transferID: UUID, delay: TimeInterval) {

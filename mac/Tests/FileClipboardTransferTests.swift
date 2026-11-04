@@ -84,13 +84,41 @@ final class FileClipboardTransferTests: XCTestCase {
                     size: 2,
                     modifiedMillis: 1_000
                 ),
+                FileClipboardEntry(
+                    kind: .regularFile,
+                    flags: 0,
+                    parentIndex: 0,
+                    name: "empty.txt",
+                    size: 0,
+                    modifiedMillis: .min
+                ),
+                FileClipboardEntry(
+                    kind: .regularFile,
+                    flags: 0,
+                    parentIndex: 0,
+                    name: "b.txt",
+                    size: 1,
+                    modifiedMillis: .min
+                ),
             ],
-            totalFileBytes: 2
+            totalFileBytes: 3
         )
 
+        let superseded = FileClipboardOffer(
+            transferID: UUID(), entries: offer.entries, totalFileBytes: offer.totalFileBytes
+        )
+        transfer.receive(kind: .fileOffer, payload: FileClipboardWire.encodeOffer(superseded))
+        XCTAssertNotNil(recorder.waitFor(kind: .fileAccept))
         transfer.receive(kind: .fileOffer, payload: FileClipboardWire.encodeOffer(offer))
         XCTAssertNotNil(recorder.waitFor(kind: .fileAccept))
         XCTAssertNil(published.wait(timeout: 0.05))
+        transfer.receive(
+            kind: .fileChunk,
+            payload: FileClipboardWire.encodeChunk(
+                FileClipboardChunk(transferID: superseded.transferID, entryIndex: 1, offset: 0, data: Data([0x42]))
+            )
+        )
+        transfer.receive(kind: .fileComplete, payload: FileClipboardWire.encodeTransferID(superseded.transferID))
         transfer.receive(
             kind: .fileChunk,
             payload: FileClipboardWire.encodeChunk(
@@ -106,10 +134,22 @@ final class FileClipboardTransferTests: XCTestCase {
         XCTAssertEqual(try FileClipboardWire.decodeAck(ackPayload).nextOffset, 2)
         XCTAssertNil(published.wait(timeout: 0.05))
 
+        transfer.receive(
+            kind: .fileChunk,
+            payload: FileClipboardWire.encodeChunk(
+                FileClipboardChunk(transferID: transferID, entryIndex: 3, offset: 0, data: Data([0x42]))
+            )
+        )
+        let nextAck = try FileClipboardWire.decodeAck(XCTUnwrap(recorder.waitFor(kind: .fileAck)))
+        XCTAssertEqual(nextAck.entryIndex, 3)
+        XCTAssertEqual(nextAck.nextOffset, 1)
+
         transfer.receive(kind: .fileComplete, payload: FileClipboardWire.encodeTransferID(transferID))
         let urls = try XCTUnwrap(published.wait())
         defer { try? FileManager.default.removeItem(at: urls[0].deletingLastPathComponent()) }
         XCTAssertEqual(try Data(contentsOf: urls[0].appendingPathComponent("a.txt")), Data("OK".utf8))
+        XCTAssertEqual(try Data(contentsOf: urls[0].appendingPathComponent("empty.txt")), Data())
+        XCTAssertEqual(try Data(contentsOf: urls[0].appendingPathComponent("b.txt")), Data([0x42]))
         let resultPayload = try XCTUnwrap(recorder.waitFor(kind: .fileResult))
         let (resultID, status): (UUID, FileClipboardResultStatus) = try FileClipboardWire.decodeStatus(
             resultPayload,
@@ -151,6 +191,57 @@ final class FileClipboardTransferTests: XCTestCase {
             )
         )
 
+        XCTAssertNotNil(violations.wait())
+    }
+
+    func testReceiverFailureAndLateRepliesDoNotAbortNewTransfer() throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data([0x41]).write(to: source, options: .withoutOverwriting)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let recorder = FileTransferFrameRecorder()
+        let violations = FileTransferSignal<String>()
+        let transfer = makeTransfer(recorder: recorder, violations: violations)
+        defer { transfer.stop() }
+
+        transfer.sendFiles([source])
+        let refused = try FileClipboardWire.decodeOffer(XCTUnwrap(recorder.waitFor(kind: .fileOffer)))
+        transfer.receive(
+            kind: .fileResult,
+            payload: FileClipboardWire.encodeStatus(
+                refused.transferID, status: FileClipboardResultStatus.insufficientSpace.rawValue
+            )
+        )
+        transfer.queue.sync { XCTAssertNil(transfer.outgoing) }
+
+        transfer.sendFiles([source])
+        let failed = try FileClipboardWire.decodeOffer(XCTUnwrap(recorder.waitFor(kind: .fileOffer)))
+        transfer.receive(kind: .fileAccept, payload: FileClipboardWire.encodeTransferID(failed.transferID))
+        XCTAssertNotNil(recorder.waitFor(kind: .fileChunk))
+        transfer.receive(
+            kind: .fileResult,
+            payload: FileClipboardWire.encodeStatus(
+                failed.transferID, status: FileClipboardResultStatus.receiveWriteFailed.rawValue
+            )
+        )
+        transfer.queue.sync { XCTAssertNil(transfer.outgoing) }
+
+        transfer.sendFiles([source])
+        let current = try FileClipboardWire.decodeOffer(XCTUnwrap(recorder.waitFor(kind: .fileOffer)))
+        transfer.receive(
+            kind: .fileAck,
+            payload: FileClipboardWire.encodeAck(
+                FileClipboardAck(transferID: failed.transferID, entryIndex: 0, nextOffset: 1)
+            )
+        )
+        transfer.receive(kind: .fileAccept, payload: FileClipboardWire.encodeTransferID(current.transferID))
+        let chunk = try FileClipboardWire.decodeChunk(XCTUnwrap(recorder.waitFor(kind: .fileChunk)))
+        XCTAssertEqual(chunk.transferID, current.transferID)
+        XCTAssertNil(violations.wait(timeout: 0))
+
+        transfer.receive(
+            kind: .fileResult,
+            payload: FileClipboardWire.encodeStatus(current.transferID, status: FileClipboardResultStatus.success.rawValue)
+        )
         XCTAssertNotNil(violations.wait())
     }
 

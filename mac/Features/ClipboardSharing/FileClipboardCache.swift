@@ -92,13 +92,14 @@ enum FileClipboardCache {
     private static let cacheRetention: TimeInterval = 86_400
     private static let maximumCachedEntryCount = FileClipboardWire.maximumEntryCount
     private static let minimumFreeSpaceReserve: UInt64 = 1_024 * 1_024 * 1_024
-    private static let metadataFileName = ".meno-transfer.plist"
+    static let metadataFileName = ".meno-transfer.plist"
     private static let stateLock = NSLock()
     private static let cleanupQueue = DispatchQueue(
         label: "com.sunkanwei.Meno.FileClipboardCache",
         qos: .utility
     )
     nonisolated(unsafe) private static var activeTransferID: UUID?
+    nonisolated(unsafe) private static var pendingPublicationPaths = Set<String>()
     nonisolated(unsafe) private static var protectedPaths = Set<String>()
     nonisolated(unsafe) private static var hasProtectedPathsSnapshot = false
 
@@ -177,7 +178,14 @@ enum FileClipboardCache {
                 ),
                 at: layout.rootURL
             )
+            pendingPublicationPaths.insert(layout.rootURL.standardizedFileURL.path)
             activeTransferID = nil
+        }
+    }
+
+    static func finishPublication(at root: URL) {
+        stateLock.withCriticalSection {
+            _ = pendingPublicationPaths.remove(root.standardizedFileURL.path)
         }
     }
 
@@ -210,6 +218,7 @@ enum FileClipboardCache {
             if activeTransferID?.uuidString.caseInsensitiveCompare(url.lastPathComponent) == .orderedSame {
                 activeTransferID = nil
             }
+            pendingPublicationPaths.remove(url.standardizedFileURL.path)
             try? FileManager.default.removeItem(at: url.standardizedFileURL)
         }
     }
@@ -352,7 +361,8 @@ enum FileClipboardCache {
 
     private static func isProtected(_ root: URL) -> Bool {
         let path = root.standardizedFileURL.path
-        return protectedPaths.contains { $0 == path || $0.hasPrefix(path + "/") }
+        return pendingPublicationPaths.contains(path)
+            || protectedPaths.contains { $0 == path || $0.hasPrefix(path + "/") }
     }
 
     private static func isManagedTransferRoot(_ url: URL, under root: URL) -> Bool {

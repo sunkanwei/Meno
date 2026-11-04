@@ -1,12 +1,6 @@
 import Foundation
 
 extension FileClipboardTransfer {
-    private enum TimeoutExpectation: Equatable {
-        case accept
-        case ack(FileClipboardAck)
-        case result
-    }
-
     func beginSending(_ urls: [URL]) {
         cancelOutgoing(reason: .superseded, notifyPeer: true)
         let transferID = UUID()
@@ -22,34 +16,31 @@ extension FileClipboardTransfer {
             payload: FileClipboardWire.encodeOffer(manifest.offer),
             transferID: transferID,
             delay: Self.responseTimeout,
-            expected: .accept
+            expected: .waitingAccept
         )
     }
 
     func receiveAccept(_ payload: Data) throws {
         let transferID = try FileClipboardWire.decodeTransferID(payload)
-        guard let transfer = outgoing else {
+        guard let transfer = outgoing, transfer.manifest.offer.transferID == transferID else {
             try ignoreFinishedOrThrow(transferID)
             return
         }
-        guard transfer.manifest.offer.transferID == transferID,
-              case .waitingAccept = transfer.phase else {
+        guard case .waitingAccept = transfer.phase else {
             throw FileClipboardProtocolError.malformedPayload
         }
         outgoingTimer?.cancel()
         outgoingTimer = nil
-        outgoing = transfer
         sendNextChunk()
     }
 
     func receiveAck(_ payload: Data) throws {
         let ack = try FileClipboardWire.decodeAck(payload)
-        guard var transfer = outgoing else {
+        guard var transfer = outgoing, transfer.manifest.offer.transferID == ack.transferID else {
             try ignoreFinishedOrThrow(ack.transferID)
             return
         }
-        guard transfer.manifest.offer.transferID == ack.transferID,
-              case let .waitingAck(expected) = transfer.phase,
+        guard case let .waitingAck(expected) = transfer.phase,
               expected == ack else {
             throw FileClipboardProtocolError.malformedPayload
         }
@@ -74,17 +65,19 @@ extension FileClipboardTransfer {
     }
 
     func receiveResult(_ payload: Data) throws {
-        let (transferID, _): (UUID, FileClipboardResultStatus) = try FileClipboardWire.decodeStatus(
+        let (transferID, status): (UUID, FileClipboardResultStatus) = try FileClipboardWire.decodeStatus(
             payload,
             as: FileClipboardResultStatus.self
         )
-        guard let transfer = outgoing else {
+        guard let transfer = outgoing, transfer.manifest.offer.transferID == transferID else {
             try ignoreFinishedOrThrow(transferID)
             return
         }
-        guard transfer.manifest.offer.transferID == transferID,
-              case .waitingResult = transfer.phase else {
-            throw FileClipboardProtocolError.malformedPayload
+        // The receiver can refuse an offer or fail a write before the final result phase.
+        if status == .success {
+            guard case .waitingResult = transfer.phase else {
+                throw FileClipboardProtocolError.malformedPayload
+            }
         }
         outgoingTimer?.cancel()
         outgoingTimer = nil
@@ -148,11 +141,10 @@ extension FileClipboardTransfer {
                     ),
                     transferID: ack.transferID,
                     delay: Self.chunkTimeout,
-                    expected: .ack(ack)
+                    expected: .waitingAck(ack)
                 )
                 return
             } catch {
-                transfer.fileHandle?.closeFile()
                 outgoing = transfer
                 cancelOutgoing(reason: .sourceReadFailed, notifyPeer: true)
                 return
@@ -174,7 +166,7 @@ extension FileClipboardTransfer {
             payload: FileClipboardWire.encodeTransferID(transferID),
             transferID: transferID,
             delay: Self.responseTimeout,
-            expected: .result
+            expected: .waitingResult
         )
     }
 
@@ -183,13 +175,13 @@ extension FileClipboardTransfer {
         payload: Data,
         transferID: UUID,
         delay: TimeInterval,
-        expected: TimeoutExpectation
+        expected: OutgoingPhase
     ) {
         sendFrame(kind, payload) { [weak self] sent in
             self?.queue.async { [weak self] in
                 guard let self,
                       outgoing?.manifest.offer.transferID == transferID,
-                      timeoutStillApplies(expected) else { return }
+                      outgoing?.phase == expected else { return }
                 if sent {
                     scheduleOutgoingTimeout(transferID: transferID, delay: delay, expected: expected)
                 } else {
@@ -202,7 +194,7 @@ extension FileClipboardTransfer {
     private func scheduleOutgoingTimeout(
         transferID: UUID,
         delay: TimeInterval,
-        expected: TimeoutExpectation
+        expected: OutgoingPhase
     ) {
         outgoingTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -210,22 +202,11 @@ extension FileClipboardTransfer {
         timer.setEventHandler { [weak self] in
             guard let self,
                   outgoing?.manifest.offer.transferID == transferID,
-                  timeoutStillApplies(expected) else { return }
+                  outgoing?.phase == expected else { return }
             cancelOutgoing(reason: .timeout, notifyPeer: true)
         }
         outgoingTimer = timer
         timer.resume()
     }
 
-    private func timeoutStillApplies(_ expected: TimeoutExpectation) -> Bool {
-        guard let phase = outgoing?.phase else { return false }
-        switch (expected, phase) {
-        case (.accept, .waitingAccept), (.result, .waitingResult):
-            return true
-        case let (.ack(expected), .waitingAck(actual)):
-            return expected == actual
-        default:
-            return false
-        }
-    }
 }

@@ -101,12 +101,14 @@ final class ClipboardMonitor {
         }
         if let png = ClipboardImageCodec.pngData(from: pasteboard),
            png.count <= ClipboardWire.maximumImageSize {
+            guard pasteboard.changeCount == changeCount else { return }
             onLocalChange(.png(png))
             return
         }
         guard let text = pasteboard.string(forType: .string),
               let data = text.data(using: .utf8),
-              data.count <= ClipboardWire.maximumTextSize else {
+              data.count <= ClipboardWire.maximumTextSize,
+              pasteboard.changeCount == changeCount else {
             return
         }
         onLocalChange(.text(data))
