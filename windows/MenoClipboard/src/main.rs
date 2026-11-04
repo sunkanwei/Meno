@@ -75,6 +75,12 @@ pub(crate) struct AppState {
     pub(crate) image_generation: u64,
 }
 
+impl AppState {
+    fn invalidate_images(&mut self) {
+        self.image_generation = self.image_generation.wrapping_add(1);
+    }
+}
+
 fn main() -> WinResult<()> {
     if virtual_hid::run_broker_command() {
         return Ok(());
@@ -220,6 +226,7 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
         NetworkEvent::Searching => {
             let _ = with_state(|state| {
                 state.connected = false;
+                state.invalidate_images();
             });
             update_status(hwnd, "正在查找 Mac".to_string());
         }
@@ -241,6 +248,7 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
             logging::error(&format!("Network error: {error}"));
             let _ = with_state(|state| {
                 state.connected = false;
+                state.invalidate_images();
             });
             update_status(hwnd, "局域网连接错误".to_string());
         }
@@ -250,21 +258,20 @@ fn handle_network_event(hwnd: HWND, event: NetworkEvent) {
             }
             // Newer remote content replaces any file transfer still arriving.
             notify_file_worker(file_transfer::WorkerEvent::RemoteContent);
-            let Some(generation) = image_tasks::next_image_generation() else {
-                return;
-            };
-            write_remote_clipboard(frame, generation);
+            write_remote_clipboard(frame);
         }
     }
 }
 
-fn write_remote_clipboard(frame: Frame, generation: u64) {
-    let kind = frame.kind;
-    let bytes = frame.payload.len();
+fn write_remote_clipboard(frame: Frame) {
+    let sequence = unsafe { GetClipboardSequenceNumber() };
+    let Some(snapshot) = image_tasks::next_snapshot(sequence) else {
+        return;
+    };
     match frame.kind {
         MessageKind::Text => match String::from_utf8(frame.payload) {
             Ok(text) => {
-                clipboard_flow::apply_remote_clipboard(kind, bytes, |clipboard| {
+                clipboard_flow::apply_remote_clipboard(sequence, |clipboard| {
                     clipboard.set_text(text.clone())
                 });
             }
@@ -273,7 +280,7 @@ fn write_remote_clipboard(frame: Frame, generation: u64) {
             }
         },
         MessageKind::Png => image_tasks::submit_image_task(image_tasks::ImageTask::Decode {
-            generation,
+            snapshot,
             payload: frame.payload,
         }),
         _ => (),
@@ -385,6 +392,7 @@ fn handle_command(hwnd: HWND, command: usize) {
             let _ = with_state(|state| {
                 state.paused = !state.paused;
                 state.connected = false;
+                state.invalidate_images();
                 state.status = if state.suspended {
                     "系统休眠".to_string()
                 } else if state.paused {
@@ -437,6 +445,7 @@ fn rediscover(hwnd: HWND) {
     let _ = with_state(|state| {
         if !state.paused && !state.suspended {
             state.connected = false;
+            state.invalidate_images();
             state.status = "正在查找 Mac".to_string();
             let _ = state.network.send(NetworkCommand::Rediscover);
             tray::update(hwnd, "Meno Windows：正在查找 Mac");
@@ -450,6 +459,7 @@ fn handle_power_event(hwnd: HWND, event: u32) {
             let _ = with_state(|state| {
                 state.suspended = true;
                 state.connected = false;
+                state.invalidate_images();
                 let _ = state.network.send(NetworkCommand::Pause(true));
                 state.status = "系统休眠".to_string();
                 tray::update(hwnd, "Meno Windows：系统休眠");
@@ -489,7 +499,7 @@ fn handle_local_clipboard() {
     {
         return;
     }
-    let Some(generation) = image_tasks::next_image_generation() else {
+    let Some(snapshot) = image_tasks::next_snapshot(sequence) else {
         return;
     };
     if unsafe { IsClipboardFormatAvailable(file_clipboard::CF_HDROP) }.is_ok() {
@@ -505,10 +515,7 @@ fn handle_local_clipboard() {
                 return;
             }
             Ok(Some(clipboard_flow::LocalClipboard::Image(image))) => {
-                image_tasks::submit_image_task(image_tasks::ImageTask::Encode {
-                    generation,
-                    image,
-                });
+                image_tasks::submit_image_task(image_tasks::ImageTask::Encode { snapshot, image });
                 notify_file_worker(file_transfer::WorkerEvent::LocalOther);
                 return;
             }
@@ -589,7 +596,7 @@ fn handle_file_ui_request(request: FileUiRequest) {
                 let _ = result.send(Err("clipboard sharing is paused".to_string()));
                 return;
             }
-            let _ = image_tasks::next_image_generation();
+            let _ = with_state(AppState::invalidate_images);
             let mut outcome = Err("clipboard publish did not run".to_string());
             for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
                 match file_clipboard::write_hdrop(&paths) {

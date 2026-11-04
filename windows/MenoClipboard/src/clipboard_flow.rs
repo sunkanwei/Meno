@@ -48,11 +48,13 @@ pub(crate) fn read_local_clipboard() -> Result<Option<LocalClipboard>, Clipboard
 }
 
 pub(crate) fn apply_remote_clipboard(
-    _kind: MessageKind,
-    _bytes: usize,
+    expected_sequence: u32,
     mut apply: impl FnMut(&mut Clipboard) -> Result<(), ClipboardError>,
 ) {
     for attempt in 0..CLIPBOARD_RETRY_COUNT {
+        if unsafe { GetClipboardSequenceNumber() } != expected_sequence {
+            return;
+        }
         let result = Clipboard::new().and_then(|mut clipboard| apply(&mut clipboard));
         match result {
             Ok(()) => {

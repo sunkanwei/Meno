@@ -3,6 +3,7 @@ use std::thread;
 
 use arboard::ImageData;
 use windows::Win32::Foundation::HWND;
+use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
 
 use crate::bounded_queue::{BoundedQueue, PushResult};
 use crate::protocol::{Frame, MAX_IMAGE_SIZE, MessageKind};
@@ -15,25 +16,30 @@ const IMAGE_RESULT_MAX_BYTES: usize = image_codec::MAX_RGBA_BYTES + MAX_IMAGE_SI
 
 static IMAGE_WORKER_EVENTS: OnceLock<Mutex<BoundedQueue<ImageWorkerEvent>>> = OnceLock::new();
 
+#[derive(Clone, Copy)]
+pub(crate) struct ImageSnapshot {
+    generation: u64,
+    sequence: u32,
+}
+
 pub(crate) enum ImageTask {
     Encode {
-        generation: u64,
+        snapshot: ImageSnapshot,
         image: ImageData<'static>,
     },
     Decode {
-        generation: u64,
+        snapshot: ImageSnapshot,
         payload: Vec<u8>,
     },
 }
 
 pub(crate) enum ImageWorkerEvent {
     Encoded {
-        generation: u64,
+        snapshot: ImageSnapshot,
         result: Result<Vec<u8>, String>,
     },
     Decoded {
-        generation: u64,
-        encoded_bytes: usize,
+        snapshot: ImageSnapshot,
         result: Result<ImageData<'static>, String>,
     },
 }
@@ -84,21 +90,14 @@ pub(crate) fn spawn_image_worker(hwnd: HWND) -> ImageTaskSender {
                 pending.take().unwrap()
             };
             let event = match task {
-                ImageTask::Encode { generation, image } => ImageWorkerEvent::Encoded {
-                    generation,
+                ImageTask::Encode { snapshot, image } => ImageWorkerEvent::Encoded {
+                    snapshot,
                     result: image_codec::encode_png(image),
                 },
-                ImageTask::Decode {
-                    generation,
-                    payload,
-                } => {
-                    let encoded_bytes = payload.len();
-                    ImageWorkerEvent::Decoded {
-                        generation,
-                        encoded_bytes,
-                        result: image_codec::decode_png(&payload),
-                    }
-                }
+                ImageTask::Decode { snapshot, payload } => ImageWorkerEvent::Decoded {
+                    snapshot,
+                    result: image_codec::decode_png(&payload),
+                },
             };
             if !post_image_worker_event(HWND(hwnd_value as *mut _), event) {
                 return;
@@ -115,21 +114,30 @@ pub(crate) fn submit_image_task(task: ImageTask) {
     }
 }
 
-pub(crate) fn next_image_generation() -> Option<u64> {
+pub(crate) fn next_snapshot(sequence: u32) -> Option<ImageSnapshot> {
     with_state(|state| {
-        state.image_generation = state.image_generation.wrapping_add(1);
-        state.image_generation
+        state.invalidate_images();
+        ImageSnapshot {
+            generation: state.image_generation,
+            sequence,
+        }
     })
 }
 
-fn image_generation_is_current(generation: u64) -> bool {
-    with_state(|state| state.image_generation == generation).unwrap_or(false)
+impl ImageSnapshot {
+    fn is_current(self) -> bool {
+        (unsafe { GetClipboardSequenceNumber() }) == self.sequence
+            && with_state(|state| {
+                !state.paused && !state.suspended && state.image_generation == self.generation
+            })
+            .unwrap_or(false)
+    }
 }
 
 fn handle_image_worker_event(event: ImageWorkerEvent) {
     match event {
-        ImageWorkerEvent::Encoded { generation, result } => {
-            if !image_generation_is_current(generation) {
+        ImageWorkerEvent::Encoded { snapshot, result } => {
+            if !snapshot.is_current() {
                 return;
             }
             match result {
@@ -139,23 +147,15 @@ fn handle_image_worker_event(event: ImageWorkerEvent) {
                 Err(error) => logging::error(&format!("Clipboard image encode failed: {error}")),
             }
         }
-        ImageWorkerEvent::Decoded {
-            generation,
-            encoded_bytes,
-            result,
-        } => {
-            if !image_generation_is_current(generation)
-                || with_state(|state| state.paused || state.suspended).unwrap_or(true)
-            {
+        ImageWorkerEvent::Decoded { snapshot, result } => {
+            if !snapshot.is_current() {
                 return;
             }
             match result {
                 Ok(image) => {
-                    clipboard_flow::apply_remote_clipboard(
-                        MessageKind::Png,
-                        encoded_bytes,
-                        |clipboard| clipboard.set_image(image.to_owned_img()),
-                    );
+                    clipboard_flow::apply_remote_clipboard(snapshot.sequence, |clipboard| {
+                        clipboard.set_image(image.to_owned_img())
+                    });
                 }
                 Err(error) => {
                     logging::error(&format!("Remote clipboard PNG decode failed: {error}"))
