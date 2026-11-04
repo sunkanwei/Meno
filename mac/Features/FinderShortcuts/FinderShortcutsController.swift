@@ -210,7 +210,10 @@ private extension FinderShortcutsController {
             return event
         }
         guard let finderPID = FinderProcess.currentPID,
-              let context = contextInspector.currentContext(expectedPID: finderPID) else {
+              let context = contextInspector.currentContext(
+                  expectedPID: finderPID,
+                  requiresSingleSelection: intent == .rename
+              ) else {
             if intent == .movePaste {
                 emitPasteFeedbackIfFileAvailable()
             }
@@ -275,7 +278,6 @@ private extension FinderShortcutsController {
             guard context.selectedItemURLs.count == 1 else { return nil }
             return .key(keyCode: 0x1F, flags: [.maskCommand])
         case .rename:
-            guard context.selectedItemURLs.count == 1 else { return nil }
             return .key(keyCode: 0x24, flags: [])
         case .moveToTrash:
             guard KeyboardShortcut.canMoveSelectionToTrash(context.selectedItemURLs) else {

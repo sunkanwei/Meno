@@ -13,7 +13,10 @@ struct FinderContextSnapshot: Sendable {
 }
 
 final class FinderContextInspector {
-    func currentContext(expectedPID: Int32) -> FinderContextSnapshot? {
+    func currentContext(
+        expectedPID: Int32,
+        requiresSingleSelection: Bool = false
+    ) -> FinderContextSnapshot? {
         guard AccessibilityPermission.canReadAndPostEvents,
               isFrontmostFinder(pid: expectedPID) else {
             return nil
@@ -24,10 +27,18 @@ final class FinderContextInspector {
             return nil
         }
 
-        if let context = browserWindowContext(application: application, finderPID: expectedPID) {
+        if let context = browserWindowContext(
+            application: application,
+            finderPID: expectedPID,
+            requiresSingleSelection: requiresSingleSelection
+        ) {
             return context
         }
-        return desktopContext(application: application, finderPID: expectedPID)
+        return desktopContext(
+            application: application,
+            finderPID: expectedPID,
+            requiresSingleSelection: requiresSingleSelection
+        )
     }
 
     func isFrontmostFinder(pid: Int32) -> Bool {
@@ -38,32 +49,36 @@ final class FinderContextInspector {
 
     private func browserWindowContext(
         application: AXUIElement,
-        finderPID: Int32
+        finderPID: Int32,
+        requiresSingleSelection: Bool
     ) -> FinderContextSnapshot? {
         guard let focusedWindow = AXReader.element(application, attribute: kAXFocusedWindowAttribute),
               AXReader.string(focusedWindow, attribute: kAXRoleAttribute) == kAXWindowRole as String,
               AXReader.string(focusedWindow, attribute: kAXSubroleAttribute) == kAXStandardWindowSubrole as String,
               AXReader.string(focusedWindow, attribute: kAXIdentifierAttribute) == "FinderWindow",
-              !hasActiveSearch(in: focusedWindow),
               let focusedElement = AXReader.element(application, attribute: kAXFocusedUIElementAttribute),
               let ancestry = ancestry(from: focusedElement, through: focusedWindow),
+              let fileViewIndex = ancestry.firstIndex(where: isFileView),
               !containsUnsafeFocus(in: ancestry),
-              let contentRoot = contentRoot(in: focusedWindow),
-              ancestry.contains(where: { AXReader.isSame($0, contentRoot) }),
-              ancestry.contains(where: isSelectableFileCollection) else {
+              !hasActiveSearch(in: focusedWindow) else {
             return nil
         }
 
+        // Finder can rename selected items even when its view does not expose their URLs.
+        guard !requiresSingleSelection || hasSingleSelection(in: ancestry[...fileViewIndex]) else {
+            return nil
+        }
         return FinderContextSnapshot(
             finderPID: finderPID,
             scope: .browserWindow,
-            selectedItemURLs: selectedFileURLs(in: ancestry)
+            selectedItemURLs: requiresSingleSelection ? [] : selectedFileURLs(in: ancestry)
         )
     }
 
     private func desktopContext(
         application: AXUIElement,
-        finderPID: Int32
+        finderPID: Int32,
+        requiresSingleSelection: Bool
     ) -> FinderContextSnapshot? {
         guard let desktopRoot = AXReader.element(application, attribute: kAXFocusedWindowAttribute),
               AXReader.string(desktopRoot, attribute: kAXRoleAttribute) == kAXScrollAreaRole as String,
@@ -82,6 +97,7 @@ final class FinderContextInspector {
             desktopURL: desktopURL.standardizedFileURL,
             depth: 0
         )
+        guard !requiresSingleSelection || selectedURLs.count == 1 else { return nil }
 
         return FinderContextSnapshot(
             finderPID: finderPID,
@@ -133,28 +149,45 @@ final class FinderContextInspector {
         }
     }
 
-    private func contentRoot(in window: AXUIElement) -> AXUIElement? {
-        guard let outerSplit = AXReader.elements(window, attribute: kAXChildrenAttribute)
-            .first(where: { AXReader.string($0, attribute: kAXRoleAttribute) == kAXSplitGroupRole as String }) else {
-            return nil
+    private func isFileView(_ element: AXUIElement) -> Bool {
+        switch AXReader.string(element, attribute: kAXIdentifierAttribute) {
+        case "IconView", "ListView", "ColumnView", "GalleryView":
+            return true
+        default:
+            return false
         }
-
-        return AXReader.elements(outerSplit, attribute: kAXChildrenAttribute)
-            .last(where: { AXReader.string($0, attribute: kAXRoleAttribute) == kAXSplitGroupRole as String })
     }
 
-    private func isSelectableFileCollection(_ element: AXUIElement) -> Bool {
-        let role = AXReader.string(element, attribute: kAXRoleAttribute)
-        let subrole = AXReader.string(element, attribute: kAXSubroleAttribute)
-        let identifier = AXReader.string(element, attribute: kAXIdentifierAttribute)
-
-        if role == kAXListRole as String {
-            return subrole == "AXCollectionList" || identifier == "IconView"
+    private func hasSingleSelection(in fileViewAncestry: ArraySlice<AXUIElement>) -> Bool {
+        if let count = selectedItemCount(in: fileViewAncestry) {
+            return count == 1
         }
-        return role == kAXOutlineRole as String
-            || role == kAXBrowserRole as String
-            || role == kAXTableRole as String
-            || role == kAXGridRole as String
+        guard let fileView = fileViewAncestry.last,
+              AXReader.string(fileView, attribute: kAXIdentifierAttribute) == "ColumnView" else {
+            return false
+        }
+
+        // Column View can report focus on the browser while the selection lives in a column list.
+        for column in AXReader.elements(fileView, attribute: kAXColumnsAttribute).reversed() {
+            let lists = AXReader.elements(column, attribute: kAXChildrenAttribute).filter {
+                AXReader.string($0, attribute: kAXRoleAttribute) == kAXListRole as String
+            }
+            if let count = selectedItemCount(in: lists), count > 0 {
+                return count == 1
+            }
+        }
+        return false
+    }
+
+    private func selectedItemCount(in elements: some Sequence<AXUIElement>) -> Int? {
+        for element in elements {
+            let rows = AXReader.value(element, attribute: kAXSelectedRowsAttribute) as? [AXUIElement]
+            let children = AXReader.value(element, attribute: kAXSelectedChildrenAttribute) as? [AXUIElement]
+            if rows != nil || children != nil {
+                return max(rows?.count ?? 0, children?.count ?? 0)
+            }
+        }
+        return nil
     }
 
     private func selectedFileURLs(in ancestry: [AXUIElement]) -> [URL] {
