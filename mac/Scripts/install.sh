@@ -6,8 +6,8 @@
 #   2. verify the new product (bundle id, embedded extensions, helper, signature)
 #   3. verify the currently installed copy matches the same identity/signature
 #   4. quit Meno, move the old version to a timestamped backup (never delete)
-#   5. install and re-verify; on failure move the failed copy aside and restore
-#   6. clean extension registrations, restart Finder, launch, verify process
+#   5. install, verify, reload extensions and launch from the fixed path
+#   6. on any replacement failure, move the failed copy aside and restore
 #
 # Backups are kept under the repository-local build/mac/backups/ directory and
 # are never removed automatically.
@@ -66,21 +66,68 @@ if [ -d "$INSTALL" ]; then
     verify_bundle "$INSTALL" "Installed app" || fail "Installed app identity/signature mismatch; refusing to replace it."
 fi
 
-# 3. Quit Meno if running.
-wait_for_exit() {
+installed_pids() {
+    ps -axo pid=,comm= | awk -v exe="$INSTALL/Contents/MacOS/Meno" '
+        { pid = $1; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); if ($0 == exe) print pid }
+    '
+}
+
+wait_for_process() {
+    local expected="$1" pids
     for _ in $(seq 1 20); do
-        pgrep -x Meno >/dev/null 2>&1 || return 0
+        pids="$(installed_pids)" || return 1
+        if [ "$expected" = running ] && [ -n "$pids" ]; then return 0; fi
+        if [ "$expected" = stopped ] && [ -z "$pids" ]; then return 0; fi
         sleep 0.5
     done
     return 1
 }
-if pgrep -x Meno >/dev/null 2>&1; then
-    osascript -e 'tell application id "com.sunkanwei.Meno" to quit' >/dev/null 2>&1 || true
-    if ! wait_for_exit; then
-        pkill -x Meno || true
-        wait_for_exit || true
+
+quit_installed_app() {
+    local pids pid
+    pids="$(installed_pids)" || return 1
+    [ -n "$pids" ] || return 0
+    osascript -e 'with timeout of 5 seconds' -e 'tell application id "com.sunkanwei.Meno" to quit' \
+        -e 'end timeout' >/dev/null 2>&1 || true
+    if wait_for_process stopped; then return 0; fi
+    pids="$(installed_pids)" || return 1
+    for pid in $pids; do
+        kill "$pid" 2>/dev/null || true
+    done
+    wait_for_process stopped
+}
+
+launch_installed_app() {
+    open "$INSTALL" && wait_for_process running
+}
+
+rollback_on_failure() {
+    local status=$? failed_dir="$BACKUP_ROOT/failed-$STAMP" reloaded=1
+    trap - EXIT INT TERM
+    [ "$status" -ne 0 ] || return 0
+    echo "ERROR: Replacement failed; restoring the previous installation." >&2
+    quit_installed_app || fail "Failed candidate is still running. Backup: ${BACKUP_DIR:-<none>}"
+    if [ -e "$INSTALL" ]; then
+        [ ! -e "$failed_dir/Meno.app" ] || fail "Failed candidate destination already exists. Backup: ${BACKUP_DIR:-<none>}"
+        mkdir -p "$failed_dir" && mv "$INSTALL" "$failed_dir/Meno.app" \
+            || fail "Could not move the failed install aside. Backup: ${BACKUP_DIR:-<none>}"
+        echo "Failed candidate moved to $failed_dir/Meno.app"
     fi
-fi
+    if [ -n "$BACKUP_DIR" ]; then
+        mv "$BACKUP_DIR/Meno.app" "$INSTALL" || fail "Could not restore $BACKUP_DIR/Meno.app."
+    fi
+    "$SCRIPT_DIR/clean-ext.sh" --reload || reloaded=0
+    if [ -n "$BACKUP_DIR" ]; then
+        verify_bundle "$INSTALL" "Restored app" && launch_installed_app \
+            || fail "Previous app restored but verification or relaunch failed."
+        rmdir "$BACKUP_DIR" || true
+        echo "Restored and relaunched the previous version from $INSTALL"
+    fi
+    [ "$reloaded" -eq 1 ] || fail "Extension reload after rollback failed."
+    exit "$status"
+}
+
+quit_installed_app || fail "The installed Meno did not quit; no replacement was made."
 
 # 4. Move the old version to a timestamped backup, then install the new one.
 BACKUP_DIR=""
@@ -91,33 +138,14 @@ if [ -d "$INSTALL" ]; then
     mv "$INSTALL" "$BACKUP_DIR/Meno.app"
     echo "Previous version moved to $BACKUP_DIR/Meno.app"
 fi
-ditto "$PRODUCT" "$INSTALL"
-
-# 5. Verify the installed copy; on failure set it aside and restore the backup.
-if ! verify_bundle "$INSTALL" "Installed app"; then
-    FAILED_DIR="$BACKUP_ROOT/failed-$STAMP"
-    mkdir -p "$FAILED_DIR"
-    if ! mv "$INSTALL" "$FAILED_DIR/Meno.app"; then
-        fail "Could not move the failed install aside; left at $INSTALL. Backup intact at ${BACKUP_DIR:-<none>}."
-    fi
-    if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR/Meno.app" ]; then
-        mv "$BACKUP_DIR/Meno.app" "$INSTALL"
-        open "$INSTALL" 2>/dev/null || true
-        echo "Restored and relaunched the previous version from $BACKUP_DIR/Meno.app"
-    fi
-    fail "Installation verification failed. Failed copy kept at $FAILED_DIR/Meno.app"
-fi
-
-# 6. Clean registrations, reload extensions from the fixed path, restart Finder.
+trap rollback_on_failure EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+ditto "$PRODUCT" "$INSTALL" || fail "Could not copy the candidate into $INSTALL."
+verify_bundle "$INSTALL" "Installed app" || fail "Installation verification failed."
 "$SCRIPT_DIR/clean-ext.sh" --reload
-
-# 7. Launch and confirm the process is running.
-open "$INSTALL"
-for _ in $(seq 1 20); do
-    pgrep -x Meno >/dev/null 2>&1 && break
-    sleep 0.5
-done
-pgrep -x Meno >/dev/null 2>&1 || fail "Meno did not start after installation."
+launch_installed_app || fail "Meno did not start from the fixed installation path."
+trap - EXIT INT TERM
 
 cat <<EOF
 
