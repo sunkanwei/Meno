@@ -7,7 +7,7 @@
 #   - kills extension processes running from non-fixed paths
 #   - re-registers the fixed install copy when it exists, with the expected
 #     bundle id and signature
-#   - restarts Finder only when something actually changed
+#   - restarts Finder
 #   - finally asserts that nothing is registered outside the fixed install and
 #     that the fixed copy (when present) is registered
 #
@@ -21,7 +21,6 @@ EXPECTED_AUTH="Meno Local Development"
 FINDER_EXT_ID="com.sunkanwei.Meno.FinderExtension"
 PREVIEW_EXT_ID="com.sunkanwei.Meno.MarkdownPreview"
 RELOAD=0
-CHANGED=0
 STATE_OK=1
 
 case "${1:-}" in
@@ -43,11 +42,10 @@ clean_extension() {
     while IFS= read -r path; do
         [ -z "$path" ] && continue
         case "$path" in
-            "$FIXED_APP"/*) ;;
+            "$fixed_path") ;;
             *)
                 echo "Removing stale $id registration: $path"
                 pluginkit -r "$path" >/dev/null 2>&1 || true
-                CHANGED=1
                 ;;
         esac
     done < <(registered_paths "$id")
@@ -73,7 +71,6 @@ check_extension_state() {
         [ -z "$path" ] && continue
         case "$path" in
             "$fixed_path") found_fixed=1 ;;
-            "$FIXED_APP"/*) ;;
             *)
                 echo "ERROR: $id still registered from non-fixed path: $path" >&2
                 STATE_OK=0
@@ -105,16 +102,15 @@ while IFS= read -r line; do
                 *)
                     echo "Killing extension process from non-fixed path: $comm (pid $pid)"
                     kill "$pid" 2>/dev/null || true
-                    CHANGED=1
                     ;;
             esac
             ;;
     esac
 done < <(ps -axo pid=,comm= | sed 's/^ *//')
 
-if [ "$CHANGED" = 1 ] || [ "$RELOAD" = 1 ]; then
-    killall Finder 2>/dev/null || true
-    echo "Finder restarted."
+if pgrep -x Finder >/dev/null 2>&1; then
+    killall Finder
+    echo "Finder restart requested."
 fi
 
 check_extension_state "$FINDER_EXT_ID" "MenoFinderExtension.appex"

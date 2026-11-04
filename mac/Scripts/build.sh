@@ -36,35 +36,46 @@ build_renderer() {
     cd "$MAC_ROOT"
 }
 
+finish_build() {
+    local status=$?
+    if ! "$SCRIPT_DIR/clean-ext.sh"; then
+        echo "ERROR: Could not clean up extension registrations." >&2
+        if [ "$status" -eq 0 ]; then status=1; fi
+    fi
+    exit "$status"
+}
+
 if [ $# -gt 1 ]; then
     echo "Usage: $0 [debug|test|release]" >&2
     exit 2
 fi
 
-case "${1:-debug}" in
-    debug)
-        build_renderer
-        xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
-            -derivedDataPath "$BUILD_ROOT/DerivedData" CODE_SIGNING_ALLOWED=NO build test
-        ;;
-    test)
-        build_renderer
-        xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
-            -derivedDataPath "$BUILD_ROOT/DerivedData" CODE_SIGNING_ALLOWED=NO test
-        ;;
-    release)
-        build_renderer
-        xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
-            -derivedDataPath "$BUILD_ROOT/ReleaseDerivedData" build
-        codesign --verify --deep --strict "$RELEASE_PRODUCT"
-        echo "Release product verified: $RELEASE_PRODUCT"
-        ;;
+MODE="${1:-debug}"
+case "$MODE" in
+    debug|test|release) ;;
     *)
         echo "Usage: $0 [debug|test|release]" >&2
         exit 2
         ;;
 esac
 
-# A signed build can leave a temporary extension registration pointing at the
-# build directory; make sure only the fixed /Applications copy stays registered.
-"$SCRIPT_DIR/clean-ext.sh"
+build_renderer
+# Xcode can register temporary extensions even when a later build step fails.
+trap finish_build EXIT
+
+case "$MODE" in
+    debug)
+        xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
+            -derivedDataPath "$BUILD_ROOT/DerivedData" CODE_SIGNING_ALLOWED=NO build test
+        ;;
+    test)
+        xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
+            -derivedDataPath "$BUILD_ROOT/DerivedData" CODE_SIGNING_ALLOWED=NO test
+        ;;
+    release)
+        xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -derivedDataPath "$BUILD_ROOT/ReleaseDerivedData" build
+        codesign --verify --deep --strict "$RELEASE_PRODUCT"
+        echo "Release product verified: $RELEASE_PRODUCT"
+        ;;
+esac
