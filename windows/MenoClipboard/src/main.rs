@@ -362,7 +362,7 @@ unsafe extern "system" fn window_proc(
             LRESULT(1)
         }
         WM_DISPLAYCHANGE => {
-            handle_display_change(hwnd);
+            rediscover(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -397,16 +397,7 @@ fn handle_command(hwnd: HWND, command: usize) {
                 tray::update(hwnd, &format!("Meno Windows：{}", state.status));
             });
         }
-        tray::COMMAND_REDISCOVER => {
-            let _ = with_state(|state| {
-                if !state.paused && !state.suspended {
-                    state.connected = false;
-                    state.status = "正在查找 Mac".to_string();
-                    let _ = state.network.send(NetworkCommand::Rediscover);
-                    tray::update(hwnd, "Meno Windows：正在查找 Mac");
-                }
-            });
-        }
+        tray::COMMAND_REDISCOVER => rediscover(hwnd),
         tray::COMMAND_STARTUP => {
             let _ = with_state(|state| {
                 let desired = !state.startup;
@@ -441,7 +432,7 @@ fn handle_command(hwnd: HWND, command: usize) {
     }
 }
 
-fn handle_display_change(hwnd: HWND) {
+fn rediscover(hwnd: HWND) {
     let _ = with_state(|state| {
         if !state.paused && !state.suspended {
             state.connected = false;
