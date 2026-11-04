@@ -31,6 +31,7 @@ final class ClosedLidShutdownCoordinator {
     }
 
     func refreshHelperStatus() {
+        guard helperStatus != .installing else { return }
         publish(helper.currentStatus())
     }
 
