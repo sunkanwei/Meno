@@ -185,6 +185,74 @@ final class FileClipboardTransferTests: XCTestCase {
         XCTAssertNil(violations.wait(timeout: 0.05))
     }
 
+    func testStopRemovesPartialReceiveAfterConnectionDropsTransfer() throws {
+        let recorder = FileTransferFrameRecorder()
+        let violations = FileTransferSignal<String>()
+        var transfer: FileClipboardTransfer? = makeTransfer(recorder: recorder, violations: violations)
+        let offer = FileClipboardOffer(
+            transferID: UUID(),
+            entries: [FileClipboardEntry(
+                kind: .regularFile,
+                flags: 0,
+                parentIndex: nil,
+                name: "partial.txt",
+                size: 2,
+                modifiedMillis: .min
+            )],
+            totalFileBytes: 2
+        )
+        transfer?.receive(kind: .fileOffer, payload: FileClipboardWire.encodeOffer(offer))
+        XCTAssertNotNil(recorder.waitFor(kind: .fileAccept))
+
+        let queue = try XCTUnwrap(transfer?.queue)
+        let root = try XCTUnwrap(queue.sync { transfer?.incoming?.layout.rootURL })
+        defer { FileClipboardCache.safelyRemoveTransferRoot(root) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
+
+        queue.suspend()
+        transfer?.stop()
+        transfer = nil
+        queue.resume()
+        queue.sync {}
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+    }
+
+    func testStopKeepsCompletedFilesWhileClipboardPublicationIsUnconfirmed() throws {
+        let recorder = FileTransferFrameRecorder()
+        let published = FileTransferSignal<[URL]>()
+        let transfer = FileClipboardTransfer(
+            sendFrame: { kind, payload, completion in
+                recorder.append(kind: kind, payload: payload)
+                completion(true)
+            },
+            publishFiles: { urls, _ in published.send(urls) },
+            onProtocolViolation: { _ in }
+        )
+        let offer = FileClipboardOffer(
+            transferID: UUID(),
+            entries: [FileClipboardEntry(
+                kind: .regularFile,
+                flags: 0,
+                parentIndex: nil,
+                name: "completed.txt",
+                size: 0,
+                modifiedMillis: .min
+            )],
+            totalFileBytes: 0
+        )
+        transfer.receive(kind: .fileOffer, payload: FileClipboardWire.encodeOffer(offer))
+        XCTAssertNotNil(recorder.waitFor(kind: .fileAccept))
+        transfer.receive(kind: .fileComplete, payload: FileClipboardWire.encodeTransferID(offer.transferID))
+        let file = try XCTUnwrap(published.wait()?.first)
+        defer { FileClipboardCache.safelyRemoveTransferRoot(file.deletingLastPathComponent()) }
+
+        transfer.stop()
+        transfer.queue.sync {}
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
     private func makeTransfer(
         recorder: FileTransferFrameRecorder,
         violations: FileTransferSignal<String>

@@ -163,7 +163,7 @@ extension FileClipboardTransfer {
     }
 
     private func finishIncomingWithFailure(_ status: FileClipboardResultStatus) {
-        guard let transfer = discardIncoming() else { return }
+        guard let transfer = discardIncoming(keepPendingPublication: false) else { return }
         sendResult(transfer.offer.transferID, status)
     }
 }

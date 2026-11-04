@@ -87,8 +87,8 @@ final class FileClipboardTransfer: @unchecked Sendable {
     }
 
     func stop() {
-        queue.async { [weak self] in
-            guard let self else { return }
+        // The connection can drop its last reference before the queue drains.
+        queue.async { [self] in
             cancelOutgoing(reason: .superseded, notifyPeer: false)
             cancelIncoming(reason: .superseded, notifyPeer: false)
             cleanupExpiredCache()
@@ -162,7 +162,7 @@ final class FileClipboardTransfer: @unchecked Sendable {
     }
 
     func cancelIncoming(reason: FileClipboardCancelReason, notifyPeer: Bool) {
-        guard let transfer = discardIncoming() else { return }
+        guard let transfer = discardIncoming(keepPendingPublication: true) else { return }
         if notifyPeer {
             sendFrame(
                 .fileCancel,
@@ -171,13 +171,16 @@ final class FileClipboardTransfer: @unchecked Sendable {
         }
     }
 
-    func discardIncoming() -> IncomingTransfer? {
+    func discardIncoming(keepPendingPublication: Bool) -> IncomingTransfer? {
         guard let transfer = incoming else { return nil }
         incomingTimer?.cancel()
         incomingTimer = nil
         transfer.fileHandle?.closeFile()
         incoming = nil
-        FileClipboardCache.safelyRemoveTransferRoot(transfer.layout.rootURL)
+        // A queued publication may already have put these completed files on the pasteboard.
+        if !keepPendingPublication || !transfer.isPublishing {
+            FileClipboardCache.safelyRemoveTransferRoot(transfer.layout.rootURL)
+        }
         rememberFinished(transfer.offer.transferID)
         cleanupExpiredCache()
         return transfer
