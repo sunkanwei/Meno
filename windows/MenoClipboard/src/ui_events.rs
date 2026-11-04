@@ -1,6 +1,7 @@
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
@@ -21,6 +22,7 @@ const FILE_MAX_BYTES: usize = 1024 * 1024;
 pub enum FileUiRequest {
     Publish {
         paths: Vec<PathBuf>,
+        pending: Arc<AtomicBool>,
         result: Sender<Result<(), String>>,
     },
     Referenced {

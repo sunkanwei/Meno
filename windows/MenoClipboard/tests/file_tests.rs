@@ -22,8 +22,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -44,6 +44,7 @@ pub const WM_FILE_CLIPBOARD_REQUEST: u32 = 0x8000 + 3;
 pub enum FileUiRequest {
     Publish {
         paths: Vec<PathBuf>,
+        pending: Arc<AtomicBool>,
         result: mpsc::Sender<Result<(), String>>,
     },
     Referenced {
@@ -1165,7 +1166,12 @@ unsafe extern "system" fn test_ui_proc(
                     publish_ok: true,
                 });
             match request {
-                FileUiRequest::Publish { result, .. } => {
+                FileUiRequest::Publish {
+                    pending, result, ..
+                } => {
+                    if !pending.swap(false, Ordering::AcqRel) {
+                        continue;
+                    }
                     let response = if config.publish_ok {
                         Ok(())
                     } else {
@@ -1290,6 +1296,25 @@ fn recv_violation(commands: &mpsc::Receiver<connection::NetworkCommand>, connect
 
 fn assert_no_command(commands: &mpsc::Receiver<connection::NetworkCommand>) {
     assert!(commands.recv_timeout(Duration::from_millis(200)).is_err());
+}
+
+#[test]
+fn publication_timeout_cancels_only_requests_that_have_not_started() {
+    use file_transfer::PublishFailure;
+    let (_sender, result) = mpsc::channel();
+    let pending = AtomicBool::new(true);
+    assert!(matches!(
+        file_transfer::wait_for_publication(result, &pending, Duration::ZERO),
+        Err(PublishFailure::Failed(_))
+    ));
+    assert!(!pending.swap(false, Ordering::AcqRel));
+
+    let (_sender, result) = mpsc::channel();
+    let started = AtomicBool::new(false);
+    assert_eq!(
+        file_transfer::wait_for_publication(result, &started, Duration::ZERO),
+        Err(PublishFailure::Unconfirmed)
+    );
 }
 
 fn wait_until_removed(paths: &[&Path]) {

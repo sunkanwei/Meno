@@ -1,7 +1,9 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -84,6 +86,26 @@ enum SendPhase {
     WaitingAccept,
     Sending,
     WaitingResult,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum PublishFailure {
+    Failed(String),
+    Unconfirmed,
+}
+
+pub(crate) fn wait_for_publication(
+    result: Receiver<Result<(), String>>,
+    pending: &AtomicBool,
+    timeout: Duration,
+) -> Result<(), PublishFailure> {
+    match result.recv_timeout(timeout) {
+        Ok(result) => result.map_err(PublishFailure::Failed),
+        Err(_) if pending.swap(false, Ordering::AcqRel) => Err(PublishFailure::Failed(
+            "clipboard request timed out before it started".to_string(),
+        )),
+        Err(_) => Err(PublishFailure::Unconfirmed),
+    }
 }
 
 struct SendTask {
@@ -796,9 +818,18 @@ impl Worker {
                 );
                 self.housekeeping();
             }
-            Err(message) => {
+            Err(PublishFailure::Failed(message)) => {
                 crate::logging::error(&format!("clipboard publish failed: {message}"));
                 self.fail_receive_task(task, RESULT_CLIPBOARD_FAILED);
+            }
+            Err(PublishFailure::Unconfirmed) => {
+                // Windows may already have published these paths. Subsequent
+                // housekeeping will consult the clipboard before eviction.
+                crate::logging::error("clipboard publish started but was not confirmed");
+                self.post_frame(
+                    MessageKind::FileResult,
+                    file_protocol::encode_result(&id, RESULT_CLIPBOARD_FAILED),
+                );
             }
         }
     }
@@ -859,32 +890,32 @@ impl Worker {
 
     // ----- UI clipboard round trips -----
 
-    fn ui_request<T: Send + 'static>(
-        &self,
-        build: impl FnOnce(Sender<T>) -> FileUiRequest,
-        timeout: Duration,
-    ) -> Option<T> {
-        let (sender, receiver) = mpsc::channel();
-        if !crate::post_file_ui_request(self.hwnd, build(sender)) {
-            return None;
-        }
-        receiver.recv_timeout(timeout).ok()
-    }
-
-    fn ui_publish(&self, paths: Vec<PathBuf>) -> Result<(), String> {
-        self.ui_request(
-            |result| FileUiRequest::Publish { paths, result },
-            UI_TIMEOUT,
+    fn ui_publish(&self, paths: Vec<PathBuf>) -> Result<(), PublishFailure> {
+        let (result, receiver) = mpsc::channel();
+        let pending = Arc::new(AtomicBool::new(true));
+        let posted = crate::post_file_ui_request(
+            self.hwnd,
+            FileUiRequest::Publish {
+                paths,
+                pending: Arc::clone(&pending),
+                result,
+            },
+        );
+        wait_for_publication(
+            receiver,
+            &pending,
+            if posted { UI_TIMEOUT } else { Duration::ZERO },
         )
-        .unwrap_or_else(|| Err("clipboard request timed out".to_string()))
     }
 
     fn ui_referenced(&self) -> Result<Vec<PathBuf>, String> {
-        self.ui_request(
-            |result| FileUiRequest::Referenced { result },
-            Duration::from_secs(5),
-        )
-        .unwrap_or_else(|| Err("clipboard reference request timed out".to_string()))
+        let (result, receiver) = mpsc::channel();
+        if !crate::post_file_ui_request(self.hwnd, FileUiRequest::Referenced { result }) {
+            return Err("clipboard reference request could not be posted".to_string());
+        }
+        receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|_| Err("clipboard reference request timed out".to_string()))
     }
 
     // Runs only when the current clipboard reference set is known; a failed

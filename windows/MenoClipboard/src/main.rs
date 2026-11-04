@@ -28,6 +28,7 @@ pub(crate) use core_modules::{
     image_codec, logging, mouse_control, peer_name, protocol, remote_input_engine, virtual_hid,
 };
 
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -576,7 +577,18 @@ fn notify_file_worker(event: file_transfer::WorkerEvent) {
 
 fn handle_file_ui_request(request: FileUiRequest) {
     match request {
-        FileUiRequest::Publish { paths, result } => {
+        FileUiRequest::Publish {
+            paths,
+            pending,
+            result,
+        } => {
+            if !pending.swap(false, Ordering::AcqRel) {
+                return;
+            }
+            if with_state(|state| state.paused || state.suspended).unwrap_or(true) {
+                let _ = result.send(Err("clipboard sharing is paused".to_string()));
+                return;
+            }
             let _ = image_tasks::next_image_generation();
             let mut outcome = Err("clipboard publish did not run".to_string());
             for attempt in 0..clipboard_flow::CLIPBOARD_RETRY_COUNT {
