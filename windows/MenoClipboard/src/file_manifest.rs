@@ -405,6 +405,11 @@ pub fn map_receive_names(entries: &[OfferEntry], max_units: usize) -> Vec<PathBu
     }
 
     let mut scopes: HashMap<Option<u32>, Scope> = HashMap::new();
+    scopes
+        .entry(None)
+        .or_default()
+        .used
+        .extend(crate::file_cache::RESERVED_ROOT_NAMES.map(conflict_key));
     let mut rels: Vec<PathBuf> = Vec::with_capacity(entries.len());
     for entry in entries {
         let base = map_component(&entry.name, max_units);

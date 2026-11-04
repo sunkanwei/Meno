@@ -615,6 +615,24 @@ fn name_mapping_covers_every_reserved_name() {
 }
 
 #[test]
+fn receive_mapping_reserves_cache_metadata_at_the_root_only() {
+    let names = [".MENO-PARTIAL", ".meno-completed", ".meno-completed.tmp"];
+    let mut entries = vec![dir_entry("folder", None)];
+    for name in names {
+        entries.push(file_entry(name, None, 0));
+        entries.push(file_entry(name, Some(0), 0));
+    }
+    let mapped = file_manifest::map_receive_names(&entries, 255);
+    for (index, name) in names.into_iter().enumerate() {
+        assert_ne!(
+            file_manifest::conflict_key(&mapped[1 + index * 2].to_string_lossy()),
+            file_manifest::conflict_key(name)
+        );
+        assert_eq!(mapped[2 + index * 2], Path::new("folder").join(name));
+    }
+}
+
+#[test]
 fn name_truncation_keeps_extension_and_surrogates() {
     let long_stem = format!("{}.txt", "中".repeat(300));
     let mapped = file_manifest::map_component(&long_stem, 255);

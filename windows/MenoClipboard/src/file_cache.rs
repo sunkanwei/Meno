@@ -11,6 +11,8 @@ pub const RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 pub const PARTIAL_METADATA: &str = ".meno-partial";
 pub const COMPLETED_METADATA: &str = ".meno-completed";
 const COMPLETED_TEMP: &str = ".meno-completed.tmp";
+pub(crate) const RESERVED_ROOT_NAMES: [&str; 3] =
+    [PARTIAL_METADATA, COMPLETED_METADATA, COMPLETED_TEMP];
 const METADATA_HEADER: &str = "MENO-FILE-CACHE-1";
 const MAX_METADATA_BYTES: u64 = 256;
 const FILE_ATTRIBUTE_REPARSE_BITS: u32 = 0x400;
