@@ -58,7 +58,8 @@ final class ClipboardMonitor {
         case let .png(data):
             wrote = ClipboardImageCodec.write(png: data, to: pasteboard)
         case let .files(urls):
-            wrote = writeRemoteFiles(urls)
+            writeRemoteFiles(urls)
+            return
         }
         guard wrote else { return }
         lastChangeCount = pasteboard.changeCount
