@@ -232,20 +232,11 @@ private extension FinderSync {
     }
 
     private func menuContext(from sender: NSMenuItem) -> FinderMenuContext? {
-        if let context = sender.representedObject as? FinderMenuContext,
-           validatedDirectoryURL(context.directoryURL) == context.directoryURL {
-            return context
-        }
-        if let context = presentedMenuContext,
-           validatedDirectoryURL(context.directoryURL) == context.directoryURL {
-            return context
-        }
-        guard let directoryURL = validatedDirectoryURL(
-            FIFinderSyncController.default().targetedURL()
-        ) else {
+        guard let context = (sender.representedObject as? FinderMenuContext) ?? presentedMenuContext,
+              validatedDirectoryURL(context.directoryURL) == context.directoryURL else {
             return nil
         }
-        return FinderMenuContext(directoryURL: directoryURL)
+        return context
     }
 
     private func runShellCommand(
