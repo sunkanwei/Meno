@@ -12,6 +12,18 @@ final class DisplayHardwareController {
     probe.run()
   }
 
+  func philipsDisplayLocation() throws -> String {
+    let displays = probe.run().displays
+    guard let philips = displays.single(where: { $0.role == .philips }) else {
+      throw DisplayControlError.preflight("找不到唯一的飞利浦显示器")
+    }
+    try requireSafePhilips(philips)
+    guard let location = probe.displayLocation(philips.runtimeID) else {
+      throw DisplayControlError.privateAPI("无法定位飞利浦的 HDMI 控制接口")
+    }
+    return location
+  }
+
   func requireBetterDisplayStopped() throws {
     let running = NSWorkspace.shared.runningApplications.contains { application in
       application.bundleIdentifier?.hasPrefix("pro.betterdisplay.") == true

@@ -445,6 +445,22 @@ final class SoftKVMStateTests: XCTestCase {
         ]))
     }
 
+    func testOrphanedDesktopIconSnapshotKeepsWindowsSwitchPending() {
+        func inspection(hasDesktopIconLayoutState: Bool) -> DisplaySwitchInspection {
+            DisplaySwitchInspection(
+                report: ProbeReport(passed: true, topology: .windows, displays: [], checks: []),
+                topologyPlan: SoftKVMTopologyPlan(sharedDisplaySide: .left),
+                hasTransaction: false,
+                hasSoftDisconnectState: true,
+                hasWindowMigrationState: true,
+                hasDesktopIconLayoutState: hasDesktopIconLayoutState
+            )
+        }
+
+        XCTAssertFalse(inspection(hasDesktopIconLayoutState: false).hasPendingSwitch)
+        XCTAssertTrue(inspection(hasDesktopIconLayoutState: true).hasPendingSwitch)
+    }
+
     func testTransactionStoreRoundTripAndPermissions() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MenoSoftKVMTests-\(UUID().uuidString)", isDirectory: true)
@@ -615,11 +631,11 @@ final class SoftKVMStateTests: XCTestCase {
         XCTAssertTrue(SoftKVMStatus.macReady(remoteName: "Windows").actionEnabled)
         XCTAssertEqual(
             SoftKVMStatus.macReady(remoteName: "Windows").shortcutAcknowledgement,
-            "正在准备 Windows 穿屏，完成后请手动选择 DP。"
+            "正在将飞利浦和键鼠穿屏切换到 Windows。"
         )
         XCTAssertEqual(
             SoftKVMStatus.windowsReady(remoteName: "Windows").shortcutAcknowledgement,
-            "正在恢复 Mac 屏幕，完成后请手动选择 HDMI2。"
+            "正在将飞利浦切回 HDMI 2 并恢复 Mac 屏幕。"
         )
         XCTAssertEqual(
             SoftKVMStatus.windowsWaiting(reason: "连接断开").actionTitle,

@@ -52,6 +52,7 @@
 		289308089DF71BFA032234ED /* SoftKVMTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20C2128A7E73B42071B8253 /* SoftKVMTopology.swift */; };
 		28C7E10F5BFC05A4D80AF06A /* FinderDesktopCoordinateSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37DC4F44594290AAEDB1DA6 /* FinderDesktopCoordinateSpaceTests.swift */; };
 		2915C1E138DC5EBDBAF9F424 /* CrossScreenDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F4CAFA33A289B511FFD70A /* CrossScreenDisplay.swift */; };
+		29B24DCA687D776AB97C1345 /* PhilipsInputPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = F399A92B149D5F6A754B3FF7 /* PhilipsInputPacket.swift */; };
 		2A06E2A3EDB3492AFA960CAB /* FinderDesktopCoordinateSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B698953018749BA3A48F63 /* FinderDesktopCoordinateSpace.swift */; };
 		2A852A16B3E21EEC4A9EA9A7 /* RemediationBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0527CD4431AF1272803B3120 /* RemediationBoundaryTests.swift */; };
 		2A9BD20F5911FFC7A9B803EF /* ClosedLidBehaviorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD585D18B4394EFBA7096113 /* ClosedLidBehaviorController.swift */; };
@@ -65,6 +66,7 @@
 		345B96579802A80C3F32B319 /* CutStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BECC1C8C6976A15909FF82 /* CutStateMachine.swift */; };
 		348569420EF7EC96662A34B5 /* MarkdownDocumentMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CEF95C3B52B18DC2FE8E7D8 /* MarkdownDocumentMonitorTests.swift */; };
 		34BF152CE92EDFC042570209 /* TerminalApplicationDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E03838267B9540DE60AC81DB /* TerminalApplicationDetectorTests.swift */; };
+		35D93A47A1632CC4047F004B /* PhilipsInputPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = F399A92B149D5F6A754B3FF7 /* PhilipsInputPacket.swift */; };
 		365E319AF767A63D14180188 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BDFEFD6E7AF1433B445C483 /* MenuBarController.swift */; };
 		3769F9889AB9E1400A65A7D7 /* FinderContextMenuPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A30E33D97B860476DEA60D /* FinderContextMenuPreferences.swift */; };
 		38B0400C3AAB9AA92C55F533 /* DisplayStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D704EBB1EE75EA8B801587 /* DisplayStateStore.swift */; };
@@ -146,6 +148,7 @@
 		8E516A2779F2138261183DA7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7680575E4EDC870A97F0CB30 /* Assets.xcassets */; };
 		8E7D1FE4301FEE3DE800E9B1 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = 6E442454B868C305B4392F23 /* THIRD_PARTY_NOTICES.md */; };
 		8E9DD7709E220F208AAFA204 /* ClipboardProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C478EB9E74D0CB7287469AB /* ClipboardProtocolTests.swift */; };
+		902EEBE51D3F4FA343815524 /* PhilipsInputPacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A834D823B2E540753E6E653B /* PhilipsInputPacketTests.swift */; };
 		9245ED396B4258A74A1FD16E /* CrossScreenInputRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5C91082966E52B95453364 /* CrossScreenInputRouting.swift */; };
 		932372B91284FA0D8E69F9F2 /* HorizontalDisplayHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A8A3243B38E56B5830068E /* HorizontalDisplayHandoff.swift */; };
 		93D5BD75C6158515895CA094 /* FileClipboardProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3845C5D306E361E92C6C66B /* FileClipboardProtocolTests.swift */; };
@@ -203,6 +206,7 @@
 		D0C99473828EA35BAAE7DE4E /* HorizontalDisplayHandoffStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC33CE38C24B9D6B07A0CB5 /* HorizontalDisplayHandoffStateTests.swift */; };
 		D2E1F71494589571AEAFAB4C /* SettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59A43E127B5DB5BF43CDB6D4 /* SettingsComponents.swift */; };
 		D3DC175398E4125270F49274 /* DesktopIconLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5B497896056C2DED21D522 /* DesktopIconLayout.swift */; };
+		D45EBEF3295CA1C43744017B /* PhilipsInputControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6714C7F2C71C70486B8C197 /* PhilipsInputControl.swift */; };
 		D48CBF0A5A15DEE5D4D1AAE7 /* FinderExtensionCommandBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277BDC738377B5FF392A59AE /* FinderExtensionCommandBridge.swift */; };
 		D57D62E13C34B975CA88CAB7 /* ClosedLidShutdownHelperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E35FF44CDD82D854561BCD95 /* ClosedLidShutdownHelperManager.swift */; };
 		D5E801B6CE1E564C165A9154 /* FinderProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08C2FD5FE8D701D7EFAD71A /* FinderProcess.swift */; };
@@ -418,6 +422,7 @@
 		A60D5FBA070413663BEF5EB5 /* FinderAutomationPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderAutomationPermission.swift; sourceTree = "<group>"; };
 		A66CBB393D17C8889C0F7AEF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A7EBEB99B892D150914CBCEA /* SourceFileLineLimitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFileLineLimitTests.swift; sourceTree = "<group>"; };
+		A834D823B2E540753E6E653B /* PhilipsInputPacketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhilipsInputPacketTests.swift; sourceTree = "<group>"; };
 		AB8DABE29FAA772C8790F1A8 /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
 		ACCCA57E050C23CD814E2C44 /* WindowProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowProbe.swift; sourceTree = "<group>"; };
 		AD01036AF3BBCCFC8A502ABD /* ConnectionReadinessGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionReadinessGate.swift; sourceTree = "<group>"; };
@@ -454,6 +459,7 @@
 		D351BD8744100FA5896F3500 /* CrossScreenMouseControlLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenMouseControlLifecycle.swift; sourceTree = "<group>"; };
 		D37DC4F44594290AAEDB1DA6 /* FinderDesktopCoordinateSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderDesktopCoordinateSpaceTests.swift; sourceTree = "<group>"; };
 		D397708558D6EBEE29FF32E1 /* CrossScreenEntryGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenEntryGate.swift; sourceTree = "<group>"; };
+		D6714C7F2C71C70486B8C197 /* PhilipsInputControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhilipsInputControl.swift; sourceTree = "<group>"; };
 		E03838267B9540DE60AC81DB /* TerminalApplicationDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalApplicationDetectorTests.swift; sourceTree = "<group>"; };
 		E20C2128A7E73B42071B8253 /* SoftKVMTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMTopology.swift; sourceTree = "<group>"; };
 		E35FF44CDD82D854561BCD95 /* ClosedLidShutdownHelperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedLidShutdownHelperManager.swift; sourceTree = "<group>"; };
@@ -466,6 +472,7 @@
 		F0771C52F75D1127DB4B2ECE /* FinderShortcutsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderShortcutsController.swift; sourceTree = "<group>"; };
 		F08C2FD5FE8D701D7EFAD71A /* FinderProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderProcess.swift; sourceTree = "<group>"; };
 		F160ACB0A0CEB16A9251A3A0 /* copy-cut.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "copy-cut.json"; sourceTree = "<group>"; };
+		F399A92B149D5F6A754B3FF7 /* PhilipsInputPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhilipsInputPacket.swift; sourceTree = "<group>"; };
 		F3D6857CE97ED5C91D133CEC /* DisplayControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayControl.swift; sourceTree = "<group>"; };
 		F3E7FFF7599FFF550BC365F1 /* SoftKVMShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftKVMShortcut.swift; sourceTree = "<group>"; };
 		F48BE7B9CA696CFBA7442524 /* CrossScreenMouseInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossScreenMouseInput.swift; sourceTree = "<group>"; };
@@ -561,6 +568,15 @@
 				21B722AAAB5453CA7BAFF3BA /* RendererBundleSchemeHandler.swift */,
 			);
 			path = MenoMarkdownPreview;
+			sourceTree = "<group>";
+		};
+		24599AE5EEF0495F4D866CD7 /* Display */ = {
+			isa = PBXGroup;
+			children = (
+				D6714C7F2C71C70486B8C197 /* PhilipsInputControl.swift */,
+				F399A92B149D5F6A754B3FF7 /* PhilipsInputPacket.swift */,
+			);
+			path = Display;
 			sourceTree = "<group>";
 		};
 		253DB17383FCD2CCD810C02E /* Products */ = {
@@ -704,6 +720,7 @@
 			isa = PBXGroup;
 			children = (
 				6C897D20D69F102410E1BD52 /* Accessibility */,
+				24599AE5EEF0495F4D866CD7 /* Display */,
 				2F2101D02C136287328E64D2 /* EventTap */,
 				034F08E1222CB3FDD587CDA5 /* Finder */,
 				631D95CCAA97CF13F48CBB1C /* HID */,
@@ -929,6 +946,7 @@
 				94F20D13F735CE627ABCAF1C /* MarkdownPreviewWindowStateTests.swift */,
 				935620184993F134218796C3 /* MouseTransportQueueTests.swift */,
 				62EFF1E8B6D74FE75FAAD077 /* PasteboardCopyPollerTests.swift */,
+				A834D823B2E540753E6E653B /* PhilipsInputPacketTests.swift */,
 				34FE4D5CF5D893298A527727 /* PhysicalDisplayHandoffTests.swift */,
 				0527CD4431AF1272803B3120 /* RemediationBoundaryTests.swift */,
 				3E242E9EEB8EB445EDD1E288 /* ScrollDirectionPolicyTests.swift */,
@@ -1227,6 +1245,8 @@
 				0AF780A2E0534938CA74AFC9 /* NSLockCriticalSection.swift in Sources */,
 				6D5B285EB18A81BC52173350 /* PasteboardCopyPoller.swift in Sources */,
 				FCDC8F88A422F02C844E5776 /* PasteboardCopyPollerTests.swift in Sources */,
+				29B24DCA687D776AB97C1345 /* PhilipsInputPacket.swift in Sources */,
+				902EEBE51D3F4FA343815524 /* PhilipsInputPacketTests.swift in Sources */,
 				E443A352D54071C64BF32312 /* PhysicalDisplayHandoff.swift in Sources */,
 				EB4CC47728F41F25E4B08A1C /* PhysicalDisplayHandoffTests.swift in Sources */,
 				3972EAA9972E1F79A0E47BC9 /* PowerModeConfiguration.swift in Sources */,
@@ -1385,6 +1405,8 @@
 				5C07F9A56E7A687A9477FD9E /* NSLockCriticalSection.swift in Sources */,
 				8C3FEA59EBA0C1425AD820A4 /* PasteboardCopyPoller.swift in Sources */,
 				F4450C89ADC87CF1F874E4C3 /* PermissionsAndNotificationsSettingsView.swift in Sources */,
+				D45EBEF3295CA1C43744017B /* PhilipsInputControl.swift in Sources */,
+				35D93A47A1632CC4047F004B /* PhilipsInputPacket.swift in Sources */,
 				A50D3092EEAB5648D09D5963 /* PhysicalDisplayHandoff.swift in Sources */,
 				DD2BD5E87283C85E062F7D1F /* ScrollDirectionPolicy.swift in Sources */,
 				43740A03817562E3EDA32E86 /* ScrollEventTap.swift in Sources */,

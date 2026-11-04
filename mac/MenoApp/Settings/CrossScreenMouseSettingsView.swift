@@ -8,7 +8,7 @@ struct CrossScreenMouseSettingsView: View {
         SettingsPage {
             SettingsPageHeader(
                 title: "KVM",
-                subtitle: "手动切换 Philips 画面，Meno 同步键鼠与屏幕布局，共享剪贴板。"
+                subtitle: "一键切换飞利浦画面与键鼠穿屏，同步屏幕布局，共享剪贴板。"
             )
             featureSection
             switchSection
@@ -48,10 +48,9 @@ struct CrossScreenMouseSettingsView: View {
             SettingsSectionTitle("切换")
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Text("键鼠与屏幕布局")
+                    Text("画面、键鼠与屏幕布局")
                     InfoHint(
-                        "当前使用手动切画面：先点击按钮或按快捷键同步键鼠状态，"
-                            + "再用显示器按钮选择 DP（Windows）或 HDMI2（Mac）。"
+                        "点击按钮或按快捷键，Meno 会切换并核对飞利浦的 DP（Windows）或 HDMI 2（Mac）输入。"
                             + "按住鼠标按钮时不会穿越屏幕边缘；Ctrl + Alt + Esc 可紧急收回鼠标；"
                             + "Windows 离线时仍可从菜单或快捷键恢复 Mac。"
                     )

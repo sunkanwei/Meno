@@ -44,10 +44,13 @@ struct DisplaySwitchInspection: Sendable {
   let hasWindowMigrationState: Bool
   let hasDesktopIconLayoutState: Bool
 
+  var hasPendingSwitch: Bool {
+    hasTransaction || hasDesktopIconLayoutState
+  }
+
   var hasRecoveryState: Bool {
-    hasTransaction
+    hasPendingSwitch
       || hasSoftDisconnectState
       || hasWindowMigrationState
-      || hasDesktopIconLayoutState
   }
 }

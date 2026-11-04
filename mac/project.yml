@@ -54,6 +54,7 @@ targets:
       - path: Features/SoftKVM
       - path: Features/WakeOnLAN
       - path: Platform/Accessibility
+      - path: Platform/Display
       - path: Platform/EventTap
       - path: Platform/Finder
       - path: Platform/HID
@@ -196,6 +197,7 @@ targets:
       - path: Features/SoftKVM/WindowModels.swift
       - path: Features/WakeOnLAN/WakeOnLAN.swift
       - path: MenoApp/AppPreferenceKey.swift
+      - path: Platform/Display/PhilipsInputPacket.swift
       - path: Platform/Power/ClosedLidShutdownContract.swift
       - path: Platform/Power/ClosedLidShutdownValidation.swift
       - path: Helpers/MenoPowerHelper/PowerModeConfiguration.swift

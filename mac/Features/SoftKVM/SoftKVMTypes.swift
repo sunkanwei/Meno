@@ -26,17 +26,17 @@ enum SoftKVMStatus: Equatable, Sendable {
         case .checking:
             "正在只读核对显示拓扑和恢复状态。"
         case let .macReady(remoteName):
-            "Mac 三屏基线正常，Windows \(remoteName) 已连接。画面由显示器按钮手动切换。"
+            "Mac 三屏基线正常，Windows \(remoteName) 已连接。"
         case let .macWaiting(reason):
             "Mac 三屏基线正常。\(reason)"
         case .switchingToWindows:
-            "正在迁移窗口并准备 Windows 穿屏；完成后请手动选择 DP 输入源。"
+            "正在迁移窗口、确认飞利浦的 DP 输入并准备 Windows 穿屏。"
         case let .windowsReady(remoteName):
-            "Windows \(remoteName) 的输入路由已开放；请手动选择 DP 输入源。"
+            "Windows \(remoteName) 的键鼠穿屏已启用。"
         case let .windowsWaiting(reason):
-            "Philips 已从 Mac 屏幕布局中停用，画面请手动选择 DP 输入源。\(reason)"
+            "飞利浦已从 Mac 屏幕布局中停用。\(reason)"
         case .switchingToMac:
-            "正在收回键鼠并恢复 Mac 三屏和窗口；完成后请手动选择 HDMI2 输入源。"
+            "正在收回键鼠、确认飞利浦的 HDMI 2 输入并恢复 Mac 三屏和窗口。"
         case let .recoveryNeeded(reason):
             "穿越路由已关闭。\(reason)"
         }
@@ -81,11 +81,9 @@ enum SoftKVMStatus: Equatable, Sendable {
     var shortcutAcknowledgement: String {
         switch self {
         case .macReady:
-            "正在准备 Windows 穿屏，完成后请手动选择 DP。"
-        case .windowsReady, .windowsWaiting:
-            "正在恢复 Mac 屏幕，完成后请手动选择 HDMI2。"
-        case .recoveryNeeded:
-            "正在恢复 Mac 屏幕，完成后请手动选择 HDMI2。"
+            "正在将飞利浦和键鼠穿屏切换到 Windows。"
+        case .windowsReady, .windowsWaiting, .recoveryNeeded:
+            "正在将飞利浦切回 HDMI 2 并恢复 Mac 屏幕。"
         case .switchingToWindows:
             "正在准备 Windows 穿屏，请稍候。"
         case .switchingToMac:

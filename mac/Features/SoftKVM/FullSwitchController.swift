@@ -24,6 +24,7 @@ func makeFullSwitchController() -> FullSwitchController {
 
 actor FullSwitchController {
   private let displayController: DisplayHardwareController
+  private let inputControl: PhilipsInputControl
   private let softController: SoftDisconnectController
   private let windowController: WindowMigrationController
   private let desktopIconController: DesktopIconLayoutController
@@ -40,6 +41,7 @@ actor FullSwitchController {
     stateStore: DisplayStateStore
   ) {
     self.displayController = displayController
+    inputControl = PhilipsInputControl(displayController: displayController)
     self.softController = softController
     self.windowController = windowController
     self.desktopIconController = desktopIconController
@@ -48,6 +50,10 @@ actor FullSwitchController {
 
   func stabilizeWindowsTopology() async throws {
     try await softController.stabilizeWindowsTopology()
+  }
+
+  func verifyWindowsInput() async throws {
+    try await inputControl.verify(.displayPort)
   }
 
   func inspect() async throws -> DisplaySwitchInspection {
@@ -95,7 +101,7 @@ actor FullSwitchController {
     guard try await stateStore.transaction() == nil,
       try await stateStore.desktopIconLayoutState() == nil
     else {
-      throw DisplayControlError.state("存在未完成切换，请先执行 recover")
+      throw DisplayControlError.state("存在未完成切换，请先选择“恢复 Mac 屏幕”")
     }
     try await toWindowsLocked(operationID: operationID)
   }
@@ -104,31 +110,12 @@ actor FullSwitchController {
     let operationID = try beginOperation()
     defer { endOperation(operationID) }
     try await displayController.requireBetterDisplayStopped()
-    let transaction = try await stateStore.transaction()
-    let desktopIconLayout = try await stateStore.desktopIconLayoutState()
-    if transaction != nil || desktopIconLayout != nil {
-      try await recoverLocked(operationID: operationID)
-      return
-    }
     try await toMacLocked(operationID: operationID)
-  }
-
-  func recover() async throws {
-    let operationID = try beginOperation()
-    defer { endOperation(operationID) }
-    try await displayController.requireBetterDisplayStopped()
-    try await recoverLocked(operationID: operationID)
   }
 
   private func toWindowsLocked(operationID: UUID) async throws {
     try validate(operationID)
     let initial = await displayController.snapshot()
-    if initial.topology == .windows {
-      guard try await stateStore.softDisconnectState() != nil else {
-        throw DisplayControlError.state("Philips 已软断开，但缺少恢复快照；请恢复到 Mac")
-      }
-      return
-    }
     guard initial.topology == .mac,
       initial.passed,
       let baseline = SoftKVMMacBaseline.resolve(initial.displays)
@@ -136,10 +123,10 @@ actor FullSwitchController {
       throw DisplayControlError.preflight("完整三屏基线未通过")
     }
     guard try await stateStore.softDisconnectState() == nil else {
-      throw DisplayControlError.state("三屏状态下存在旧的软断开快照，请先执行 recover")
+      throw DisplayControlError.state("仍有待恢复的飞利浦布局，请先选择“恢复 Mac 屏幕”")
     }
     guard try await stateStore.windowMigrationState() == nil else {
-      throw DisplayControlError.state("三屏状态下存在旧的窗口搬运快照，请先执行 recover")
+      throw DisplayControlError.state("仍有待恢复的窗口，请先选择“恢复 Mac 屏幕”")
     }
     try await displayController.requireAccessibility()
     try await displayController.requireProtectedViewSonic(baseline.viewSonic)
@@ -149,6 +136,7 @@ actor FullSwitchController {
       operationID: operationID,
       target: .windows
     )
+    var mayHaveChangedInput = false
     do {
       try validate(operationID)
       try await windowController.movePhilipsWindowsToMainDisplay(
@@ -162,6 +150,11 @@ actor FullSwitchController {
       try validate(operationID)
       try await windowController.requireNoVisiblePhilipsWindows()
 
+      mayHaveChangedInput = true
+      try await inputControl.select(.displayPort)
+      try validate(operationID)
+      transaction.phase = .inputChanged
+      try await stateStore.save(transaction: transaction)
       try await softController.disconnectPhilips()
       try validate(operationID)
       transaction.phase = .philipsDisconnected
@@ -170,17 +163,17 @@ actor FullSwitchController {
       guard final.topology == .windows else {
         throw DisplayControlError.verification("软断开后未进入 Windows 两屏终态")
       }
+      try await verifyWindowsInput()
       try await restoreDesktopIconsIfNeeded(report: final)
       transaction.phase = .desktopIconsRestored
       try await stateStore.save(transaction: transaction)
-      try await stateStore.clearTransaction()
       try await stateStore.clearDesktopIconLayoutState()
+      try await stateStore.clearTransaction()
     } catch is CancellationError {
       throw CancellationError()
     } catch {
       do {
-        try await rollbackToMac(operationID: operationID)
-        try await stateStore.clearTransaction()
+        try await restoreMacState(operationID: operationID, confirmInput: mayHaveChangedInput)
       } catch let rollbackError {
         throw DisplayControlError.rollback(
           "原错误：\(error)；回滚错误：\(rollbackError)；事务已保留"
@@ -194,15 +187,7 @@ actor FullSwitchController {
     try validate(operationID)
     let initial = await displayController.snapshot()
     if initial.topology == .mac {
-      var final = try await waitForMacBaseline(operationID: operationID)
-      if try await stateStore.softDisconnectState() != nil {
-        try await softController.reconnectPhilips()
-        final = try await waitForMacBaseline(operationID: operationID)
-      }
-      try await restoreDesktopIconsIfNeeded(report: final)
-      try await windowController.restoreWindowsIfNeeded()
-      try await stateStore.clearTransaction()
-      try await stateStore.clearDesktopIconLayoutState()
+      try await restoreMacState(operationID: operationID, confirmInput: true)
       return
     }
     guard try await stateStore.softDisconnectState() != nil else {
@@ -233,6 +218,7 @@ actor FullSwitchController {
       try validate(operationID)
       transaction.phase = .philipsReconnected
       try await stateStore.save(transaction: transaction)
+      try await inputControl.select(.hdmi2)
       let final = try await waitForMacBaseline(operationID: operationID)
       try await restoreDesktopIconsIfNeeded(report: final)
       transaction.phase = .desktopIconsRestored
@@ -255,45 +241,22 @@ actor FullSwitchController {
       try await windowController.restoreWindowsIfNeeded()
       transaction.phase = .windowsRestored
       try await stateStore.save(transaction: transaction)
-      try await stateStore.clearTransaction()
       try await stateStore.clearDesktopIconLayoutState()
+      try await stateStore.clearTransaction()
     } catch is CancellationError {
       throw CancellationError()
     } catch {
       throw DisplayControlError.verification(
-        "Philips 已恢复为 Mac 显示器，但窗口原位恢复未完成：\(error)；请恢复到 Mac"
+        "飞利浦已恢复为 Mac 显示器，但窗口原位恢复未完成：\(error)。请重试“恢复 Mac 屏幕”。"
       )
     }
   }
 
-  private func recoverLocked(operationID: UUID) async throws {
+  private func restoreMacState(operationID: UUID, confirmInput: Bool) async throws {
     try validate(operationID)
-    let report = await displayController.snapshot()
-    switch report.topology {
-    case .mac:
-      var final = try await waitForMacBaseline(operationID: operationID)
-      if try await stateStore.softDisconnectState() != nil {
-        try await softController.reconnectPhilips()
-        final = try await waitForMacBaseline(operationID: operationID)
-      }
-      try await restoreDesktopIconsIfNeeded(report: final)
-      try await windowController.restoreWindowsIfNeeded()
-      try await stateStore.clearTransaction()
-      try await stateStore.clearDesktopIconLayoutState()
-    case .windows:
-      try await toMacLocked(operationID: operationID)
-    case .unknown:
-      guard try await stateStore.softDisconnectState() != nil,
-        SoftKVMWindowsDisplayPair.resolve(report.displays) != nil
-      else {
-        throw DisplayControlError.state("当前拓扑未知，不能猜测恢复操作")
-      }
-      try await toMacLocked(operationID: operationID)
+    if confirmInput {
+      try await inputControl.select(.hdmi2)
     }
-  }
-
-  private func rollbackToMac(operationID: UUID) async throws {
-    try validate(operationID)
     if try await stateStore.softDisconnectState() != nil {
       try await softController.reconnectPhilips()
     }
@@ -301,19 +264,16 @@ actor FullSwitchController {
     try await restoreDesktopIconsIfNeeded(report: final)
     try await windowController.restoreWindowsIfNeeded()
     try await stateStore.clearDesktopIconLayoutState()
+    try await stateStore.clearTransaction()
   }
 
   private func rollbackToWindows(operationID: UUID) async throws {
     try validate(operationID)
-    var baselineError: Error?
     let report = await displayController.snapshot()
     switch report.topology {
     case .mac:
-      do {
-        _ = try await waitForMacBaseline(operationID: operationID)
-      } catch {
-        baselineError = error
-      }
+      try await inputControl.select(.displayPort)
+      _ = try await waitForMacBaseline(operationID: operationID)
       if try await stateStore.softDisconnectState() == nil {
         try await softController.disconnectPhilips()
       }
@@ -326,11 +286,9 @@ actor FullSwitchController {
     guard final.topology == .windows else {
       throw DisplayControlError.verification("回滚后没有恢复 Windows 两屏终态")
     }
+    try await verifyWindowsInput()
     try await restoreDesktopIconsIfNeeded(report: final)
     try await stateStore.clearDesktopIconLayoutState()
-    if let baselineError {
-      throw baselineError
-    }
   }
 
   private func beginTransactionProtectingDesktopIcons(

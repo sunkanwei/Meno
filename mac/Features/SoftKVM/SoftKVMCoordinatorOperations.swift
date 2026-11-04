@@ -86,14 +86,28 @@ extension SoftKVMCoordinator {
 
             try await displaySwitch.toWindows()
             try requireCurrentOperation(operationID)
-            guard stateMachine.routeMayBeEnabled else {
-                throw SoftKVMCoordinatorError.sessionUnavailable
-            }
-            guard readiness == expectedReadiness else {
-                throw SoftKVMCoordinatorError.staleWindowsConnection
-            }
-            guard applyRouteEnabled(true) else {
-                throw SoftKVMCoordinatorError.routeUnavailable(routeUnavailableReason)
+            do {
+                guard stateMachine.routeMayBeEnabled else {
+                    throw SoftKVMCoordinatorError.sessionUnavailable
+                }
+                guard readiness == expectedReadiness else {
+                    throw SoftKVMCoordinatorError.staleWindowsConnection
+                }
+                guard applyRouteEnabled(true) else {
+                    throw SoftKVMCoordinatorError.routeUnavailable(routeUnavailableReason)
+                }
+            } catch {
+                applyRouteEnabled(false)
+                do {
+                    try await displaySwitch.toMac()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let recoveryError {
+                    throw DisplayControlError.rollback(
+                        "键鼠切换失败（\(error.localizedDescription)），恢复 Mac 也失败（\(recoveryError.localizedDescription)）。"
+                    )
+                }
+                throw error
             }
             setStatus(
                 .windowsReady(remoteName: expectedReadiness.remoteName),
@@ -108,7 +122,7 @@ extension SoftKVMCoordinator {
             onFailure: onSwitchFailure
         ) { [weak self] operationID in
             guard let self else { return }
-            try await returnToMacIfNeeded(operationID: operationID)
+            try await returnToMacIfNeeded(operationID: operationID, confirmInput: true)
             try requireCurrentOperation(operationID)
             setStatus(stableMacStatus(), operationID: operationID)
         }
@@ -125,7 +139,7 @@ extension SoftKVMCoordinator {
                 throw SoftKVMCoordinatorError.inputStillHeld
             }
             try requireCurrentOperation(operationID)
-            try await displaySwitch.recover()
+            try await displaySwitch.toMac()
             try requireCurrentOperation(operationID)
             setStatus(stableMacStatus(), operationID: operationID)
         }
@@ -135,7 +149,7 @@ extension SoftKVMCoordinator {
         perform(status: .checking) { [weak self] operationID in
             guard let self else { return }
             var inspection = try await inspectDisplayState(operationID: operationID)
-            if inspection.hasTransaction
+            if inspection.hasPendingSwitch
                 || (inspection.report.topology == .mac && inspection.hasRecoveryState) {
                 guard allowAutomaticRecovery else {
                     setStatus(
@@ -144,16 +158,19 @@ extension SoftKVMCoordinator {
                     )
                     return
                 }
-                try await displaySwitch.recover()
+                try await displaySwitch.toMac()
                 try requireCurrentOperation(operationID)
                 inspection = try await displaySwitch.inspect()
                 try requireCurrentOperation(operationID)
             }
-            applyStableInspection(inspection, operationID: operationID)
+            try await applyStableInspection(inspection, operationID: operationID)
         }
     }
 
-    private func returnToMacIfNeeded(operationID: UInt64) async throws {
+    private func returnToMacIfNeeded(
+        operationID: UInt64,
+        confirmInput: Bool = false
+    ) async throws {
         try requireCurrentOperation(operationID)
         if !(await waitForLocalOwnership()) {
             try requireCurrentOperation(operationID)
@@ -165,7 +182,7 @@ extension SoftKVMCoordinator {
         }
         try requireCurrentOperation(operationID)
         let inspection = try await inspectDisplayState(operationID: operationID)
-        if inspection.report.topology == .mac, !inspection.hasRecoveryState {
+        if !confirmInput, inspection.report.topology == .mac, !inspection.hasRecoveryState {
             return
         }
         try await displaySwitch.toMac()
@@ -186,8 +203,8 @@ extension SoftKVMCoordinator {
     private func applyStableInspection(
         _ inspection: DisplaySwitchInspection,
         operationID: UInt64
-    ) {
-        guard stateMachine.isCurrentOperation(operationID) else { return }
+    ) async throws {
+        try requireCurrentOperation(operationID)
         crossScreenMouse.setSoftKVMTopologyPlan(inspection.topologyPlan)
         switch inspection.report.topology {
         case .mac:
@@ -206,7 +223,7 @@ extension SoftKVMCoordinator {
         case .windows:
             guard inspection.hasSoftDisconnectState,
                   inspection.topologyPlan != nil,
-                  !inspection.hasTransaction else {
+                  !inspection.hasPendingSwitch else {
                 setStatus(
                     .recoveryNeeded(reason: "Windows 两屏拓扑缺少有效的 Philips 恢复快照。"),
                     operationID: operationID
@@ -214,6 +231,8 @@ extension SoftKVMCoordinator {
                 applyRouteEnabled(false)
                 return
             }
+            try await displaySwitch.verifyWindowsInput()
+            try requireCurrentOperation(operationID)
             guard stateMachine.routeMayBeEnabled else {
                 setStatus(
                     .windowsWaiting(reason: "Mac 用户会话当前未激活。"),
@@ -359,7 +378,7 @@ extension SoftKVMCoordinator {
             switch inspection.report.topology {
             case .mac where inspection.report.passed && !inspection.hasRecoveryState:
                 setStatus(stableMacStatus(), operationID: operationID)
-            case .windows where inspection.hasSoftDisconnectState && !inspection.hasTransaction:
+            case .windows where inspection.hasSoftDisconnectState && !inspection.hasPendingSwitch:
                 setStatus(.windowsWaiting(reason: reason), operationID: operationID)
             case .mac, .windows, .unknown:
                 setStatus(.recoveryNeeded(reason: reason), operationID: operationID)

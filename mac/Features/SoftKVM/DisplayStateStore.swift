@@ -10,7 +10,6 @@ enum SwitchPhase: String, Codable, Sendable {
   case preparing
   case desktopIconsCaptured
   case windowsMoved
-  // Persisted transactions may still carry this phase during recovery.
   case inputChanged
   case philipsDisconnected
   case philipsReconnected

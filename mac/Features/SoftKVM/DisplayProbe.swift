@@ -283,13 +283,17 @@ final class DisplayProbe {
     )
   }
 
-  private func coreDisplayEDIDUUID(_ id: CGDirectDisplayID) -> String? {
+  func displayLocation(_ id: CGDirectDisplayID) -> String? {
     guard let createInfo = privateSymbols.createDisplayInfoFunction(),
       let dictionary = createInfo(id)?.takeRetainedValue() as? [String: Any]
     else {
       return nil
     }
-    guard let location = dictionary["IODisplayLocation"] as? String else { return nil }
+    return dictionary["IODisplayLocation"] as? String
+  }
+
+  private func coreDisplayEDIDUUID(_ id: CGDirectDisplayID) -> String? {
+    guard let location = displayLocation(id) else { return nil }
     let service = IORegistryEntryCopyFromPath(kIOMainPortDefault, location as CFString)
     guard service != 0 else { return nil }
     defer { IOObjectRelease(service) }

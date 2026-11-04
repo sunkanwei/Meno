@@ -22,6 +22,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Mac: m1ddc
+
+飞利浦输入源控制中的 Apple Silicon HDMI 通信方式参考 [waydabber/m1ddc](https://github.com/waydabber/m1ddc/tree/7339ceebb03f691b1eaeb8471dca301d215d19c8)，固定修订为 `7339ceebb03f691b1eaeb8471dca301d215d19c8`。
+
+Copyright (c) 2021 waydabber。适用上方的 MIT License。
+
 ## Mac: Markdown 预览器
 
 Meno 的 Markdown 空格预览以 MarkText 0.19.1 与其 Muya 0.2.0 渲染行为和主题为基线，重新整理为只读、离线的静态预览器；没有包含 MarkText 的 Electron 桌面外壳、编辑器界面、文件管理和应用服务。
