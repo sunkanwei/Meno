@@ -138,6 +138,23 @@ final class MouseTransportQueueTests: XCTestCase {
         XCTAssertEqual(queue.enqueueMove(controlID: 7, dx: 1, dy: 0), .ignored)
     }
 
+    func testAbortFailsClosedWhenReleaseCannotFitAlongsideConnectionFrames() {
+        var queue = MouseTransportQueue(maximumItems: 2)
+        queue.activate(keyboardSupported: true)
+        _ = queue.beginSession(
+            controlID: 7,
+            routeID: 9,
+            normalizedY: 0,
+            residualX: 0,
+            entryEdge: .left,
+            returnOpeningY: 0...UInt16.max
+        )
+        _ = queue.enqueueConnectionFrame(kind: .ping, payload: Data())
+
+        XCTAssertEqual(queue.abortControl(controlID: 7), .failed)
+        XCTAssertTrue(queue.dequeue(maximumFrameCount: 4).isEmpty)
+    }
+
     func testHeartbeatRefreshesHeldKeyboardAndDeduplicates() {
         var queue = activeQueue()
         let report = KeyboardReport(modifiers: 1, usages: [0x04])

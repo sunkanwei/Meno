@@ -266,6 +266,7 @@ struct MouseTransportQueue: Sendable {
         resetWheel()
         items.removeAll { $0.belongs(to: controlID) }
         let release = releaseFrames(controlID: controlID).map(Item.frame)
+        guard items.count + release.count <= maximumItems else { return fail() }
         items.insert(contentsOf: release, at: 0)
         return drainResult()
     }
