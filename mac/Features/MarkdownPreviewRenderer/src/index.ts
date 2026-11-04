@@ -45,12 +45,24 @@ function slugify(value: string): string {
 }
 
 function assignHeadingAnchors(container: HTMLElement): void {
-  const counts = new Map<string, number>();
-  container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6').forEach((heading) => {
+  const headings = container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6');
+  const headingElements = new Set<Element>(headings);
+  const usedIDs = new Set<string>();
+  document.querySelectorAll('[id]').forEach((element) => {
+    if (!headingElements.has(element)) usedIDs.add(element.id);
+  });
+  const nextSuffixes = new Map<string, number>();
+  headings.forEach((heading) => {
     const base = slugify(heading.textContent ?? '');
-    const occurrence = counts.get(base) ?? 0;
-    counts.set(base, occurrence + 1);
-    heading.id = occurrence === 0 ? base : `${base}-${occurrence}`;
+    let suffix = nextSuffixes.get(base) ?? 0;
+    let id = suffix === 0 ? base : `${base}-${suffix}`;
+    while (usedIDs.has(id)) {
+      suffix += 1;
+      id = `${base}-${suffix}`;
+    }
+    nextSuffixes.set(base, suffix + 1);
+    usedIDs.add(id);
+    heading.id = id;
   });
 }
 

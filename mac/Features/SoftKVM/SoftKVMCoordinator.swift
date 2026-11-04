@@ -90,6 +90,7 @@ final class SoftKVMCoordinator {
 
     var canForceShutdownWindows: Bool {
         stateMachine.enabled
+            && stateMachine.routeMayBeEnabled
             && !stateMachine.operationInProgress
             && crossScreenMouse.remoteShutdownAvailable
     }
@@ -178,9 +179,7 @@ final class SoftKVMCoordinator {
             delayedRefreshGeneration &+= 1
             delayedRefreshTask?.cancel()
             delayedRefreshTask = nil
-            operationTask?.cancel()
-            operationTask = nil
-            remoteShutdownInProgress = false
+            cancelOperation()
             updateState { $0.stop() }
             applyRouteEnabled(false)
 
@@ -188,8 +187,7 @@ final class SoftKVMCoordinator {
             delayedRefreshGeneration &+= 1
             delayedRefreshTask?.cancel()
             delayedRefreshTask = nil
-            operationTask?.cancel()
-            operationTask = nil
+            cancelOperation()
             updateState {
                 $0.suspend(
                     systemSleeping: systemSleeping,
@@ -259,14 +257,18 @@ final class SoftKVMCoordinator {
     private func enforceSafetyInvariants() {
         guard let violation = stateMachine.invariantViolation else { return }
         Self.logger.fault("Soft KVM invariant failed: \(violation, privacy: .public)")
-        operationTask?.cancel()
-        operationTask = nil
-        remoteShutdownInProgress = false
+        cancelOperation()
         updateState {
             $0.forceSafeRecovery(reason: "检测到不一致状态，已关闭穿屏路由并恢复到安全状态。")
         }
         _ = crossScreenMouse.setRouteEnabled(false)
         crossScreenMouse.prepareForSystemTransition()
+    }
+
+    private func cancelOperation() {
+        operationTask?.cancel()
+        operationTask = nil
+        remoteShutdownInProgress = false
     }
 
     private func observeSystemState() {

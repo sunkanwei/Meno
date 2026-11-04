@@ -102,14 +102,25 @@ launch_installed_app() {
 }
 
 rollback_on_failure() {
-    local status=$? failed_dir="$BACKUP_ROOT/failed-$STAMP" reloaded=1
+    local status=$? failed_dir="$BACKUP_ROOT/failed-$STAMP" reloaded=1 pids
     trap - EXIT INT TERM
     [ "$status" -ne 0 ] || return 0
+    if [ -n "$BACKUP_DIR" ] && [ ! -d "$BACKUP_DIR/Meno.app" ]; then
+        # The original bundle is still in place; the backup move did not finish.
+        [ -d "$INSTALL" ] || fail "Could not locate the original installation. Backup: $BACKUP_DIR"
+        rmdir "$BACKUP_DIR" || true
+        if [ -n "$ORIGINAL_PIDS" ]; then
+            pids="$(installed_pids)" || fail "Could not check whether the original Meno is running."
+            [ -n "$pids" ] || launch_installed_app || fail "Could not relaunch the original Meno."
+        fi
+        exit "$status"
+    fi
     echo "ERROR: Replacement failed; restoring the previous installation." >&2
     quit_installed_app || fail "Failed candidate is still running. Backup: ${BACKUP_DIR:-<none>}"
     if [ -e "$INSTALL" ]; then
         [ ! -e "$failed_dir/Meno.app" ] || fail "Failed candidate destination already exists. Backup: ${BACKUP_DIR:-<none>}"
-        mkdir -p "$failed_dir" && mv "$INSTALL" "$failed_dir/Meno.app" \
+        mkdir -p "$failed_dir" || fail "Could not create the failed install directory: $failed_dir"
+        mv "$INSTALL" "$failed_dir/Meno.app" \
             || fail "Could not move the failed install aside. Backup: ${BACKUP_DIR:-<none>}"
         echo "Failed candidate moved to $failed_dir/Meno.app"
     fi
@@ -118,8 +129,8 @@ rollback_on_failure() {
     fi
     "$SCRIPT_DIR/clean-ext.sh" --reload || reloaded=0
     if [ -n "$BACKUP_DIR" ]; then
-        verify_bundle "$INSTALL" "Restored app" && launch_installed_app \
-            || fail "Previous app restored but verification or relaunch failed."
+        verify_bundle "$INSTALL" "Restored app" || fail "Previous app restored but verification failed."
+        launch_installed_app || fail "Previous app restored but relaunch failed."
         rmdir "$BACKUP_DIR" || true
         echo "Restored and relaunched the previous version from $INSTALL"
     fi
@@ -127,20 +138,23 @@ rollback_on_failure() {
     exit "$status"
 }
 
-quit_installed_app || fail "The installed Meno did not quit; no replacement was made."
-
-# 4. Move the old version to a timestamped backup, then install the new one.
+# Prepare the backup before stopping the running application.
+ORIGINAL_PIDS="$(installed_pids)"
 BACKUP_DIR=""
 if [ -d "$INSTALL" ]; then
     BACKUP_DIR="$BACKUP_ROOT/Meno-$STAMP"
-    [ ! -e "$BACKUP_DIR/Meno.app" ] || fail "Backup already exists: $BACKUP_DIR/Meno.app"
-    mkdir -p "$BACKUP_DIR"
-    mv "$INSTALL" "$BACKUP_DIR/Meno.app"
-    echo "Previous version moved to $BACKUP_DIR/Meno.app"
+    mkdir -p "$BACKUP_ROOT"
+    mkdir "$BACKUP_DIR" || fail "Could not reserve backup directory: $BACKUP_DIR"
 fi
 trap rollback_on_failure EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+quit_installed_app || fail "The installed Meno did not quit; no replacement was made."
+if [ -n "$BACKUP_DIR" ]; then
+    mv "$INSTALL" "$BACKUP_DIR/Meno.app" || fail "Could not move the previous version to $BACKUP_DIR."
+    echo "Previous version moved to $BACKUP_DIR/Meno.app"
+fi
 ditto "$PRODUCT" "$INSTALL" || fail "Could not copy the candidate into $INSTALL."
 verify_bundle "$INSTALL" "Installed app" || fail "Installation verification failed."
 "$SCRIPT_DIR/clean-ext.sh" --reload

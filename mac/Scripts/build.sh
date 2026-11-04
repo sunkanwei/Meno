@@ -4,6 +4,7 @@
 # Usage:
 #   Scripts/build.sh           Debug build + all tests (unsigned, safe to run anytime)
 #   Scripts/build.sh test      Tests only
+#   Scripts/build.sh test MenoTests/TestClass  Run one Swift test class or method
 #   Scripts/build.sh release   Signed Release build, ready for Scripts/install.sh
 #
 # Debug builds run unsigned on purpose: an unsigned build never triggers a
@@ -45,18 +46,26 @@ finish_build() {
     exit "$status"
 }
 
-if [ $# -gt 1 ]; then
-    echo "Usage: $0 [debug|test|release]" >&2
+usage() {
+    echo "Usage: $0 [debug|test [MenoTests/TestClass[/testMethod] ...]|release]" >&2
     exit 2
-fi
+}
 
 MODE="${1:-debug}"
+SWIFT_TEST_SELECTION=()
+if [ "$#" -gt 1 ]; then
+    [ "$MODE" = test ] || usage
+    shift
+    for test_id in "$@"; do
+        case "$test_id" in
+            MenoTests/?*) SWIFT_TEST_SELECTION+=("-only-testing:$test_id") ;;
+            *) usage ;;
+        esac
+    done
+fi
 case "$MODE" in
     debug|test|release) ;;
-    *)
-        echo "Usage: $0 [debug|test|release]" >&2
-        exit 2
-        ;;
+    *) usage ;;
 esac
 
 build_renderer
@@ -70,7 +79,8 @@ case "$MODE" in
         ;;
     test)
         xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
-            -derivedDataPath "$BUILD_ROOT/DerivedData" CODE_SIGNING_ALLOWED=NO test
+            -derivedDataPath "$BUILD_ROOT/DerivedData" CODE_SIGNING_ALLOWED=NO \
+            ${SWIFT_TEST_SELECTION[@]+"${SWIFT_TEST_SELECTION[@]}"} test
         ;;
     release)
         xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \

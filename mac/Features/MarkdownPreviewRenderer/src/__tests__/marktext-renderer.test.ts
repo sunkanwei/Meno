@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import '../index';
 import { renderMarkTextMarkdown } from '../marktext-renderer';
 import { sanitizeRenderedHTML } from '../render-security';
 
@@ -30,6 +31,20 @@ describe('MarkText static rendering', () => {
     expect(html).toContain('id="fnref-1"');
     expect(html).toContain('id="fnref-1-2"');
     expect(html.match(/class="footnote-backref"/g)).toHaveLength(2);
+  });
+
+  test('keeps heading anchors unique and preserves footnote targets', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    document.body.innerHTML = '<main id="markdown-preview"></main>';
+    try {
+      await window.renderMarkdown('# Title\n\n# Title\n\n# Title-1\n\n# fn-1\n\n引用[^a]\n\n[^a]: 内容');
+      const headingIDs = Array.from(document.querySelectorAll('h1'), (heading) => heading.id);
+      expect(headingIDs).toEqual(['title', 'title-1', 'title-1-1', 'fn-1-1']);
+      expect(document.getElementById('fn-1')?.tagName).toBe('LI');
+    } finally {
+      document.body.replaceChildren();
+      vi.unstubAllGlobals();
+    }
   });
 
   test('renders super- and subscripts without consuming footnote markers', () => {
