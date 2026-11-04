@@ -110,17 +110,17 @@ fn worker_loop(worker: &CursorWorker) {
         }
         seen = *guard;
         drop(guard);
-        apply(DESIRED.load(Ordering::SeqCst));
+        apply_desired();
     }
 }
 
-fn apply(hidden: bool) {
+fn apply_desired() {
     // force_show shares this serializer so a late worker pass can never
     // resurrect transparent cursors after startup or shutdown repairs them.
     let _lock = APPLY_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if hidden {
+    if DESIRED.load(Ordering::SeqCst) {
         apply_hide();
     } else {
         apply_show();
