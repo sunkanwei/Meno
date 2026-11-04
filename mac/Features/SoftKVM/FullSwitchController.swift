@@ -159,11 +159,9 @@ actor FullSwitchController {
       try validate(operationID)
       transaction.phase = .philipsDisconnected
       try await stateStore.save(transaction: transaction)
-      let final = await displayController.snapshot()
-      guard final.topology == .windows else {
-        throw DisplayControlError.verification("软断开后未进入 Windows 两屏终态")
-      }
-      try await verifyWindowsInput()
+      let final = try await verifiedWindowsSnapshot(
+        topologyFailure: "软断开后未进入 Windows 两屏终态"
+      )
       try await restoreDesktopIconsIfNeeded(report: final)
       transaction.phase = .desktopIconsRestored
       try await stateStore.save(transaction: transaction)
@@ -282,13 +280,20 @@ actor FullSwitchController {
     case .unknown:
       throw DisplayControlError.verification("回滚时拓扑已经未知")
     }
-    let final = await displayController.snapshot()
-    guard final.topology == .windows else {
-      throw DisplayControlError.verification("回滚后没有恢复 Windows 两屏终态")
-    }
-    try await verifyWindowsInput()
+    let final = try await verifiedWindowsSnapshot(
+      topologyFailure: "回滚后没有恢复 Windows 两屏终态"
+    )
     try await restoreDesktopIconsIfNeeded(report: final)
     try await stateStore.clearDesktopIconLayoutState()
+  }
+
+  private func verifiedWindowsSnapshot(topologyFailure: String) async throws -> ProbeReport {
+    let report = await displayController.snapshot()
+    guard report.topology == .windows else {
+      throw DisplayControlError.verification(topologyFailure)
+    }
+    try await verifyWindowsInput()
+    return report
   }
 
   private func beginTransactionProtectingDesktopIcons(
