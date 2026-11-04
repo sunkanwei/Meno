@@ -392,6 +392,9 @@ fn run_connection(
 
     let mut state = ConnectionState::new(mouse_session.is_none());
     let exit = 'connected: loop {
+        if service_health(&mut clipboard_stream, &mut state.clipboard).is_err() {
+            break 'connected ConnectionExit::Reconnect;
+        }
         let wait = state
             .clipboard
             .deadline()
@@ -610,11 +613,7 @@ fn run_connection(
                     report_connection(hwnd, &address_text, &mut state);
                 }
             },
-            Err(RecvTimeoutError::Timeout) => {
-                if service_health(&mut clipboard_stream, &mut state.clipboard).is_err() {
-                    break 'connected ConnectionExit::Reconnect;
-                }
-            }
+            Err(RecvTimeoutError::Timeout) => {}
             Ok(_) => {}
         }
     };
