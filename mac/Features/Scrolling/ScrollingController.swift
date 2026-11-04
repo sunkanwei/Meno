@@ -47,10 +47,7 @@ final class ScrollingController {
             return
         }
 
-        eventTap?.stop()
-        eventTap = nil
-        resolver?.stop()
-        resolver = nil
+        stopEventTap()
 
         let resolver = HIDScrollEventResolver()
         guard resolver.isAvailable else {
@@ -92,7 +89,6 @@ final class ScrollingController {
         case .recovered:
             onStatusChanged(.running)
         case .needsRestart:
-            guard enabled else { return }
             stopRuntime()
             refresh()
         }
@@ -121,14 +117,18 @@ final class ScrollingController {
 
     private func stopRuntime() {
         eventTapGeneration &+= 1
-        eventTap?.stop()
-        eventTap = nil
-        resolver?.stop()
-        resolver = nil
+        stopEventTap()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
         }
+    }
+
+    private func stopEventTap() {
+        eventTap?.stop()
+        eventTap = nil
+        resolver?.stop()
+        resolver = nil
     }
 }
 
