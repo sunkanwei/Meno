@@ -274,9 +274,7 @@ final class PreviewViewController: NSViewController,
             in: .page
         ) { [weak self] result in
             guard let self, self.activeRenderVersion == version else { return }
-            self.activeRenderVersion = nil
-            self.renderTimeoutTask?.cancel()
-            self.renderTimeoutTask = nil
+            self.cancelPendingRender()
             switch result {
             case .success:
                 break
@@ -294,7 +292,11 @@ final class PreviewViewController: NSViewController,
             renderVersion: renderVersion
         )
         renderedPreviewVersion = nil
-        renderIfReady()
+        if rendererReady {
+            renderIfReady()
+        } else {
+            startRenderTimeout(renderVersion: renderVersion)
+        }
     }
 
     private func startMonitoringDocument(at url: URL) {
@@ -336,9 +338,14 @@ final class PreviewViewController: NSViewController,
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled,
                   let self,
-                  self.activeRenderVersion == renderVersion else { return }
-            self.logger.error("Markdown rendering exceeded the eight second deadline")
-            self.failCurrentRender(message: "预览渲染超时。")
+                  self.currentPreview?.renderVersion == renderVersion else { return }
+            if self.rendererReady {
+                self.logger.error("Markdown rendering exceeded the eight second deadline")
+                self.failCurrentRender(message: "预览渲染超时。")
+            } else {
+                self.logger.error("Markdown renderer did not become ready before the deadline")
+                self.failCurrentRender(message: "预览渲染器无法加载。")
+            }
         }
     }
 
@@ -493,9 +500,7 @@ final class PreviewViewController: NSViewController,
     }
 
     private func cleanupWebView() {
-        renderTimeoutTask?.cancel()
-        renderTimeoutTask = nil
-        activeRenderVersion = nil
+        cancelPendingRender()
         rendererReady = false
         guard let webView else {
             rendererHandler = nil
