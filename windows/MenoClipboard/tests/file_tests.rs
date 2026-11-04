@@ -1317,6 +1317,47 @@ fn publication_timeout_cancels_only_requests_that_have_not_started() {
     );
 }
 
+#[test]
+fn worker_discards_partial_files_even_if_disconnect_wakeup_is_lost() {
+    let ui = start_test_ui();
+    let tree = TempTree::new("closed-link-without-wakeup");
+    let cache_root = tree.path("FileClipboard");
+    let offer = sample_offer();
+    let cache = receive_cache_dir(&cache_root, &offer.transfer_id);
+    let (events, inbox) = mpsc::channel();
+    let (network, commands) = mpsc::sync_channel(16);
+    file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root);
+
+    let link = file_transfer::FileLink::new(1);
+    events
+        .send(file_transfer::WorkerEvent::Link(link.clone()))
+        .unwrap();
+    events
+        .send(file_transfer::WorkerEvent::Frame {
+            connection_id: 1,
+            frame: Frame::new(
+                MessageKind::FileOffer,
+                file_protocol::encode_offer(&offer).unwrap(),
+            ),
+        })
+        .unwrap();
+    assert_eq!(recv_frame(&commands).1, MessageKind::FileAccept);
+    assert!(cache.exists());
+
+    link.close();
+    events
+        .send(file_transfer::WorkerEvent::Frame {
+            connection_id: 1,
+            frame: Frame::new(
+                MessageKind::FileComplete,
+                file_protocol::encode_id_only(&offer.transfer_id),
+            ),
+        })
+        .unwrap();
+    wait_until_removed(&[&cache]);
+    assert_no_command(&commands);
+}
+
 fn wait_until_removed(paths: &[&Path]) {
     for _ in 0..100 {
         if paths.iter().all(|path| !path.exists()) {
@@ -1381,7 +1422,9 @@ fn worker_protects_referenced_legacy_cache_and_refuses_new_offer() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root);
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 5 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(5),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::Frame {
@@ -1440,7 +1483,9 @@ fn worker_publish_failure_removes_completed_cache_root() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root);
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 6 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(6),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::Frame {
@@ -1489,7 +1534,9 @@ fn worker_reports_semantic_offer_limit_without_dropping_the_link() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root);
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 8 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(8),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::Frame {
@@ -1540,7 +1587,9 @@ fn rejected_semantic_offer_does_not_cancel_an_active_receive() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root.clone());
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 12 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(12),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::Frame {
@@ -1628,7 +1677,9 @@ fn worker_send_gates_each_chunk_on_socket_and_ack() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, tree.path("cache"));
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 7 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(7),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::LocalFiles(vec![
@@ -1730,7 +1781,9 @@ fn worker_send_disconnects_on_mismatched_ack() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, tree.path("cache"));
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 3 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(3),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::LocalFiles(vec![
@@ -1797,7 +1850,9 @@ fn worker_receive_caches_files_and_reports_success() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root);
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 1 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(1),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::Frame {
@@ -1872,7 +1927,9 @@ fn worker_receive_disconnects_on_out_of_order_chunk() {
     let (network, commands) = mpsc::sync_channel(16);
     file_transfer::spawn_at(ui.hwnd, network, inbox, cache_root.clone());
     events
-        .send(file_transfer::WorkerEvent::Link { connection_id: 9 })
+        .send(file_transfer::WorkerEvent::Link(
+            file_transfer::FileLink::new(9),
+        ))
         .unwrap();
     events
         .send(file_transfer::WorkerEvent::Frame {

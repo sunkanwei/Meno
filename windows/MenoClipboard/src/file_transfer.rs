@@ -34,16 +34,35 @@ const ACK_TIMEOUT: Duration = Duration::from_secs(30);
 const UI_TIMEOUT: Duration = Duration::from_secs(15);
 const HOUSEKEEPING_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
+#[derive(Clone)]
+pub struct FileLink {
+    connection_id: u64,
+    closed: Arc<AtomicBool>,
+}
+
+impl FileLink {
+    pub(crate) fn new(connection_id: u64) -> Self {
+        Self {
+            connection_id,
+            closed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+}
+
 pub enum WorkerEvent {
     LocalFiles(Vec<PathBuf>),
     LocalOther,
     RemoteContent,
-    Link {
-        connection_id: u64,
-    },
-    Closed {
-        connection_id: u64,
-    },
+    Link(FileLink),
+    LinkClosed,
     Frame {
         connection_id: u64,
         frame: Frame,
@@ -146,7 +165,7 @@ struct ReceiveTask {
 struct Worker {
     hwnd: HWND,
     network: SyncSender<NetworkCommand>,
-    link: Option<u64>,
+    link: Option<FileLink>,
     send: Option<SendTask>,
     receive: Option<ReceiveTask>,
     cache: TransferCache,
@@ -177,8 +196,14 @@ impl Worker {
             {
                 Ok(event) => Some(event),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,
-                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    self.clear_link();
+                    return;
+                }
             };
+            if self.link.as_ref().is_some_and(FileLink::is_closed) {
+                self.clear_link();
+            }
             match event {
                 Some(event) => self.handle(event),
                 None => {
@@ -203,19 +228,14 @@ impl Worker {
                 self.cancel_receive(RESULT_SUPERSEDED);
             }
             WorkerEvent::RemoteContent => self.cancel_receive(RESULT_SUPERSEDED),
-            WorkerEvent::Link { connection_id } => {
-                self.link = Some(connection_id);
-                self.drop_send_silently();
-                self.drop_receive_silently();
-                self.housekeeping();
-            }
-            WorkerEvent::Closed { connection_id } => {
-                if self.link == Some(connection_id) {
-                    self.link = None;
-                    self.drop_send_silently();
-                    self.drop_receive_silently();
+            WorkerEvent::Link(link) => {
+                self.clear_link();
+                if !link.is_closed() {
+                    self.link = Some(link);
+                    self.housekeeping();
                 }
             }
+            WorkerEvent::LinkClosed => {}
             WorkerEvent::Written {
                 connection_id,
                 message_id,
@@ -225,11 +245,24 @@ impl Worker {
                 connection_id,
                 frame,
             } => {
-                if self.link == Some(connection_id) {
+                if self.link_id() == Some(connection_id) {
                     self.handle_frame(frame);
                 }
             }
         }
+    }
+
+    fn link_id(&self) -> Option<u64> {
+        self.link
+            .as_ref()
+            .filter(|link| !link.is_closed())
+            .map(|link| link.connection_id)
+    }
+
+    fn clear_link(&mut self) {
+        self.link = None;
+        self.drop_send_silently();
+        self.drop_receive_silently();
     }
 
     fn handle_frame(&mut self, frame: Frame) {
@@ -261,7 +294,7 @@ impl Worker {
     }
 
     fn post_frame(&mut self, kind: MessageKind, payload: Vec<u8>) -> Option<u64> {
-        let connection_id = self.link?;
+        let connection_id = self.link_id()?;
         let frame = Frame::new(kind, payload);
         let message_id = frame.message_id;
         self.network
@@ -277,11 +310,12 @@ impl Worker {
         crate::logging::error(&format!("file transfer protocol violation: {reason}"));
         self.drop_send_silently();
         self.drop_receive_silently();
-        if let Some(connection_id) = self.link.take() {
+        if let Some(connection_id) = self.link_id() {
             let _ = self
                 .network
                 .send(NetworkCommand::ProtocolViolation { connection_id });
         }
+        self.link = None;
         self.housekeeping();
     }
 
@@ -293,7 +327,7 @@ impl Worker {
         }
         self.cancel_send(CANCEL_SUPERSEDED);
         self.cancel_receive(RESULT_SUPERSEDED);
-        if self.link.is_none() {
+        if self.link_id().is_none() {
             return;
         }
         let manifest = match file_manifest::enumerate(&paths) {
@@ -345,7 +379,7 @@ impl Worker {
     }
 
     fn handle_written(&mut self, connection_id: u64, message_id: u64, ok: bool) {
-        if self.link != Some(connection_id) {
+        if self.link_id() != Some(connection_id) {
             return;
         }
         let Some(task) = self.send.as_mut() else {
@@ -576,7 +610,7 @@ impl Worker {
     fn cancel_send(&mut self, reason: u8) {
         let Some(task) = self.send.take() else { return };
         drop(task.file);
-        if self.link.is_some() {
+        if self.link_id().is_some() {
             let _ = self.post_frame(
                 MessageKind::FileCancel,
                 file_protocol::encode_cancel(&task.id, reason),

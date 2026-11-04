@@ -8,7 +8,7 @@ use windows::Win32::Foundation::HWND;
 
 use crate::channel_health::{ChannelHealth, HealthAction};
 use crate::discovery;
-use crate::file_transfer::WorkerEvent as FileWorkerEvent;
+use crate::file_transfer::{FileLink, WorkerEvent as FileWorkerEvent};
 use crate::mouse_session::{self, SessionEvent};
 use crate::protocol::{
     CAPABILITY_FILE_CLIPBOARD, CAPABILITY_PNG_CLIPBOARD, CAPABILITY_TEXT_CLIPBOARD,
@@ -391,6 +391,7 @@ fn run_connection(
     };
 
     let mut state = ConnectionState::new(mouse_session.is_none());
+    let file_link = FileLink::new(connection_id);
     let exit = 'connected: loop {
         if service_health(&mut clipboard_stream, &mut state.clipboard).is_err() {
             break 'connected ConnectionExit::Reconnect;
@@ -505,7 +506,7 @@ fn run_connection(
                                 .contains(CAPABILITY_FILE_CLIPBOARD)
                                 && !send_file_event(
                                     file_events,
-                                    FileWorkerEvent::Link { connection_id },
+                                    FileWorkerEvent::Link(file_link.clone()),
                                 )
                             {
                                 break 'connected ConnectionExit::Reconnect;
@@ -620,7 +621,10 @@ fn run_connection(
 
     // Unified teardown: both channels of one session close together, and the
     // mouse thread always finishes its release before a new session begins.
-    let _ = send_file_event(file_events, FileWorkerEvent::Closed { connection_id });
+    file_link.close();
+    // A full queue already guarantees a wake. The worker checks the link
+    // itself before dispatching any pending event.
+    let _ = send_file_event(file_events, FileWorkerEvent::LinkClosed);
     stop.request(matches!(exit, ConnectionExit::Pause));
     if let Some(mouse_wakeup) = mouse_wakeup {
         let _ = mouse_wakeup.shutdown(Shutdown::Read);
